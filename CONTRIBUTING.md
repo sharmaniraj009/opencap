@@ -3,19 +3,33 @@
 Thanks for helping build an open replacement for KEPServerEX. Bug reports, simulators,
 drivers and documentation are all welcome.
 
-Three rules come before everything else:
+opencap is built by several engineer sessions working in parallel and coordinated only
+through GitHub (issues, labels, PR reviews, files on `main`), with a technical lead who
+reviews and merges. Before your first PR, read this file, [`docs/architecture/`](docs/architecture/)
+and [`docs/adr/`](docs/adr/).
+
+These rules come before everything else:
 
 1. **opencap is read-only.** No code path writes to a PLC. `Driver.write()` raises and must
    never be implemented. Drivers refuse write services even if the library offers them.
-   Write support needs an accepted design first (see [ROADMAP.md](ROADMAP.md)).
+   Write support needs an accepted design first: RFC 0002 plus the owner's approval
+   ([ADR-0008](docs/adr/0008-read-only-by-default.md)).
 2. **No real site data, ever.** This is a public repository. Never commit or paste real
-   PLC IP addresses, site or customer names, KEPServerEX project exports, or credentials.
+   PLC IP addresses, site or customer names, KEPServerEX project exports, or credentials,
+   and never put secrets in issues, PR descriptions or comments.
    Use the documentation ranges `192.0.2.x`, `198.51.100.x` and `203.0.113.x`, and invented
    names (`Plant A/PLC1`). `tests/unit/test_no_private_data.py` enforces part of this.
    Real exports belong in the git-ignored `.private/` folder.
-3. **Every deviation is written down.** When the code differs from what a reader would
+3. **Nothing connects to real plant equipment** from CI or a cloud session. Protocols are
+   proven against simulators and conformance vectors
+   ([ADR-0014](docs/adr/0014-conformance-by-simulators-and-vectors.md)).
+4. **Licences follow [ADR-0007](docs/adr/0007-oss-licence-policy.md).** A PR that adds a
+   dependency names its licence and links its `LICENSE` file at the pinned version.
+5. **Every deviation is written down.** When the code differs from what a reader would
    expect (a library quirk, a KEPServerEX semantic, a trade-off), add an entry to
    [docs/decisions.md](docs/decisions.md): what was expected, what we did, and why.
+   Architecture decisions go into an ADR instead ([ADR-0001](docs/adr/0001-record-architecture-decisions.md)).
+6. **No force-push to `main`. Engineers never merge their own PRs.**
 
 ## Development setup
 
@@ -42,7 +56,99 @@ Test conventions:
 - **No sleeps as synchronization.** Wait for a condition with a timeout (see
   `Collector.wait_for` in `tests/helpers/broker.py`).
 
+Once `engine/` (the Rust engine) exists, also run in `engine/`:
+
+```bash
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
+
+
+## Engineering protocol
+
+### The board
+
+- The issue **"opencap program board"** ([#1](https://github.com/sharmaniraj009/opencap/issues/1))
+  and its mirror [`docs/BOARD.md`](docs/BOARD.md) show status, who works on what, the next
+  priorities, and decisions waiting for the owner.
+- Labels:
+  - status: `ready` (can start now), `in-progress` (claimed), `blocked` (waiting on a listed
+    dependency), `needs-review` (PR open, waiting for the lead)
+  - area: `driver`, `north`, `core`, `engine-rust`, `ui`, `desktop`, `scada`, `docs`, `infra`
+  - priority: `P1` (next), `P2` (soon), `P3` (later)
+- Every issue states its goal, acceptance criteria, test plan, the files it may touch,
+  what not to touch, and its dependencies. If one of these is missing, ask on the issue
+  before you start.
+
+### Picking work
+
+1. When your current PR is open and reviewed (or merged), pick the **highest-priority
+   `ready` issue in your area**: `P1` before `P2` before `P3`, then the lowest issue number.
+   If your area has none, take any `ready` issue.
+2. **Claim it:** comment `claimed by <session name>` on the issue, remove `ready`, add
+   `in-progress`. Hold one claim at a time, plus at most one PR in review.
+3. A `blocked` issue becomes `ready` once every dependency it lists has merged. If that is
+   clearly the case, you may flip it yourself; say so in your claim comment.
+4. If the issue turns out to be bigger than one PR, say so on the issue and propose a split.
+   The lead files the follow-ups.
+5. If you stop working on a claimed issue, comment why, remove `in-progress` and re-add `ready`.
+
+### Branches
+
+- Work on a branch, never on `main`. If your session is bound to a single working branch,
+  use it and keep **one open PR per branch**. After that PR merges, restart the branch from
+  the latest `main`. You may prepare your next issue locally while your PR is in review;
+  push it only after the previous PR has merged.
+- Rebase on `main` before you open the PR, and again whenever the lead asks. Resolve
+  conflicts yourself. In the shared files below, keep both sides.
+- Keep PRs small: one issue, ideally under ~800 changed lines excluding tests, fixtures and
+  generated files. Split otherwise.
+
+### Opening a PR
+
+- Title: `<area>: <what> (#<issue>)`. The body starts with `Closes #<issue>` and follows the
+  PR template: what changed, how it was tested, the licence of any new dependency, and
+  anything the reviewer must look at.
+- Add the `needs-review` label to the PR and to the issue.
+- CI must be green. Run the fast suite locally; also run `pytest -m acceptance` if you
+  touched the core, a driver, north or the config loader (CI runs acceptance nightly).
+- Tests must exercise behaviour, not just lines: a driver against its simulator, a planner
+  against vectors, a fault path by switching on the simulator's fault.
+- Contract changes go into `docs/architecture/` or an ADR in the same PR.
+
+### Review and merge
+
+- The lead reviews every open `needs-review` PR on each pass over the board. The review
+  checks correctness against the architecture and the issue, that the tests really exercise
+  behaviour, licence compliance and the privacy rules.
+- Review comments are concrete. Answer each one: fix it, or explain why not. Then push and
+  comment `ready for re-review`.
+- The lead squash-merges when CI is green and the review passes, in the order that causes
+  the fewest conflicts, with the message `<area>: <what> (#PR)`. Engineers never merge.
+- After a merge, the lead updates the board and flips the issues that waited on it to `ready`.
+
+### Decisions only the owner makes
+
+Licence, naming, write support for real plants, paid services, and shipping copyleft
+plugins. Raise them on the board issue under "Decisions for the owner", then carry on with
+everything else.
+
 ## How to add a driver
+
+**Which language.** Drivers already in flight in Python finish in Python. Once the Rust
+driver trait is on `main` (the `rust-engine` PR), new drivers are written **Rust-first** in
+`engine/drivers/<name>`, and existing Python drivers are ported with their simulator suites
+as the acceptance test ([ADR-0002](docs/adr/0002-rust-engine-python-reference.md),
+[ADR-0004](docs/adr/0004-driver-contract-and-plugin-model.md)). The simulator stays in the
+Python test harness either way. The contract below is the same in both languages
+([`docs/architecture/03-deep-dive.md`](docs/architecture/03-deep-dive.md) §3.3).
+
+A new driver is accepted when it has:
+- a simulator that an independent client library talks to unmodified;
+- conformance vectors for `plan()` and decoding in `tests/conformance/<driver>/`;
+- read-only guards, with a test that write services are refused or can never be built;
+- a `docs/driver_params.md` section;
+- the KEPServerEX import mapping, where KEPServerEX has the driver.
+
 
 A driver turns tag addresses into wire requests and replies into values. Everything else
 (scheduling, retries, backoff, demotion, scaling, quality, publishing) belongs to the core
@@ -138,12 +244,22 @@ Add the driver to the support matrix in the [README](README.md), update its row 
 anything you could not verify without real hardware. Mark the latter clearly ("check on a
 real PLC").
 
-## Shared files
+## Shared files (hotspots)
 
-Several pull requests often run in parallel. Keep edits to shared files
-(`models.py`, `kep_import.py`, `runtime.py`, `pyproject.toml`, `docs/decisions.md`)
-minimal and additive. Append new decisions at the end of `docs/decisions.md`; if two pull
-requests take the same `D-0xx` number, the one merged second renumbers.
+Several PRs run in parallel. Keep edits to these files minimal and additive (append, don't
+reorder), expect trivial conflicts, and keep every entry when you resolve them:
+
+| File | Typical change |
+|---|---|
+| `src/opencap/drivers/__init__.py` | one line in `DRIVERS` |
+| `src/opencap/config/models.py` | the `DriverName` literal, new optional fields |
+| `src/opencap/config/kep_import.py` | one driver mapping |
+| `src/opencap/__main__.py` | one new subcommand function |
+| `src/opencap/core/runtime.py` | wiring for one new component |
+| `pyproject.toml` | one extra or dependency |
+| `docs/decisions.md` | new `D-NNN` entries at the end; if two PRs take the same number, the one merged second renumbers |
+| `docs/driver_params.md` | one section per driver |
+| `engine/Cargo.toml` | one workspace member |
 
 ## Reporting bugs
 

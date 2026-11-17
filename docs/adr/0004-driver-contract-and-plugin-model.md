@@ -1,6 +1,6 @@
 # 0004. Driver contract; compiled-in Rust drivers plus out-of-process gRPC plugins
 
-- Status: Accepted
+- Status: Accepted (amended 2026-11-17 after RFC 0001, see the end)
 - Date: 2026-11-17
 - Deciders: technical lead
 
@@ -44,3 +44,14 @@ be able to use the existing Python drivers.
 
 ## Revisit when
 WASM component networking matures, or third-party driver demand appears (05 "revisit").
+
+## Amendment (2026-11-17, after RFC 0001 / #64)
+- The trait as built (`opencap-core::driver`) is the contract; `docs/architecture/03-deep-dive.md`
+  §3.3 shows it. Differences from the first sketch are deliberate and accepted: `name()` and
+  `reports_connection()` mirror Python, `read()` takes `&dyn Block` and returns a map of
+  `TagValue` with per-tag qualities, `identity()` returns `{}` instead of failing, errors add
+  `NotImplemented`/`Other`. `browse()` arrives with #43.
+- Crate layout: `engine/crates/opencap-{core,drivers,north,api,engine}`; each driver gets its own
+  crate `engine/drivers/<name>` behind a Cargo feature (#67).
+- Push drivers: the Python OPC UA client (#61) samples a notification buffer per rate period;
+  the Rust `subscribe()` path comes with #46.

@@ -53,7 +53,7 @@ harness. Both engines read the same config and serve the same API.
 
 | Item | Status | Acceptance criterion |
 |---|---|---|
-| Rust engine core (`engine/`) | 🚧 | Reads the shared config schema; Modbus TCP, MQTT with outbox and the admin API pass the Python Phase 1 acceptance suite against the Rust binary; conformance vectors pass in both engines. |
+| Rust engine core (`engine/`) | ✅ (#64; conformance vectors #39/#40 to come) | Reads the shared config schema; Modbus TCP, MQTT with outbox and the admin API pass the Python Phase 1 acceptance suite against the Rust binary; conformance vectors pass in both engines. |
 | Rust ports of every Python driver | 📋 | Each port passes its Python simulator suite and conformance vectors with `OPENCAP_ENGINE=rust`. Until a driver is ported, the Python driver runs under the Rust engine through the plugin host. |
 | Rust engine as default (cut-over) | 📋 | All acceptance suites pass on Rust, and a 7-day shadow run shows payloads identical to Python's apart from timestamps. Python stays installable for one more release. |
 | Desktop apps (Linux, Windows) | 📋 | A Tauri app that shows the web UI, manages connections to local and remote nodes, and bundles the engine as a sidecar; MSI, deb and AppImage built in CI. |

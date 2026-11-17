@@ -7,7 +7,7 @@ Status, assignments and next priorities for opencap. Maintained by the technical
 ## Status summary
 
 - `main` holds the Python reference (Modbus TCP, AB Logix/Micro800, AB PCCC, MQTT + store-and-forward, admin API, KEPServerEX import) plus [#4](https://github.com/sharmaniraj009/opencap/issues/4) (Apache-2.0 licence, CI on 3.12/3.13, container/systemd/Windows packaging, `mqtt.topic_prefix`), merged after review.
-- Architecture of record: `docs/architecture/` (requirements, high-level design, deep dive, scale and reliability, trade-offs, roadmap and migration, SCADA matrix, OSS/licence table) and ADRs 0001–0014 in `docs/adr/`. Landing with the architecture PR (see "Open PRs").
+- Architecture of record: `docs/architecture/` (requirements, high-level design, deep dive, scale and reliability, trade-offs, roadmap and migration, SCADA matrix, OSS/licence table) and ADRs 0001–0014 in `docs/adr/`. Landing with [#59](https://github.com/sharmaniraj009/opencap/issues/59).
 - Milestone **M1** (Python parity for the reference project) in progress; **M2** (Rust engine core) starts with the `rust-engine` PR. Milestones: `docs/architecture/06-roadmap-and-migration.md`.
 - First wave filed: 56 issues ([#2](https://github.com/sharmaniraj009/opencap/issues/2)–[#58](https://github.com/sharmaniraj009/opencap/issues/58)); 29 `ready`, 27 `blocked` on in-flight PRs or on each other.
 
@@ -30,7 +30,7 @@ The protocol decides, not this table: take the highest-priority `ready` issue in
 
 | PR | Area | State |
 |---|---|---|
-| architecture PR (this pass) | docs | lead's PR: architecture, ADRs, merged CONTRIBUTING.md, ROADMAP.md reconciled, board mirror |
+| [#59](https://github.com/sharmaniraj009/opencap/issues/59) | docs | lead's PR: architecture, ADRs, merged CONTRIBUTING.md, ROADMAP.md reconciled, board mirror; merging when CI is green |
 
 ## Ready queue by area (priority order)
 

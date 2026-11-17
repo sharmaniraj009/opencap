@@ -120,7 +120,7 @@ async def settle(link: FakeLink, topic: str, n: int, timeout: float = 2.0) -> No
 
 async def test_interval_publishes_full_snapshot_every_interval():
     dev = make_device(interval_ms=100)
-    custom = make_device("PLC 2", interval_ms=100, topic="olectrhub/custom/plc2")
+    custom = make_device("PLC 2", interval_ms=100, topic="acme/custom/plc2")
     cache, link = FakeCache(), FakeLink()
     cache.set(dev.id, vals())
     cache.set(custom.id, vals(flow=5.0))
@@ -144,7 +144,7 @@ async def test_interval_publishes_full_snapshot_every_interval():
     gaps = sorted(b.t - a.t for a, b in zip(msgs, msgs[1:]))
     assert abs(gaps[len(gaps) // 2] - 0.1) < 0.008, gaps
     assert msgs[0].t - link.sent[0].t >= 0.08       # status at start, first data one interval later
-    assert 4 <= len(link.on("olectrhub/custom/plc2")) <= 6
+    assert 4 <= len(link.on("acme/custom/plc2")) <= 6
 
 
 async def test_interval_follows_the_cache():

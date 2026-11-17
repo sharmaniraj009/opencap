@@ -3,15 +3,15 @@
 Open-source, **read-only** PLC polling server that replaces KEPServer. It polls PLCs over the
 site network (VPN) and publishes one SubDevice JSON message per device per scan to MQTT.
 
-Status: **Phase 3** — core polling engine; Modbus TCP, Allen-Bradley Logix/Micro800 and
-Allen-Bradley PCCC (SLC/MicroLogix) drivers; MQTT with store-and-forward; admin API and
-metrics. S7, Mitsubishi and OPC UA arrive in Phase 4. Devices whose driver is not ready are
-skipped and reported, never polled.
+Status: **Phase 3** — core polling engine; Modbus TCP, Allen-Bradley Logix/Micro800,
+Allen-Bradley PCCC (SLC/MicroLogix), Siemens S7 and Mitsubishi MC 3E drivers; MQTT with
+store-and-forward; admin API and metrics. OPC UA arrives in Phase 4. Devices whose driver is not
+ready are skipped and reported, never polled.
 
 ## Install
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e '.[dev,modbus,ab,north]'
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev,modbus,ab,s7,melsec,north]'
 ```
 
 ## Commands
@@ -65,6 +65,18 @@ confirmed), `overrides.yaml` (hand fixes). Secrets come from environment variabl
 2. `opencap read "Site 004/7 PUMP"` — compare with KEPServer's Quick Client.
 3. Known: `F54:17` on Site 092/10 PUMP clashes with `N54` and shows `bad_config`; the
    4 `RTC:0.HR/.MIN` tags are not readable through pycomm3.
+
+## Commissioning one real S7 or Mitsubishi site (needs site access)
+
+1. `opencap identity "SITE S7/PLC"` — CPU module and order code (SZL), firmware, run/stop, and
+   the PDU the CPU negotiated (`pdu_negotiated`). If it is below `pdu_requested`, set
+   `params.max_pdu` to it in `overrides.yaml` so blocks are planned to fit (D-031). A connect
+   that fails during the ISO handshake may mean the link type: try `params.link_type: 1` (PG),
+   D-030.
+2. `opencap identity "SITE MELSEC/STP"` — CPU model from "read CPU model". It confirms that the
+   importer's `plc_type: Q` guess talks to this PLC (D-034); check `protocol` (TCP/UDP) too.
+3. `opencap read ...` — compare with KEPServer's Quick Client, especially S7 timers/counters
+   (ms / BCD) and MELSEC 32-bit values (`first_word_low`).
 
 ## Tests
 

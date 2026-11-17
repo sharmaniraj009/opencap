@@ -1,0 +1,59 @@
+<!--
+  opencap as a Windows service with WinSW v2 (https://github.com/winsw/winsw).
+  Setup, secrets and logs: docs/deployment.md, section "Windows service".
+
+  Rename WinSW's x64 executable to opencap-service.exe and put it next to this file
+  (WinSW finds its XML by the executable's base name), then from an elevated prompt:
+    opencap-service.exe install
+    opencap-service.exe start
+
+  Layout assumed below:
+    C:\opencap\venv\                    Python virtualenv with opencap installed
+    C:\ProgramData\opencap\config\      poller.yaml, devices.json, devices_map.yaml, overrides.yaml
+    C:\ProgramData\opencap\data\        store-and-forward outbox (saf.sqlite)
+    C:\ProgramData\opencap\logs\        service logs (JSON lines, rolled by size)
+-->
+<service>
+  <id>opencap</id>
+  <name>opencap</name>
+  <description>opencap read-only PLC connectivity server: polls PLCs and publishes to MQTT.</description>
+
+  <!-- python.exe -m opencap, not the opencap.exe launcher: one process, so Ctrl+C reaches it. -->
+  <executable>C:\opencap\venv\Scripts\python.exe</executable>
+  <arguments>-m opencap run --config "C:\ProgramData\opencap\config"</arguments>
+  <!-- Relative paths in poller.yaml (saf.path: data/saf.sqlite) resolve from here. -->
+  <workingdirectory>C:\ProgramData\opencap</workingdirectory>
+
+  <startmode>Automatic</startmode>
+  <delayedAutoStart/>
+
+  <!-- Restart on every crash: 10 s, then 30 s for each further failure. -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <!-- WinSW sends Ctrl+C, then kills the process after this long. opencap publishes
+       "offline" and closes its connections within a few seconds. -->
+  <stoptimeout>30 sec</stoptimeout>
+
+  <logpath>C:\ProgramData\opencap\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>  <!-- KB per file -->
+    <keepFiles>8</keepFiles>
+  </log>
+
+  <env name="PYTHONUNBUFFERED" value="1"/>
+  <!-- Secrets: restrict this file's ACL to Administrators and SYSTEM before adding them
+       (see docs/deployment.md). Never commit a filled-in copy.
+  <env name="OPENCAP_MQTT_PASSWORD" value="..."/>
+  <env name="OPENCAP_API_TOKEN" value="..."/>
+  -->
+
+  <!-- Default account is LocalSystem. A less privileged built-in account also works if it
+       can write C:\ProgramData\opencap\data and \logs:
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>LocalService</user>
+  </serviceaccount>
+  -->
+</service>

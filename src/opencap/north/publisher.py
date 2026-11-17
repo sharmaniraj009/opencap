@@ -2,7 +2,7 @@
 
 One asyncio task per device plus one status task, all inside ``run()``.
 
-Data messages (topic ``device.publish.topic`` or ``default_topic(device)``, not retained):
+Data messages (topic ``device.publish.topic`` or ``default_topic(device, topic_prefix)``, not retained):
 
 - ``interval`` mode: the full snapshot every ``publish.interval_ms``. The first message goes
   out one interval after ``run()`` starts (the first poll cycle has had time to finish).
@@ -20,7 +20,7 @@ Data messages (topic ``device.publish.topic`` or ``default_topic(device)``, not 
   It still gets status messages. Once it has had one good read, it publishes on schedule
   even if all its tags go bad (``Data`` may then be ``{}``, ``DataValid`` false).
 
-Status messages (``status_topic(device)``, retained): ``{"state","last_good","errors"}``
+Status messages (``status_topic(device, topic_prefix)``, retained): ``{"state","last_good","errors"}``
 from ``status_fn(device_id)``, published at start, whenever ``state`` changes (checked
 every ``status_check_s``) and refreshed every ``status_refresh_s``.
 
@@ -37,7 +37,7 @@ from typing import Any, Protocol
 import structlog
 
 from opencap.config.loader import default_topic
-from opencap.config.models import Device, PayloadCfg
+from opencap.config.models import DEFAULT_TOPIC_PREFIX, Device, PayloadCfg
 from opencap.core.cache import TagValue
 from opencap.north.payload import build_payload, build_status, clean_value, encode, is_bad, status_topic
 
@@ -105,6 +105,7 @@ class Publisher:
         status_check_s: float = 1.0,
         status_refresh_s: float = 60.0,
         on_change_poll_s: float = 1.0,
+        topic_prefix: str = DEFAULT_TOPIC_PREFIX,   # poller.yaml mqtt.topic_prefix
     ) -> None:
         self.devices = [d for d in devices if d.enabled]
         self._cache = cache
@@ -114,8 +115,8 @@ class Publisher:
         self._status_check_s = status_check_s
         self._status_refresh_s = status_refresh_s
         self._poll_s = on_change_poll_s
-        self._data_topic = {d.id: d.publish.topic or default_topic(d) for d in self.devices}
-        self._status_topic = {d.id: status_topic(d) for d in self.devices}
+        self._data_topic = {d.id: d.publish.topic or default_topic(d, topic_prefix) for d in self.devices}
+        self._status_topic = {d.id: status_topic(d, topic_prefix) for d in self.devices}
         self._wake: dict[str, asyncio.Event] = {d.id: asyncio.Event() for d in self.devices}
         self.data_published: dict[str, int] = {d.id: 0 for d in self.devices}   # for /health and tests
 

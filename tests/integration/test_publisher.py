@@ -124,6 +124,7 @@ async def test_interval_publishes_full_snapshot_every_interval():
     cache, link = FakeCache(), FakeLink()
     cache.set(dev.id, vals())
     cache.set(custom.id, vals(flow=5.0))
+    t_start = time.monotonic()                      # == loop.time(): no later than the publisher's start
     async with running(Publisher([dev, custom], cache, link, CFG, Status())):
         await asyncio.sleep(0.56)
     msgs = link.on(topic_of(dev))
@@ -131,8 +132,11 @@ async def test_interval_publishes_full_snapshot_every_interval():
     assert 4 <= len(msgs) <= 6
     assert all(m.payload == encode(build_payload(dev, vals(), CFG, is_secure=False)) for m in msgs)
     assert not any(m.retain for m in msgs)
-    gaps = [b.t - a.t for a, b in zip(msgs, msgs[1:])]
-    assert all(0.07 < g < 0.15 for g in gaps), gaps
+    # Fixed rate: message k goes out on its own slot t_start + (k+1) * interval, never early
+    # and at most 50 ms late. (Checking gaps between messages instead would count one late
+    # wake-up twice: a long gap, then a short one back onto the grid.)
+    lateness = [m.t - (t_start + (k + 1) * 0.1) for k, m in enumerate(msgs)]
+    assert all(-0.005 < late < 0.05 for late in lateness), lateness
     assert msgs[0].t - link.sent[0].t >= 0.08       # status at start, first data one interval later
     assert 4 <= len(link.on("olectrhub/custom/plc2")) <= 6
 

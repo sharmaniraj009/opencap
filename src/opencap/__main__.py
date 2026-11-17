@@ -53,7 +53,7 @@ def _find_device(config_dir: Path, device_id: str):
 
 @app.command("read")
 def read_cmd(
-    device_id: str = typer.Argument(..., help="'<channel>/<device>', e.g. 'Site 008/Device1'"),
+    device_id: str = typer.Argument(..., help="'<channel>/<device>', e.g. 'Plant A/PLC1'"),
     tag: str | None = typer.Option(None, "--tag", help="Only print this tag"),
     config_dir: Path = CONFIG_OPT,
 ) -> None:
@@ -131,7 +131,7 @@ def run_cmd(
     import asyncio
 
     from opencap.config.loader import load_config
-    from opencap.core.runtime import Poller
+    from opencap.core.runtime import Poller, event_loop_factory
     from opencap.logsetup import configure_logging
 
     loaded = load_config(config_dir)
@@ -141,7 +141,13 @@ def run_cmd(
         typer.echo(f"unknown site(s): {', '.join(unknown)}", err=True)
         raise typer.Exit(1)
     configure_logging(loaded.poller.log_level)
-    asyncio.run(Poller(config_dir, loaded=loaded, only_channels=site or None).run_forever())
+    try:
+        asyncio.run(Poller(config_dir, loaded=loaded, only_channels=site or None).run_forever(),
+                    loop_factory=event_loop_factory())
+    except KeyboardInterrupt:
+        # Ctrl+C where the loop has no signal handlers (Windows, e.g. a WinSW service stop):
+        # asyncio cancelled run_forever(), which has already stopped the poller cleanly.
+        pass
 
 
 def main() -> None:

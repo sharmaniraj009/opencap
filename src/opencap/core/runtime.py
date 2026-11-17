@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import sys
 from collections.abc import Callable
 from concurrent.futures import Executor
 from pathlib import Path
@@ -28,6 +29,14 @@ from opencap.north.saf import StoreAndForward
 log = structlog.get_logger("opencap.runtime")
 
 DriverFactory = Callable[[Device, Executor], Driver]
+
+
+def event_loop_factory() -> Callable[[], asyncio.AbstractEventLoop] | None:
+    """Loop for `opencap run`: aiomqtt (paho) needs `add_reader`, which the default Windows
+    ProactorEventLoop lacks, so Windows gets a SelectorEventLoop. None = asyncio's default."""
+    if sys.platform == "win32":
+        return asyncio.SelectorEventLoop
+    return None
 
 
 def tag_value_json(tv: TagValue) -> dict[str, Any]:
@@ -85,10 +94,17 @@ class Poller:
         log.info("poller_started", version=FIRM_VERSION, channels=len(self.workers),
                  devices=sum(len(c.devices) for c in self._active_channels()))
 
+    def _signal_handlers(self) -> list[tuple[int, Callable[[], Any]]]:
+        handlers: list[tuple[int, Callable[[], Any]]] = [
+            (signal.SIGTERM, self.request_stop), (signal.SIGINT, self.request_stop)]
+        sighup = getattr(signal, "SIGHUP", None)        # absent on Windows: use POST /reload there
+        if sighup is not None:
+            handlers.append((sighup, lambda: asyncio.create_task(self.reload())))
+        return handlers
+
     async def run_forever(self) -> None:
         loop = asyncio.get_running_loop()
-        for sig, handler in ((signal.SIGTERM, self.request_stop), (signal.SIGINT, self.request_stop),
-                             (signal.SIGHUP, lambda: asyncio.create_task(self.reload()))):
+        for sig, handler in self._signal_handlers():
             try:
                 loop.add_signal_handler(sig, handler)
             except (NotImplementedError, RuntimeError):  # non-Unix or not the main thread
@@ -178,7 +194,8 @@ class Poller:
     def _restart_publisher(self) -> None:
         devices = [d for c in self._active_channels() for d in c.devices if d.enabled]
         self.publisher = Publisher(devices, self.cache, self.link, self.loaded.poller.payload,
-                                   status_fn=self.device_health_status)
+                                   status_fn=self.device_health_status,
+                                   topic_prefix=self.loaded.poller.mqtt.topic_prefix)
         self._pub_task = asyncio.create_task(self.publisher.run(), name="publisher")
 
     async def _stop_publisher(self) -> None:
@@ -196,6 +213,10 @@ class Poller:
             except Exception as exc:  # keep running on the old config
                 log.error("reload_failed", error=str(exc))
                 raise
+            if loaded.poller.mqtt != self.loaded.poller.mqtt:
+                # The link (connection, LWT topic) is built once at start; data and status
+                # topics follow the new mqtt.topic_prefix now, everything else at restart.
+                log.warning("mqtt_settings_changed", detail="restart opencap to apply mqtt connection/LWT settings")
             self.loaded = loaded
             changed = self._apply_channels(loaded.channels)
             await self._stop_publisher()

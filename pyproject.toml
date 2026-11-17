@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]   # PEP 639 license expression + license-files
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,7 @@ name = "opencap"
 version = "0.1.0"
 description = "Open-source industrial connectivity server: polls PLCs (Modbus, Allen-Bradley, ...) and publishes to MQTT"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "opencap contributors" }]
 readme = "README.md"
 requires-python = ">=3.12"

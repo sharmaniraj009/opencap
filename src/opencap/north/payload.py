@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from opencap import FIRM_VERSION
 from opencap.config.loader import slug
-from opencap.config.models import Device, PayloadCfg
+from opencap.config.models import DEFAULT_TOPIC_PREFIX, Device, PayloadCfg
 from opencap.core.cache import TagValue
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -157,8 +157,9 @@ def encode(payload: Mapping[str, Any]) -> bytes:
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
-def status_topic(device: Device) -> str:
-    return f"opencap/{slug(device.channel)}/{slug(device.name)}/status"
+def status_topic(device: Device, prefix: str = DEFAULT_TOPIC_PREFIX) -> str:
+    """`<prefix>/<slug(channel)>/<slug(device)>/status`; `prefix` is poller.yaml `mqtt.topic_prefix`."""
+    return f"{prefix}/{slug(device.channel)}/{slug(device.name)}/status"
 
 
 def build_status(status: Mapping[str, Any]) -> dict:

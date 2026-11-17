@@ -4,7 +4,7 @@
 drainer: it never waits on the network. ``run()`` is the connect loop:
 
 1. connect (backoff 1 s, 2 s, 4 s ... 30 s between failed attempts; reset after a
-   successful connect), with the LWT ``opencap/poller/<instance>/status`` = ``offline``
+   successful connect), with the LWT ``<topic_prefix>/poller/<instance>/status`` = ``offline``
    (retained, QoS 1);
 2. publish ``online`` (retained, QoS 1) directly, not through the outbox;
 3. drain the outbox strictly in id order: a window of up to ``window`` messages is sent
@@ -41,7 +41,7 @@ import aiomqtt
 import structlog
 
 from opencap.config.loader import slug
-from opencap.config.models import MqttCfg
+from opencap.config.models import DEFAULT_TOPIC_PREFIX, MqttCfg
 from opencap.metrics import MQTT_PUBLISHED
 from opencap.north.saf import OutMsg, StoreAndForward
 
@@ -51,8 +51,9 @@ ONLINE = b"online"
 OFFLINE = b"offline"
 
 
-def lwt_topic(instance: str) -> str:
-    return f"opencap/poller/{slug(instance)}/status"
+def lwt_topic(instance: str, prefix: str = DEFAULT_TOPIC_PREFIX) -> str:
+    """`<prefix>/poller/<slug(instance)>/status`; `prefix` is poller.yaml `mqtt.topic_prefix`."""
+    return f"{prefix}/poller/{slug(instance)}/status"
 
 
 def check_topic(topic: str) -> None:
@@ -90,7 +91,7 @@ class MqttLink:
         self._window = max(1, int(window))
         self._ack_timeout = ack_timeout_s
         self._connect_timeout = connect_timeout_s
-        self.lwt_topic = lwt_topic(instance)
+        self.lwt_topic = lwt_topic(instance, cfg.topic_prefix)
         self.client_id = cfg.client_id or instance
         self._wake = asyncio.Event()
         self._client: aiomqtt.Client | None = None

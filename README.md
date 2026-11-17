@@ -122,6 +122,11 @@ With Docker: `docker build -t opencap .`, then see [docs/deployment.md](docs/dep
 Design decisions and every deviation from the original build plan are in
 [docs/decisions.md](docs/decisions.md).
 
+The production engine is moving to Rust ([ADR-0002](docs/adr/0002-rust-engine-python-reference.md)):
+[`engine/`](engine/README.md) reads the same config, serves the same API and publishes the same
+payload bytes; design in [RFC 0001](docs/rfc/0001-rust-engine.md). This Python code stays the
+reference implementation.
+
 ## Driver support
 
 | `driver` | Protocol | Devices | KEPServerEX driver it replaces | Extra | Status |
@@ -425,6 +430,7 @@ pip install -e '.[dev,modbus,ab,north]'
 pytest -m "not acceptance"                  # fast suite, ~30 s; runs in CI on every push and PR
 pytest -m acceptance                        # simulated devices + broker outage; nightly in CI
 OPENCAP_OUTAGE_S=600 pytest -m acceptance   # the full 10-minute broker outage
+OPENCAP_ENGINE=rust pytest -m acceptance tests/integration/test_phase1_acceptance.py   # same suite, Rust engine
 ```
 
 - Protocol tests run against simulators in `tests/helpers/` (Modbus, CIP/EtherNet-IP and

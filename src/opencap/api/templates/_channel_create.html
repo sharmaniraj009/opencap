@@ -1,0 +1,6 @@
+{% from "_macros.html" import err, general_errors %}
+<form id="channel-create" class="inline-form" hx-post="/ui/config/channel-create" hx-target="this" hx-swap="outerHTML">
+  {{ general_errors(general) }}
+  <label>New channel <input name="name" value="{{ new_channel }}" placeholder="Site 001" required>{{ err(errors, 'name') }}</label>
+  <button type="submit">Add channel</button>
+</form>

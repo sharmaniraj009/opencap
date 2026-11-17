@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>Audit log</h1>
+  <form method="get" action="/ui/audit" class="inline-form">
+    <label>Action <input name="action" value="{{ action }}" placeholder="device"></label>
+    <label>Who <input name="who" value="{{ who }}"></label>
+    <label>Target <input name="target" value="{{ target }}"></label>
+    <button type="submit">Filter</button>
+  </form>
+</div>
+{% if not enabled %}<p class="muted">The audit log is off (no <code>api.audit_log</code> path).</p>{% endif %}
+<div class="table-wrap">
+<table class="responsive audit">
+  <thead><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Target</th><th>What</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+    <tr>
+      <td data-label="When" class="nowrap" title="{{ e.ts }}">{{ e.ts[:19]|replace('T', ' ') }}</td>
+      <td data-label="Who">{{ e.who }} <span class="muted small">{{ e.role }} · {{ e.via }}</span></td>
+      <td data-label="Action"><code>{{ e.action }}</code></td>
+      <td data-label="Target" class="wrap">{{ e.target }}</td>
+      <td data-label="What" class="wrap">
+        {% if e.files is defined %}<span class="muted small">{{ e.files|join(", ") }}</span>{% endif %}
+        {% if e.changes is defined and e.changes %}
+        <details><summary>{{ e.changes|length }} change(s){% if e.truncated is defined %} (+{{ e.truncated }} more){% endif %}</summary>
+          <ul class="changes">{% for c in e.changes %}<li><code>{{ c.path or '(whole object)' }}</code>: {{ c.old|short }} → {{ c.new|short }}</li>{% endfor %}</ul>
+        </details>
+        {% endif %}
+        {% if e.detail is defined %}<div class="small">{{ e.detail|flow|short(300) }}</div>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">no entries</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="pager">
+  {% if page > 0 %}<a href="/ui/audit?page={{ page - 1 }}&amp;action={{ action|q }}&amp;who={{ who|q }}&amp;target={{ target|q }}">← newer</a>{% endif %}
+  {% if more %}<a href="/ui/audit?page={{ page + 1 }}&amp;action={{ action|q }}&amp;who={{ who|q }}&amp;target={{ target|q }}">older →</a>{% endif %}
+</p>
+{% endblock %}

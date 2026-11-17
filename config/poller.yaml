@@ -19,10 +19,14 @@ saf:                             # store-and-forward when the broker is down (PL
   path: data/saf.sqlite
   max_bytes: 2147483648          # 2 GiB, oldest messages dropped first
 
-api:                             # admin REST API (PLAN 9): bind to localhost or the VPN only
+api:                             # admin REST API, config API and web UI (/ui): localhost or VPN only
   bind: 127.0.0.1
   port: 8080
-  token_env: OPENCAP_API_TOKEN    # env var holding the bearer token
+  token_env: OPENCAP_API_TOKEN    # env var holding the legacy bearer token (name "default", role admin)
+  tokens: []                     # named tokens; the secret is in the env var, never here:
+  #  - {name: alice, role: admin, token_env: OPENCAP_TOKEN_ALICE}      # admin: may change the config
+  #  - {name: grafana, role: viewer, token_env: OPENCAP_TOKEN_GRAFANA} # viewer: read-only (GET)
+  audit_log: data/audit.jsonl    # who changed what in the config, JSON lines
 
 payload:                         # SubDevice JSON (PLAN 7.1)
   float_decimals: 4              # round floats to remove float32 noise

@@ -209,10 +209,30 @@ class SafCfg(_Model):
     max_bytes: int = 2 * 1024**3
 
 
+class ApiToken(_Model):
+    """A named API / UI token. The secret itself lives in the env var `token_env`, never in yaml."""
+
+    name: str = Field(min_length=1)   # shown in the audit log as "who"
+    role: Literal["viewer", "admin"] = "viewer"   # viewer = read-only (GET), admin = also changes
+    token_env: str = Field(min_length=1)
+
+
 class ApiCfg(_Model):
     bind: str = "127.0.0.1"
     port: int = 8080
-    token_env: str = "OPENCAP_API_TOKEN"
+    token_env: str = "OPENCAP_API_TOKEN"   # legacy single token: name "default", role admin
+    tokens: list[ApiToken] = Field(default_factory=list)
+    audit_log: str = "data/audit.jsonl"    # config-change audit log (JSON lines)
+
+    @model_validator(mode="after")
+    def _unique_token_names(self) -> "ApiCfg":
+        names = [t.name for t in self.tokens]
+        if "default" in names:
+            raise ValueError("api.tokens: the name 'default' is reserved for api.token_env")
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise ValueError(f"api.tokens: duplicate names {dupes}")
+        return self
 
 
 class PayloadCfg(_Model):

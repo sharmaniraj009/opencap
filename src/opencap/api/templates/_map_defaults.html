@@ -1,0 +1,10 @@
+{% from "_macros.html" import saved %}
+<form id="map-defaults" class="stack" hx-post="/ui/config/map-defaults" hx-target="this" hx-swap="outerHTML">
+  <fieldset {% if not principal.is_admin %}disabled{% endif %}>
+  {% if defaults_errors %}<div class="error-box" role="alert"><strong>Not saved:</strong><ul>{% for e in defaults_errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+  {{ saved(defaults_note) }}
+  <label>Defaults (YAML or JSON, publish settings: env, mode, interval_ms, heartbeat_ms, deadband)
+    <textarea name="defaults" rows="3" spellcheck="false" placeholder="env: prod">{{ defaults_text }}</textarea></label>
+  {% if principal.is_admin %}<button type="submit">Save defaults</button>{% endif %}
+  </fieldset>
+</form>

@@ -1,0 +1,5 @@
+<div class="flash flash-{{ level }}" data-autohide="{{ 'yes' if level == 'ok' else 'no' }}">
+  <span>{{ message }}</span>
+  {% if details %}<ul>{% for d in details %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+  <button class="link close" data-close-flash aria-label="close">×</button>
+</div>

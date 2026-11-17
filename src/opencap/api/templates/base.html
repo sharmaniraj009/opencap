@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"selfRequestsOnly":true,"defaultSwapStyle":"innerHTML"}'>
+<meta name="csrf-token" content="{{ csrf }}">
+<title>{% block title %}opencap{% endblock %} · opencap</title>
+<link rel="stylesheet" href="{{ static('app.css') }}">
+<script src="{{ static(htmx) }}" defer></script>
+<script src="{{ static('app.js') }}" defer></script>
+</head>
+<body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'>
+<header class="top">
+  <a class="brand" href="/ui">opencap</a>
+  {% if principal %}
+  <nav class="nav">
+    <a href="/ui" {% if path == '/ui' or path.startswith('/ui/devices') %}aria-current="page"{% endif %}>Dashboard</a>
+    <a href="/ui/config" {% if path.startswith('/ui/config') or path.startswith('/ui/check') %}aria-current="page"{% endif %}>Config</a>
+    <a href="/ui/import" {% if path.startswith('/ui/import') %}aria-current="page"{% endif %}>Import</a>
+    <a href="/ui/audit" {% if path.startswith('/ui/audit') %}aria-current="page"{% endif %}>Audit</a>
+  </nav>
+  <div class="who">
+    <span class="role role-{{ principal.role }}" title="role">{{ principal.name }} · {{ principal.role }}</span>
+    {% if not auth_open %}<button class="link" hx-post="/ui/logout">Log out</button>{% endif %}
+  </div>
+  {% endif %}
+</header>
+{% if auth_open and principal %}
+<div class="banner info">No API token is configured: the API and this UI are open to anyone on this machine (loopback only). Set <code>api.tokens</code> in poller.yaml.</div>
+{% endif %}
+{% if principal %}
+<div id="pending" hx-get="/ui/partials/pending" hx-trigger="config-changed from:body, every 30s">{% include "_pending.html" %}</div>
+{% endif %}
+<div id="flash" role="status" aria-live="polite"></div>
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer class="foot">{{ version }} · read-only towards PLCs: this UI never writes a PLC value</footer>
+</body>
+</html>

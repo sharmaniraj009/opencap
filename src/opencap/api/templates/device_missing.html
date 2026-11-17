@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ device_id }}{% endblock %}
+{% block content %}
+<h1>{{ device_id }}</h1>
+{% if in_config %}
+<p>This device is in the config but the running poller does not poll it (its channel is disabled, not selected with <code>--site</code>, or the change is not reloaded yet).</p>
+<p><a class="button" href="/ui/config/device/{{ device_id|p }}">Edit config</a></p>
+{% else %}
+<p class="error">Unknown device.</p>
+{% endif %}
+<p><a href="/ui">Back to the dashboard</a></p>
+{% endblock %}

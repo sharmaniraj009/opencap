@@ -1,0 +1,10 @@
+{% from "_macros.html" import saved %}
+<form id="override-form" class="stack" hx-post="/ui/config/override-update/{{ device_id|p }}" hx-target="this" hx-swap="outerHTML">
+  <fieldset {% if not principal.is_admin %}disabled{% endif %}>
+  {% if ov_errors %}<div class="error-box" role="alert"><strong>Not saved:</strong><ul>{% for e in ov_errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+  {{ saved(ov_note) }}
+  <label>Override (YAML; fields: enabled, host, port, scan_ms, min_scan_ms, timeout_ms, retries, demote_after, demote_for_ms, params, publish, tags). Empty removes it.
+    <textarea name="override" rows="8" spellcheck="false" placeholder="timeout_ms: 2000&#10;tags:&#10;  FLOW_1: {scan_ms: 10000}">{{ override_text }}</textarea></label>
+  {% if principal.is_admin %}<button type="submit">Save override</button>{% endif %}
+  </fieldset>
+</form>

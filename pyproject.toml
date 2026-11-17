@@ -23,7 +23,7 @@ ab = ["pycomm3>=1.2"]
 s7 = ["python-snap7>=1.3"]
 melsec = ["pymcprotocol>=0.3"]
 opcua = ["asyncua>=1.1"]
-north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "prometheus-client>=0.20"]
+north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "prometheus-client>=0.20", "jinja2>=3.1", "ruamel.yaml>=0.18"]  # jinja2: web UI; ruamel.yaml: config API keeps YAML comments
 all = ["opencap[modbus,ab,s7,melsec,opcua,north]"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "amqtt>=0.11"]  # amqtt: in-process test broker
 
@@ -32,6 +32,9 @@ opencap = "opencap.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"opencap.api" = ["templates/*.html", "static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

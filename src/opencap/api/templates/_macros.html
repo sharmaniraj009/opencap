@@ -1,0 +1,4 @@
+{% macro err(errors, name) %}{% if errors.get(name) %}<span class="field-error" role="alert">{{ errors[name] }}</span>{% endif %}{% endmacro %}
+{% macro general_errors(general) %}{% if general %}<div class="error-box" role="alert"><strong>Not saved:</strong><ul>{% for g in general %}<li>{{ g }}</li>{% endfor %}</ul></div>{% endif %}{% endmacro %}
+{% macro saved(note) %}{% if note %}<p class="flash flash-ok inline">{{ note }}</p>{% endif %}{% endmacro %}
+{% macro checkbox(name, checked, label) %}<label class="check"><input type="hidden" name="{{ name }}" value="false"><input type="checkbox" name="{{ name }}" value="true" {% if checked %}checked{% endif %}> {{ label }}</label>{% endmacro %}

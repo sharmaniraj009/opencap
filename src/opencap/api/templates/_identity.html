@@ -1,0 +1,15 @@
+{% if ident.error is defined and ident.error %}<p class="error">{{ ident.error }}</p>{% endif %}
+{% if not ident.connected %}
+<p class="muted">Not connected right now: identity is read only over the device's existing connection (opencap does not open a second one).</p>
+{% elif not ident.identity %}
+<p class="muted">The device does not report an identity.</p>
+{% else %}
+<div class="table-wrap">
+<table class="compact kv">
+  <tbody>
+  {% for k, v in ident.identity|dictsort %}<tr><th>{{ k }}</th><td class="wrap">{{ v|fmt }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+<button class="small" hx-get="/ui/partials/identity/{{ device_id|p }}" hx-target="#identity">Refresh identity</button>

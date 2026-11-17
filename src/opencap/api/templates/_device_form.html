@@ -1,0 +1,21 @@
+{% from "_macros.html" import err, general_errors, saved, checkbox %}
+<form id="device-form" class="grid-form" hx-post="/ui/config/device-update/{{ device_id|p }}" hx-target="this" hx-swap="outerHTML">
+  <fieldset {% if not principal.is_admin %}disabled{% endif %}>
+  {{ general_errors(general) }}{{ saved(note) }}
+  <label>Name <input name="name" value="{{ values.name }}" required>{{ err(errors, 'name') }}</label>
+  <label>Channel <select name="channel">{% for c in channels %}<option {% if c == values.channel %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>{{ err(errors, 'channel') }}</label>
+  <label>Driver <select name="driver">{% for d in drivers %}<option {% if d == values.driver %}selected{% endif %}>{{ d }}</option>{% endfor %}</select>{{ err(errors, 'driver') }}</label>
+  <label>Host <input name="host" value="{{ values.host }}" required>{{ err(errors, 'host') }}</label>
+  <label>Port <input name="port" value="{{ values.port }}" inputmode="numeric">{{ err(errors, 'port') }}</label>
+  <div class="field">{{ checkbox('enabled', values.enabled, 'Enabled') }}{{ err(errors, 'enabled') }}</div>
+  <label>Scan ms <input name="scan_ms" value="{{ values.scan_ms }}" inputmode="numeric">{{ err(errors, 'scan_ms') }}</label>
+  <label>Min scan ms <input name="min_scan_ms" value="{{ values.min_scan_ms }}" inputmode="numeric" title="request data no faster than">{{ err(errors, 'min_scan_ms') }}</label>
+  <label>Timeout ms <input name="timeout_ms" value="{{ values.timeout_ms }}" inputmode="numeric">{{ err(errors, 'timeout_ms') }}</label>
+  <label>Retries <input name="retries" value="{{ values.retries }}" inputmode="numeric">{{ err(errors, 'retries') }}</label>
+  <label>Demote after <input name="demote_after" value="{{ values.demote_after }}" inputmode="numeric" title="consecutive failed cycles">{{ err(errors, 'demote_after') }}</label>
+  <label>Demote for ms <input name="demote_for_ms" value="{{ values.demote_for_ms }}" inputmode="numeric">{{ err(errors, 'demote_for_ms') }}</label>
+  <label class="wide">Params (YAML or JSON, see docs/driver_params.md)
+    <textarea name="params" rows="4" spellcheck="false">{{ values.params }}</textarea>{{ err(errors, 'params') }}</label>
+  {% if principal.is_admin %}<div class="buttons"><button type="submit" class="primary">Save device</button></div>{% endif %}
+  </fieldset>
+</form>

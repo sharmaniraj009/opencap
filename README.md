@@ -26,7 +26,8 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev,modbus,ab,north]'
 
 Config lives in `config/`: `poller.yaml` (MQTT, outbox, API, defaults), `devices.json`
 (generated), `devices_map.yaml` (SubDeviceId/topic per device — generated stubs must be
-confirmed), `overrides.yaml` (hand fixes). Secrets come from environment variables:
+confirmed), `overrides.yaml` (hand fixes). The last three can also be edited in the web UI or
+through the configuration API (below). Secrets come from environment variables:
 `OPENCAP_MQTT_PASSWORD`, `OPENCAP_API_TOKEN`, `OPENCAP_OPCUA_<CHANNEL>_USER/_PASSWORD`.
 
 `SIGHUP` or `POST /reload` re-reads the config and restarts only the channels that changed.
@@ -34,8 +35,70 @@ confirmed), `overrides.yaml` (hand fixes). Secrets come from environment variabl
 ## Admin API (bind to localhost or the VPN only)
 
 `GET /health`, `GET /metrics` (open) · `GET /channels`, `GET /devices/{id}`,
-`GET /devices/{id}/values`, `POST /devices/{id}/read-once`, `POST /reload`
-(`Authorization: Bearer $OPENCAP_API_TOKEN`). Device ids are `<channel>/<device>`.
+`GET /devices/{id}/values`, `GET /devices/{id}/plan`, `GET /devices/{id}/identity`,
+`POST /devices/{id}/read-once`, `POST /reload` (`Authorization: Bearer <token>`, see below).
+Device ids are `<channel>/<device>`.
+
+## Web UI and configuration API
+
+The same server (`api.bind`:`api.port`, default `127.0.0.1:8080`) serves an operator UI at
+**`/ui`** and a configuration REST API, the open equivalent of KEPServerEX's Configuration API.
+No Node build step: server-rendered HTML with a vendored copy of htmx.
+
+**Tokens and roles.** Name your tokens in `poller.yaml`; each secret lives in an env var:
+
+```yaml
+api:
+  tokens:
+    - {name: alice, role: admin, token_env: OPENCAP_TOKEN_ALICE}      # may change the config
+    - {name: grafana, role: viewer, token_env: OPENCAP_TOKEN_GRAFANA} # read-only (GET)
+  audit_log: data/audit.jsonl
+```
+
+`viewer` may read everything (status, values, config, `/check`, export, audit); `admin` may also
+change the config, import, reload and read-once. The older `api.token_env` token still works as
+the admin named `default`. Open `http://127.0.0.1:8080/ui` and log in with a token (stored as an
+HttpOnly session cookie). The UI works at phone width.
+
+**UI pages.** Dashboard (sites and devices: ok/offline/demoted, last good, errors, cycle time,
+MQTT link, outbox size) · device page (live values and quality, refreshing every 2 s; block plan;
+`bad_config` tags; identity; read once) · config editor (channels, devices, tags, publish map,
+overrides; validation errors next to the field; Reload) · check (block plan and cycle estimates)
+· import (KEPServer `project.json` or an opencap export, with a dry-run diff) · audit log.
+The UI never writes a PLC value.
+
+**Configuration API** (JSON; `PUT` replaces, `PATCH` is a JSON merge patch where `null` removes a key):
+
+| | |
+|---|---|
+| `GET /config` | revision, counts, warnings, drivers, and whether a reload is pending |
+| `GET/POST /config/channels` · `GET/PATCH/DELETE /config/channels/{channel}` | channels |
+| `GET/POST /config/channels/{channel}/devices` · `GET/PUT/PATCH/DELETE …/devices/{device}` | devices |
+| `GET/POST …/devices/{device}/tags` · `GET/PUT/PATCH/DELETE …/tags/{tag}` | tags (POST takes one or a list) |
+| `GET /config/map` · `PUT /config/map/defaults` · `GET/PUT/PATCH/DELETE /config/map/devices/{id}` | `devices_map.yaml` |
+| `GET /config/overrides` · `GET/PUT/PATCH/DELETE /config/overrides/devices/{id}` · `GET/PUT/DELETE /config/overrides/channels/{channel}` | `overrides.yaml` |
+| `GET /config/export` · `POST /config/import[?dry_run=false]` | whole config as JSON; import a KEPServer `project.json` or an export (dry run by default) |
+| `GET /check[?site=…&verbose=true]` · `GET /audit[?action=…&who=…&limit=…]` · `GET /config/schema` | plan and estimates, audit log, JSON schemas |
+
+```bash
+TOKEN=$OPENCAP_TOKEN_ALICE
+curl -s -H "Authorization: Bearer $TOKEN" -X PATCH -H 'Content-Type: application/json' \
+  -d '{"timeout_ms": 1500}' "http://127.0.0.1:8080/config/channels/Site%20008/devices/Device1"
+curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  --data-binary @project.json "http://127.0.0.1:8080/config/import?filename=project.json"   # dry run
+curl -s -H "Authorization: Bearer $TOKEN" -X POST http://127.0.0.1:8080/reload
+```
+
+Every change is checked by its model, by the loader and by the device's driver (a tag address the
+driver cannot read is refused) before anything is written; a 422 lists each error with its field.
+Files are written atomically and the previous version is kept as `<file>.bak`; comments in the
+hand-owned `devices_map.yaml` and `overrides.yaml` are kept. Changes take effect on
+`POST /reload` (only changed channels restart). Responses carry the config `revision` (also as
+`ETag`); send it back as `If-Match` to refuse a change when someone else changed the config first.
+Renaming a device or channel moves its map entry and override along; deleting one deletes them.
+Channels, devices and tags live in `devices.json`, which a KEPServer re-import replaces: put fixes
+that must survive a re-import in the device's override. Every accepted change, import and reload
+is in the audit log (who, when, what). Details: `docs/decisions.md` D-028 to D-034.
 
 ## Commissioning one real Modbus site (Phase 1 acceptance, needs site access)
 

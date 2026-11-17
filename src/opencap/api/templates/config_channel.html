@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ channel.name }}{% endblock %}
+{% block content %}
+{% set ro = not principal.is_admin %}
+<p class="crumbs"><a href="/ui/config">Config</a> ›</p>
+<div class="toolbar">
+  <h1>{{ channel.name }}</h1>
+  {% if not ro %}
+  <div class="actions">
+    <button class="danger" hx-post="/ui/config/channel-delete/{{ channel.name|q }}"
+      hx-confirm="Delete channel {{ channel.name }} with its {{ channel.devices|length }} device(s), their publish map entries and overrides?">Delete channel</button>
+  </div>
+  {% endif %}
+</div>
+{% include "_channel_form.html" %}
+<section>
+  <h2>Devices</h2>
+  <div class="table-wrap">
+  <table class="responsive">
+    <thead><tr><th>Device</th><th>Driver</th><th>Host</th><th>Tags</th><th>Enabled</th><th>SubDeviceId</th></tr></thead>
+    <tbody>
+    {% for d in channel.devices %}
+      <tr>
+        <td data-label="Device"><a href="/ui/config/device/{{ d.id|p }}">{{ d.name }}</a>{% if d.has_override %} <span class="badge small">override</span>{% endif %}</td>
+        <td data-label="Driver">{{ d.driver }}</td>
+        <td data-label="Host">{{ d.host }}:{{ d.port }}</td>
+        <td data-label="Tags">{{ d.tags }}</td>
+        <td data-label="Enabled">{{ 'yes' if d.enabled else 'no' }}</td>
+        <td data-label="SubDeviceId">{{ d.sub_device_id or '—' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">no devices</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% if not ro %}
+<section>
+  <h2>Add a device</h2>
+  {% include "_device_create.html" %}
+</section>
+{% endif %}
+{% endblock %}

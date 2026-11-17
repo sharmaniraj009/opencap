@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ device_id }} · config{% endblock %}
+{% block content %}
+{% set ro = not principal.is_admin %}
+<p class="crumbs"><a href="/ui/config">Config</a> › <a href="/ui/config/channel/{{ dev.channel|q }}">{{ dev.channel }}</a> ›</p>
+<div class="toolbar">
+  <h1>{{ dev.name }}</h1>
+  <div class="actions">
+    <a class="button" href="/ui/devices/{{ device_id|p }}">Live values</a>
+    {% if not ro %}
+    <button class="danger" hx-post="/ui/config/device-delete/{{ device_id|p }}"
+      hx-confirm="Delete device {{ device_id }} with its {{ dev.tags|length }} tag(s), its publish map entry and its override?">Delete device</button>
+    {% endif %}
+  </div>
+</div>
+{% if dev.source %}<p class="muted small">Imported from KEPServer: {{ dev.source|flow }}</p>{% endif %}
+
+<section>
+  <h2>Device</h2>
+  {% include "_device_form.html" %}
+</section>
+
+<section>
+  <h2>Tags <small class="muted">{{ dev.tags|length }}</small></h2>
+  <div class="table-wrap">
+  <table class="tags">
+    <thead><tr><th>Name</th><th>Address</th><th>Type</th><th>Scan ms</th><th>On</th><th>Scale</th><th>Description</th><th></th></tr></thead>
+    <tbody id="tags-body">
+    {% for t in dev.tags %}{% set row_id = t.name|domid %}{% set edit = false %}{% set errors = {} %}{% set general = [] %}{% set note = none %}{% set v = {} %}{% include "_tag_row.html" %}{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if not ro %}{% include "_tag_create.html" %}{% endif %}
+</section>
+
+<section>
+  <h2>Publish map <small class="muted">devices_map.yaml</small></h2>
+  {% include "_map_form.html" %}
+</section>
+
+<section>
+  <h2>Override <small class="muted">overrides.yaml: survives a KEPServer re-import</small></h2>
+  {% include "_override_form.html" %}
+</section>
+{% endblock %}

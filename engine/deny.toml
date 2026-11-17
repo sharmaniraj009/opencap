@@ -1,0 +1,33 @@
+# Licence and supply-chain gate for the Rust engine (ADR-0007, docs/adr/0007-oss-licence-policy.md).
+# CI runs `cargo deny check licenses bans sources`.
+
+[graph]
+all-features = true
+
+[licenses]
+# Permissive licences are allowed. MPL-2.0 is file-level copyleft: allowed for unmodified
+# crates (ADR-0007). LGPL, GPL, AGPL, non-commercial and unknown licences are NOT listed and
+# therefore rejected: LGPL only as a dynamically loaded, replaceable library, GPL only as a
+# separately shipped out-of-process plugin with owner approval, never in this build.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    # Add MPL-2.0 (unmodified crates only) in the PR that first needs it, e.g. async-opcua.
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

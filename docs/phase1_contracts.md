@@ -47,8 +47,10 @@ class ValueCache:
     def snapshot(self, device_id: str) -> dict[str, TagValue]   # copy, every registered tag
     def version(self, device_id: str) -> int                    # bumps on every update()
     def last_good(self, device_id: str) -> datetime | None      # newest good source_ts on the device
-    def expire(self, device_id: str, now: datetime, max_age_s: dict[str, float]) -> None
+    def expire(self, device_id: str, now: datetime, max_age_s: dict[str, float], *,
+               read_at: dict[str, datetime] | None = None) -> None
         # good tags whose last good read is older than max_age_s[name] -> "stale"
+        # age from source_ts, or from read_at[name] for `Driver.stale_by_read_time` drivers (D-028)
 
 class DeviceHealth:                       # pure state machine, time passed in
     state: Literal["ok", "offline", "demoted"]

@@ -89,6 +89,10 @@ class Plan:
 class Driver(ABC):
     name: ClassVar[str]
     is_async: ClassVar[bool] = True
+    # True when `TagValue.source_ts` is the device's own timestamp of the value (OPC UA
+    # SourceTimestamp: when it last changed) rather than when the reply arrived. The worker then
+    # judges staleness by when `read()` last returned the tag good (docs/decisions.md D-028).
+    stale_by_read_time: ClassVar[bool] = False
 
     def __init__(self, device: Device, executor: Executor | None = None) -> None:
         self.device = device

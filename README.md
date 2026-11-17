@@ -5,13 +5,14 @@ site network (VPN) and publishes one SubDevice JSON message per device per scan 
 
 Status: **Phase 3** — core polling engine; Modbus TCP, Allen-Bradley Logix/Micro800 and
 Allen-Bradley PCCC (SLC/MicroLogix) drivers; MQTT with store-and-forward; admin API and
-metrics. S7, Mitsubishi and OPC UA arrive in Phase 4. Devices whose driver is not ready are
-skipped and reported, never polled.
+metrics. OPC UA: an `opcua_client` driver (subscriptions) and a northbound OPC UA server for
+SCADA/HMI clients (off by default). S7 and Mitsubishi arrive in Phase 4. Devices whose driver
+is not ready are skipped and reported, never polled.
 
 ## Install
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e '.[dev,modbus,ab,north]'
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev,modbus,ab,north,opcua]'
 ```
 
 ## Commands
@@ -66,12 +67,30 @@ confirmed), `overrides.yaml` (hand fixes). Secrets come from environment variabl
 3. Known: `F54:17` on Site 092/10 PUMP clashes with `N54` and shows `bad_config`; the
    4 `RTC:0.HR/.MIN` tags are not readable through pycomm3.
 
+## OPC UA (client driver and server)
+
+`opcua_client` devices subscribe to their NodeIds (`ns=7;s=...`) instead of polling them; values
+carry the server's SourceTimestamp (docs/decisions.md D-028). The importer writes the env var
+names for the credentials (`OPENCAP_OPCUA_<CHANNEL>_USER/_PASSWORD`); set them before `run`.
+Secure endpoints need `certificate` and `private_key` paths in the device params
+(docs/driver_params.md); a self-signed pair is generated there on first connect, trust it on
+the server. On site: `opencap identity "<channel>/<device>"` (server, revised publishing
+interval, refused NodeIds) and `opencap read "<channel>/<device>"`.
+
+The northbound OPC UA server (`poller.yaml` → `opcua_server`, off by default) serves the cache
+read-only with KEPServer's NodeIds, `ns=2;s=<channel>.<device>.<tag>` (tag groups are folders),
+plus `<channel>.<device>._System._Error`, `_State`, `_LastGood`... per device, so an existing
+SCADA client only changes its endpoint URL. Every write is refused. Bind it to localhost or the
+VPN only; for remote clients offer only `Basic256Sha256_SignAndEncrypt`, turn `anonymous` off
+and set a user through `username_env`/`password_env` (docs/decisions.md D-029).
+
 ## Tests
 
 ```bash
 .venv/bin/pytest -m "not acceptance"                      # fast suite (~30 s)
 .venv/bin/pytest -m acceptance                            # 30 simulated devices + broker outage
 OPENCAP_OUTAGE_S=600 .venv/bin/pytest -m acceptance        # the plan's 10-minute broker outage
+.venv/bin/pytest -m acceptance tests/integration/test_opcua_acceptance.py   # OPC UA in → MQTT + OPC UA out
 ```
 
 Tests marked `real_project` need the real KEPServer export at `tests/fixtures/project.json`

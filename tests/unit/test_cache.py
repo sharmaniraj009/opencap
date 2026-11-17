@@ -155,6 +155,22 @@ def test_expire_boundary_is_strictly_older():
     assert c.get("S/D", "A").quality == "stale"
 
 
+def test_expire_by_read_time_ignores_an_old_source_ts():
+    """Subscription drivers (D-028): age is measured from when the worker last read the tag
+    good, so a value unchanged for an hour (old SourceTimestamp) is not stale."""
+    c = ValueCache()
+    c.register(dev("UNCHANGED", "STOPPED", "UNTRACKED"))
+    hour_ago = T0 - timedelta(hours=1)
+    c.update("S/D", {n: good(1, hour_ago) for n in ("UNCHANGED", "STOPPED", "UNTRACKED")})
+    read_at = {"UNCHANGED": T0 + timedelta(seconds=9), "STOPPED": T0}
+    c.expire("S/D", T0 + timedelta(seconds=10), {"UNCHANGED": 3.0, "STOPPED": 3.0, "UNTRACKED": 3.0},
+             read_at=read_at)
+    snap = c.snapshot("S/D")
+    assert snap["UNCHANGED"] == TagValue(1, "good", hour_ago)      # source_ts itself is untouched
+    assert snap["STOPPED"] == TagValue(1, "stale", hour_ago)
+    assert snap["UNTRACKED"].quality == "stale"                    # no read time: falls back to source_ts
+
+
 def test_register_again_keeps_values_adds_and_drops_tags():
     c = ValueCache()
     c.register(dev("A", "B"))

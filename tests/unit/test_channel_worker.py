@@ -10,7 +10,8 @@ import asyncio
 import contextlib
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import ClassVar
 
 import pytest
 from structlog.testing import capture_logs
@@ -23,6 +24,7 @@ from opencap.drivers.base import CommError, ConnectionLost
 from opencap.metrics import REGISTRY
 from tests.helpers.fake_driver import (
     ConcurrencyProbe,
+    FakeDriver,
     FakeFactory,
     channel,
     device,
@@ -375,6 +377,54 @@ async def test_stale_after_three_times_the_rate():
         age = (datetime.now(UTC) - tv.source_ts).total_seconds()
     assert tv.value is not None                  # last good value kept
     assert 0.15 <= age <= 0.15 + 0.1             # 3 x 50 ms, plus one housekeeping tick
+
+
+class _ReadTimeFake(FakeDriver):
+    """A subscription-style driver: source_ts is the device's change time, not the reply time."""
+
+    stale_by_read_time: ClassVar[bool] = True
+
+
+def _read_time_factory(factory: FakeFactory):
+    def make(dev, executor):
+        drv = _ReadTimeFake(dev, executor, script=factory.script(dev.id))
+        factory.drivers[dev.id] = drv
+        return drv
+    return make
+
+
+async def test_old_source_ts_goes_stale_for_a_polled_driver():
+    ch, d = one_device(scan_ms=50)
+    worker, factory, cache = make_worker(ch)
+    factory.script(d.id).clock = lambda: datetime.now(UTC) - timedelta(hours=1)
+    async with running(worker):
+        await wait_until(lambda: cache.get(d.id, "A_0").value is not None)
+        await wait_until(lambda: cache.get(d.id, "A_0").quality == "stale", 0.5)
+
+
+async def test_read_time_staleness_for_subscription_drivers():
+    """D-028: values whose SourceTimestamp is an hour old stay good while reads succeed, and
+    go stale 3 x the rate after the reads stop; source_ts is passed through unchanged."""
+    ch, d = one_device(scan_ms=50)
+    factory = FakeFactory()
+    worker, _, cache = make_worker(ch, factory=_read_time_factory(factory))
+    s = factory.script(d.id)
+    old = datetime.now(UTC) - timedelta(hours=1)
+    s.clock = lambda: old
+    async with running(worker):
+        await wait_until(lambda: cache.get(d.id, "A_0").quality == "good")
+        seen = set()
+        deadline = time.monotonic() + 0.4                     # > 3 x 50 ms of good reads
+        while time.monotonic() < deadline:                    # never flaps to stale in between
+            seen.add(cache.get(d.id, "A_0").quality)
+            await asyncio.sleep(0.003)
+        assert seen == {"good"}
+        assert cache.get(d.id, "A_0").source_ts == old
+        s.delay_s = 0.6                                       # reads stall
+        t0 = time.monotonic()
+        await wait_until(lambda: cache.get(d.id, "A_0").quality == "stale", 0.5)
+        assert time.monotonic() - t0 <= 0.15 + 0.15
+    assert cache.get(d.id, "A_0").source_ts == old
 
 
 # --- block and tag faults -----------------------------------------------------------------

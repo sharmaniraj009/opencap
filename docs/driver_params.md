@@ -63,12 +63,26 @@ KEPServer keys are shown without the driver prefix where obvious.
 ## opcua_client
 | key | type | default | KEPServer source |
 |---|---|---|---|
-| `endpoint` | str | — | `opcuaclient.CHANNEL_UA_SERVER_ENDPOINT_URL` (channel level) |
+| `endpoint` | str | `opc.tcp://<host>:<port>` | `opcuaclient.CHANNEL_UA_SERVER_ENDPOINT_URL` (channel level) |
 | `security_policy` | str | "None" | `opcuaclient.CHANNEL_UA_SERVER_SECURITY_POLICY` |
 | `message_mode` | str | "None" | `opcuaclient.CHANNEL_UA_SERVER_MESSAGE_MODE` |
 | `username_env` | str \| null | null | set only when the channel has a username: name of the env var holding it |
 | `password_env` | str \| null | null | set only when the channel has a password: name of the env var holding it |
-| `publishing_interval_ms` | int \| null | null | `opcuaclient.DEVICE_SUBSCRIPTION_PUBLISHING_INTERVAL_MILLISECONDS` |
-| `sampling_interval_ms` | int \| null | null | `opcuaclient.DEVICE_MONITORED_ITEMS_SAMPLE_INTERVAL_MILLISECONDS` |
+| `publishing_interval_ms` | int \| null | null | `opcuaclient.DEVICE_SUBSCRIPTION_PUBLISHING_INTERVAL_MILLISECONDS` (null = the device's fastest rate group) |
+| `sampling_interval_ms` | int \| null | null | `opcuaclient.DEVICE_MONITORED_ITEMS_SAMPLE_INTERVAL_MILLISECONDS` (null = each tag's rate) |
+| `certificate` | str \| null | null | — (client certificate path, DER or PEM; needed by a security policy other than None) |
+| `private_key` | str \| null | null | — (its key; a self-signed pair is generated at both paths when both files are missing) |
+| `private_key_password_env` | str \| null | null | — (name of the env var holding the key password, if the key is encrypted) |
+| `server_certificate` | str \| null | null | — (pin the server certificate; null = take it from GetEndpoints) |
+| `application_uri` | str | "urn:opencap:client" | — (must match the client certificate's URI) |
+| `max_items` | int | 100 | — (monitored items per CreateMonitoredItems, nodes per Read, tags per block) |
+| `session_timeout_ms` | int | 60000 | — (requested session timeout; a dropped session is cleaned up on the server after it) |
 
 Credentials are **never** copied from the KEPServer export into any generated file.
+
+opcua_client addresses are NodeIds (`ns=7;s=LTI002_PV`, `i=2258`, `ns=4;g=<guid>`,
+`ns=5;b=<base64>`, `nsu=<namespace uri>;s=...`). Params named `username`, `password` (or
+`user`, `passwd`, `private_key_password`) are rejected: put secrets in environment variables
+and name them in the `*_env` params. Security policy names: `None`, `Basic256Sha256`,
+`Aes128_Sha256_RsaOaep`, `Aes256_Sha256_RsaPss` (case and underscores do not matter); message
+mode `None`, `Sign` or `SignAndEncrypt`. See docs/decisions.md D-028.

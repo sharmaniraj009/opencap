@@ -76,18 +76,27 @@ class ValueCache:
         self._last_good[device_id] = newest
         self._bump(device_id)
 
-    def expire(self, device_id: str, now: datetime, max_age_s: Mapping[str, float]) -> None:
+    def expire(self, device_id: str, now: datetime, max_age_s: Mapping[str, float], *,
+               read_at: Mapping[str, datetime] | None = None) -> None:
         """Good tags whose last good read is older than `max_age_s[name]` become "stale".
 
-        Tags missing from `max_age_s`, and tags that are already bad, are left alone.
+        The age is measured from `source_ts`, or from `read_at[name]` when given: the time the
+        worker last read the tag good, for drivers whose `source_ts` is the device's own change
+        time (subscriptions, D-028). Tags missing from `max_age_s`, and tags that are already
+        bad, are left alone.
         """
         tags = self._tags[device_id]
         changed = False
         for name, max_age in max_age_s.items():
             entry = tags.get(name)
-            if entry is None or entry.quality != "good" or entry.source_ts is None:
+            if entry is None or entry.quality != "good":
                 continue
-            if (now - entry.source_ts).total_seconds() > max_age:
+            ref = read_at.get(name) if read_at is not None else None
+            if ref is None:
+                ref = entry.source_ts
+            if ref is None:
+                continue
+            if (now - ref).total_seconds() > max_age:
                 entry.quality = "stale"
                 changed = True
         if changed:

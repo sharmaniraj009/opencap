@@ -167,7 +167,8 @@ DEVICES_MAP_HEADER = """\
 # Entries with `stub: true` were guessed by `opencap import-kep`: confirm the SubDeviceId
 # with the backend, then delete the `stub` line. `opencap import-kep` never overwrites
 # this file; it only appends stubs for device ids that are not in it yet.
-# `topic` and `env` are optional; topic defaults to opencap/<channel>/<device>/data (slugged).
+# `topic` and `env` are optional; topic defaults to <mqtt.topic_prefix>/<channel>/<device>/data
+# (slugged; poller.yaml mqtt.topic_prefix, default "opencap").
 # `defaults` is merged into the publish settings of every device (e.g. env, interval_ms).
 """
 

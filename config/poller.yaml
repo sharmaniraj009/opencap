@@ -2,7 +2,7 @@
 # Every key is optional; a missing file means all defaults. Unknown keys are an error.
 # Secrets are never stored here: only the NAMES of environment variables that hold them.
 
-instance: opencap-1            # used in the LWT topic opencap/poller/<instance>/status
+instance: opencap-1            # used in the LWT topic <topic_prefix>/poller/<instance>/status
 
 mqtt:
   host: localhost
@@ -14,6 +14,9 @@ mqtt:
   client_id: null                # null = derived from instance
   qos: 1
   keepalive_s: 30
+  topic_prefix: opencap          # first level(s) of every derived topic, e.g. acme/plant-1:
+                                 #   <prefix>/<channel>/<device>/data|status, <prefix>/poller/<instance>/status
+                                 # explicit `topic:` values in devices_map.yaml are used as is
 
 saf:                             # store-and-forward when the broker is down (PLAN 7.3)
   path: data/saf.sqlite

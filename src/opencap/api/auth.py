@@ -1,4 +1,4 @@
-"""API and UI authentication: named tokens with roles, and UI login sessions.
+"""API authentication: named bearer tokens with roles (D-019, D-033).
 
 Tokens (poller.yaml `api`):
 - `token_env`: the legacy single token, named "default", role admin (D-019);
@@ -6,23 +6,19 @@ Tokens (poller.yaml `api`):
   the yaml holds only its name. A listed token whose env var is unset stops the start.
 
 Roles: `viewer` may use safe methods only (GET/HEAD): status, values, config reads,
-`/check`, export, audit. `admin` may also change things (config writes, import, reload,
+validation, export, audit. `admin` may also change things (config writes, import, reload,
 read-once). With no token at all the API starts only on a loopback bind, and every caller
-is the admin "anonymous" (D-019); then unsafe requests from another web origin are refused.
+is the admin "anonymous" (D-019); then unsafe requests a browser marks as cross-site are
+refused, so a web page cannot drive the open local API.
 
-UI sessions: `POST /ui/login` checks a token and sets an HttpOnly, SameSite=Strict cookie
-(path /ui) holding a random session id. Sessions live in memory (a restart logs everyone
-out) for `SESSION_TTL_S`. Every unsafe UI request must send the session's CSRF token in
-`X-CSRF-Token`. The REST API never accepts the cookie, only `Authorization: Bearer`.
+The web UI is a static page that sends the same `Authorization: Bearer` header; it keeps
+the token in the browser tab's `sessionStorage`. There are no cookies, so no CSRF surface.
 """
 
 from __future__ import annotations
 
 import hmac
 import os
-import secrets
-import threading
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
@@ -31,9 +27,6 @@ from opencap.config.models import ApiCfg
 
 Role = Literal["viewer", "admin"]
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-SESSION_COOKIE = "opencap_session"
-SESSION_TTL_S = 12 * 3600
-MAX_SESSIONS = 1000
 LEGACY_NAME = "default"
 
 
@@ -41,23 +34,11 @@ LEGACY_NAME = "default"
 class Principal:
     name: str
     role: Role
-    via: Literal["api", "ui"]
+    via: str = "api"            # "api", or "ui" when the request comes from the web UI
 
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
-
-
-@dataclass
-class Session:
-    sid: str
-    name: str
-    role: Role
-    csrf: str
-    expires: float
-
-    def principal(self) -> Principal:
-        return Principal(self.name, self.role, "ui")
 
 
 class AuthError(Exception):
@@ -84,10 +65,8 @@ def cross_site(headers: Mapping[str, str], host: str | None) -> bool:
 
 
 class Auth:
-    def __init__(self, cfg: ApiCfg, environ: Mapping[str, str] | None = None,
-                 clock=time.monotonic) -> None:
+    def __init__(self, cfg: ApiCfg, environ: Mapping[str, str] | None = None) -> None:
         env = os.environ if environ is None else environ
-        self._clock = clock
         self._tokens: list[tuple[bytes, str, Role]] = []
         legacy = env.get(cfg.token_env) or None
         if legacy:
@@ -101,81 +80,30 @@ class Auth:
         if len(set(secrets_seen)) != len(secrets_seen):
             raise RuntimeError("api tokens: two tokens have the same secret; give each its own")
         self.open = not self._tokens
-        self.open_csrf = secrets.token_urlsafe(32)   # CSRF token of the open (no-token) UI
-        self._sessions: dict[str, Session] = {}
-        self._lock = threading.Lock()
+        self._cors = set(cfg.cors_origins)
 
-    @property
-    def token_names(self) -> list[tuple[str, Role]]:
-        return [(name, role) for _, name, role in self._tokens]
-
-    # tokens -------------------------------------------------------------------------
-    def check_token(self, given: str) -> Principal | None:
-        """The token's principal, or None. Compares against every token (constant time)."""
+    def check_token(self, given: str) -> tuple[str, Role] | None:
+        """(name, role) of the token, or None. Compares against every token (constant time)."""
         given_b = given.encode()
-        found: Principal | None = None
+        found: tuple[str, Role] | None = None
         for secret, name, role in self._tokens:
             if hmac.compare_digest(given_b, secret) and found is None:
-                found = Principal(name, role, "api")
+                found = (name, role)
         return found
 
-    def api_principal(self, method: str, headers: Mapping[str, str], host: str | None) -> Principal:
-        """Authorize a REST request (Bearer token). Raises AuthError."""
+    def principal(self, method: str, headers: Mapping[str, str], host: str | None) -> Principal:
+        """Authorize a request. Raises AuthError."""
+        via = "ui" if headers.get("x-opencap-client", "") == "ui" else "api"
         if self.open:
-            if not is_safe(method) and cross_site(headers, host):
+            origin = headers.get("origin")
+            if not is_safe(method) and cross_site(headers, host) and origin not in self._cors:
                 raise AuthError(403, "cross-site request refused")
-            return Principal("anonymous", "admin", "api")
+            return Principal("anonymous", "admin", via)
         scheme, _, given = headers.get("authorization", "").partition(" ")
-        principal = self.check_token(given.strip()) if scheme.lower() == "bearer" and given else None
-        if principal is None:
+        found = self.check_token(given.strip()) if scheme.lower() == "bearer" and given.strip() else None
+        if found is None:
             raise AuthError(401, "missing or bad bearer token")
+        principal = Principal(found[0], found[1], via)
         if not is_safe(method) and not principal.is_admin:
             raise AuthError(403, f"token {principal.name!r} has role viewer: read-only")
         return principal
-
-    # sessions -----------------------------------------------------------------------
-    def _prune(self, now: float) -> None:
-        for sid in [s for s, sess in self._sessions.items() if sess.expires <= now]:
-            del self._sessions[sid]
-
-    def login(self, token: str) -> Session | None:
-        principal = self.check_token(token)
-        if principal is None:
-            return None
-        now = self._clock()
-        session = Session(sid=secrets.token_urlsafe(32), name=principal.name, role=principal.role,
-                          csrf=secrets.token_urlsafe(32), expires=now + SESSION_TTL_S)
-        with self._lock:
-            self._prune(now)
-            if len(self._sessions) >= MAX_SESSIONS:   # drop the oldest
-                oldest = min(self._sessions.values(), key=lambda s: s.expires)
-                del self._sessions[oldest.sid]
-            self._sessions[session.sid] = session
-        return session
-
-    def session(self, sid: str | None) -> Session | None:
-        if not sid:
-            return None
-        with self._lock:
-            sess = self._sessions.get(sid)
-            if sess is None:
-                return None
-            if sess.expires <= self._clock():
-                del self._sessions[sid]
-                return None
-            return sess
-
-    def logout(self, sid: str | None) -> None:
-        if sid:
-            with self._lock:
-                self._sessions.pop(sid, None)
-
-    def ui_session(self, sid: str | None) -> Session | None:
-        """The UI caller's session; in open mode a fixed anonymous admin session."""
-        if self.open:
-            return Session(sid="", name="anonymous", role="admin", csrf=self.open_csrf, expires=float("inf"))
-        return self.session(sid)
-
-    @staticmethod
-    def check_csrf(session: Session, given: str | None) -> bool:
-        return bool(given) and hmac.compare_digest(given.encode(), session.csrf.encode())

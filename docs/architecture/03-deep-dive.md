@@ -171,6 +171,14 @@ pub struct NorthContext {
   `/metrics` stay open for monitoring.
 - The OpenAPI document is generated, committed and drift-tested so both engines can be
   tested against it.
+- **Python engine, as implemented** (`src/opencap/api/config_api.py`, decisions D-032 to D-037):
+  the resources above except `/north` and `/plugins`, plus `/map…` and `/overrides…` for the v1
+  file layout, `/project/status|pending|schema`, `/whoami`, `/status`, the open `/auth-info`, and
+  `/devices/{id}/status|values|plan|identity`, `POST /devices/{id}/read-once`, `POST /reload`.
+  Writes without `If-Match` get `428`. A write changes the files only; `POST /api/v1/reload`
+  applies it, or `?apply=true` on the write reloads right after it (deviation, D-032). Roles are
+  `viewer` (GET) and `admin` until the security RFC. The WebSocket feed (#31) and the committed
+  OpenAPI document (#32) are still to do. The web UI (`/ui/`, ADR-0010) uses only these routes.
 
 ## 3.7 Security
 

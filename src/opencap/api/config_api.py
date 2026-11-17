@@ -1,33 +1,49 @@
-"""Configuration REST API (the KEPServerEX Configuration API equivalent).
+"""Configuration REST API under `/api/v1` (contract: docs/architecture/03-deep-dive.md §3.6).
 
-Paths follow KEPServerEX's layout: `/config/channels/{channel}/devices/{device}/tags/{tag}`.
-The publish map and the overrides are keyed by device id (`<channel>/<device>`):
-`/config/map/devices/{id}`, `/config/overrides/devices/{id}`. Bodies are JSON; `PUT`
-replaces, `PATCH` is a JSON merge patch (RFC 7386: `null` removes a key). Every response
-to a change carries the new config `revision` (also as `ETag`); send it back as
-`If-Match` to refuse a change when someone else changed the config in between.
+The open equivalent of KEPServerEX's Configuration API, and the only API the web UI uses
+(ADR-0010). Resources:
 
-Changes are written to the config files only. `POST /reload` applies them.
+    /api/v1/channels[/{channel}]           /api/v1/channels/{channel}/devices
+    /api/v1/devices[/{id}]                 /api/v1/devices/{id}/tags[/{tag}]
+    /api/v1/map, /map/defaults, /map/devices/{id}                     devices_map.yaml
+    /api/v1/overrides, /overrides/devices/{id}, /overrides/channels/{c} overrides.yaml
+    /api/v1/project (whole config), /project/status, /project/pending, /project/import,
+    /project/validate (= opencap check), /project/revisions, /project/schema
+    /api/v1/audit, /api/v1/whoami
+    runtime: /api/v1/status, /api/v1/devices/{id}/status|values|plan|identity,
+             POST /api/v1/devices/{id}/read-once, POST /api/v1/reload
+
+Device ids are `<channel>/<device>`. Reads return the resource with the config `revision`
+(also as `ETag`). **Writes need `If-Match: <revision>`**: 428 without it, 412 when the
+config changed since. `PUT` replaces, `PATCH` is a JSON merge patch (RFC 7386, `null`
+removes a key). A write changes the files only; `POST /api/v1/reload` applies, or add
+`?apply=true` to a write to reload right after it (D-032).
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Callable
 
-from fastapi import APIRouter, Body, Header, Query, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from opencap.api.context import ApiContext
 from opencap.config.models import Channel, Device, DeviceMapEntry, DeviceOverride, PublishCfg, Tag
-from opencap.config.store import MAX_IMPORT_BYTES, ConfigStore, Invalid, NotFound, Result
+from opencap.config.store import MAX_IMPORT_BYTES, ConfigError, ConfigStore, Invalid, Result
 
 JSON_TYPES = ("application/json",)
 IfMatch = Annotated[str | None, Header(alias="If-Match")]
+JsonBody = Annotated[Any, Body()]
+Apply = Annotated[bool, Query(description="reload right after the write")]
 
 
 class Unavailable(Exception):
     """The API runs without a config directory (e.g. embedded in a test)."""
+
+
+class PreconditionRequired(ConfigError):
+    status = 428
 
 
 def _ctx(request: Request) -> ApiContext:
@@ -41,217 +57,346 @@ def _store(request: Request) -> ConfigStore:
     return store
 
 
-def _with_rev(data: dict[str, Any], status: int = 200) -> JSONResponse:
+def _need_if_match(if_match: str | None) -> str:
+    if not if_match or not if_match.strip():
+        raise PreconditionRequired("If-Match required: send the revision from your last read "
+                                   "(GET /api/v1/project/status gives the current one)")
+    return if_match
+
+
+def with_rev(data: Any, status: int = 200) -> JSONResponse:
     headers = {"ETag": f'"{data["revision"]}"'} if isinstance(data, dict) and data.get("revision") else {}
     return JSONResponse(data, status_code=status, headers=headers)
 
 
-def _done(request: Request, result: Result, status: int = 200) -> JSONResponse:
+async def _write(request: Request, fn: Callable[[], Result], *, if_match: str | None, apply: bool,
+                 status: int = 200) -> JSONResponse:
+    """Run one store change (If-Match required), audit it, optionally reload, answer."""
+    _need_if_match(if_match)
     ctx = _ctx(request)
-    ctx.record(request.state.principal, result)
+    result: Result = await run_in_threadpool(fn)
+    await run_in_threadpool(ctx.record, request.state.principal, result)
     body = result.body()
-    body["pending_reload"] = ctx.tracker.status().get("pending_reload", False)
-    return _with_rev(body, status)
+    if apply and result.files:
+        try:
+            body["reload"] = await ctx.reload(request.state.principal)
+        except Exception as exc:  # noqa: BLE001 - the change is written; say the reload failed
+            body["reload_error"] = f"reload failed, old config kept: {exc}"
+    body["pending_reload"] = (await run_in_threadpool(ctx.tracker.status)).get("pending_reload", False)
+    return with_rev(body, status)
 
 
-def _dev_id(channel: str, device: str) -> str:
-    return f"{channel}/{device}"
+def _lookup(fn, device_id: str) -> Any:
+    try:
+        return fn(device_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"device {device_id!r} is not polled") from None
 
 
 def build_router() -> APIRouter:
-    r = APIRouter()
+    r = APIRouter(prefix="/api/v1")
 
-    # --- overview ----------------------------------------------------------------
-    @r.get("/config")
-    def config_summary(request: Request) -> JSONResponse:
-        store = _store(request)
-        return _with_rev({**store.summary(), "status": _ctx(request).tracker.status()})
+    # --- who / status ------------------------------------------------------------
+    @r.get("/whoami")
+    def whoami(request: Request) -> dict[str, Any]:
+        p = request.state.principal
+        return {"name": p.name, "role": p.role, "open": _ctx(request).auth.open}
 
-    @r.get("/config/schema")
-    def config_schema() -> dict[str, Any]:
-        models = {"channel": Channel, "device": Device, "tag": Tag, "map_entry": DeviceMapEntry,
-                  "map_defaults": PublishCfg, "device_override": DeviceOverride}
-        return {name: m.model_json_schema() for name, m in models.items()}
+    @r.get("/status")
+    def status(request: Request) -> dict[str, Any]:
+        """Dashboard in one call: process health, every polled device, pending reload."""
+        ctx = _ctx(request)
+        return {"health": ctx.poller.health(), "channels": ctx.poller.channels_summary(),
+                "config": ctx.tracker.status()}
+
+    # --- runtime per device (device ids contain "/": suffix routes come first) ----
+    @r.get("/devices/{device_id:path}/tags")
+    def list_tags(request: Request, device_id: str) -> list[dict[str, Any]]:
+        return _store(request).get_device(device_id)["device"]["tags"]
+
+    @r.post("/devices/{device_id:path}/tags", status_code=201)
+    async def create_tags(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
+                          apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).create_tags(device_id, body, if_match=if_match),
+                            if_match=if_match, apply=apply, status=201)
+
+    @r.get("/devices/{device_id:path}/tags/{tag}")
+    def get_tag(request: Request, device_id: str, tag: str) -> JSONResponse:
+        return with_rev(_store(request).get_tag(device_id, tag))
+
+    @r.put("/devices/{device_id:path}/tags/{tag}")
+    async def put_tag(request: Request, device_id: str, tag: str, body: JsonBody, if_match: IfMatch = None,
+                      apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).update_tag(device_id, tag, body, partial=False,
+                                                                        if_match=if_match),
+                            if_match=if_match, apply=apply)
+
+    @r.patch("/devices/{device_id:path}/tags/{tag}")
+    async def patch_tag(request: Request, device_id: str, tag: str, body: JsonBody, if_match: IfMatch = None,
+                        apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).update_tag(device_id, tag, body, partial=True,
+                                                                        if_match=if_match),
+                            if_match=if_match, apply=apply)
+
+    @r.delete("/devices/{device_id:path}/tags/{tag}")
+    async def delete_tag(request: Request, device_id: str, tag: str, if_match: IfMatch = None,
+                         apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).delete_tag(device_id, tag, if_match=if_match),
+                            if_match=if_match, apply=apply)
+
+    @r.get("/devices/{device_id:path}/status")
+    def device_status(request: Request, device_id: str) -> dict[str, Any]:
+        return _lookup(_ctx(request).poller.device_detail, device_id)
+
+    @r.get("/devices/{device_id:path}/values")
+    def device_values(request: Request, device_id: str) -> dict[str, Any]:
+        return _lookup(_ctx(request).poller.device_values, device_id)
+
+    @r.get("/devices/{device_id:path}/plan")
+    def device_plan(request: Request, device_id: str) -> dict[str, Any]:
+        return _lookup(_ctx(request).poller.device_plan, device_id)
+
+    @r.get("/devices/{device_id:path}/identity")
+    async def device_identity(request: Request, device_id: str) -> dict[str, Any]:
+        try:
+            return await _ctx(request).poller.device_identity(device_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"device {device_id!r} is not polled") from None
+        except Exception as exc:  # noqa: BLE001 - e.g. the safety timeout: report, do not 500
+            return {"connected": True, "identity": {}, "error": f"{type(exc).__name__}: {exc}"}
+
+    @r.post("/devices/{device_id:path}/read-once")
+    async def read_once(request: Request, device_id: str) -> dict[str, Any]:
+        try:
+            return await _ctx(request).poller.read_once(device_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"device {device_id!r} is not polled") from None
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @r.post("/reload")
+    async def reload(request: Request) -> dict[str, Any]:
+        try:
+            return await _ctx(request).reload(request.state.principal)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"reload failed, old config kept: {exc}") from None
 
     # --- channels ----------------------------------------------------------------
-    @r.get("/config/channels")
+    @r.get("/channels")
     def list_channels(request: Request) -> list[dict[str, Any]]:
         return _store(request).list_channels()
 
-    @r.post("/config/channels", status_code=201)
-    def create_channel(request: Request, body: Any = Body(...), if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).create_channel(body, if_match=if_match), 201)
+    @r.post("/channels", status_code=201)
+    async def create_channel(request: Request, body: JsonBody, if_match: IfMatch = None,
+                             apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).create_channel(body, if_match=if_match),
+                            if_match=if_match, apply=apply, status=201)
 
-    @r.get("/config/channels/{channel}")
-    def get_channel(request: Request, channel: str) -> JSONResponse:
-        return _with_rev(_store(request).get_channel(channel))
-
-    @r.patch("/config/channels/{channel}")
-    def patch_channel(request: Request, channel: str, body: Any = Body(...),
-                      if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).update_channel(channel, body, if_match=if_match))
-
-    @r.delete("/config/channels/{channel}")
-    def delete_channel(request: Request, channel: str, if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).delete_channel(channel, if_match=if_match))
-
-    # --- devices -----------------------------------------------------------------
-    @r.get("/config/devices")
-    def list_all_devices(request: Request, channel: str | None = None) -> list[dict[str, Any]]:
-        return _store(request).list_devices(channel)
-
-    @r.get("/config/channels/{channel}/devices")
-    def list_devices(request: Request, channel: str) -> list[dict[str, Any]]:
+    @r.get("/channels/{channel}/devices")
+    def list_channel_devices(request: Request, channel: str) -> list[dict[str, Any]]:
         store = _store(request)
-        store.get_channel(channel)                     # 404 for an unknown channel
+        store.get_channel(channel)                      # 404 for an unknown channel
         return store.list_devices(channel)
 
-    @r.post("/config/channels/{channel}/devices", status_code=201)
-    def create_device(request: Request, channel: str, body: Any = Body(...),
-                      if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).create_device(channel, body, if_match=if_match), 201)
+    @r.post("/channels/{channel}/devices", status_code=201)
+    async def create_device(request: Request, channel: str, body: JsonBody, if_match: IfMatch = None,
+                            apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).create_device(channel, body, if_match=if_match),
+                            if_match=if_match, apply=apply, status=201)
 
-    @r.get("/config/channels/{channel}/devices/{device}")
-    def get_device(request: Request, channel: str, device: str) -> JSONResponse:
-        return _with_rev(_store(request).get_device(_dev_id(channel, device)))
+    @r.get("/channels/{channel}")
+    def get_channel(request: Request, channel: str) -> JSONResponse:
+        return with_rev(_store(request).get_channel(channel))
 
-    @r.put("/config/channels/{channel}/devices/{device}")
-    def put_device(request: Request, channel: str, device: str, body: Any = Body(...),
-                   if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).update_device(_dev_id(channel, device), body, partial=False,
-                                                            if_match=if_match))
+    @r.patch("/channels/{channel}")
+    async def patch_channel(request: Request, channel: str, body: JsonBody, if_match: IfMatch = None,
+                            apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).update_channel(channel, body, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.patch("/config/channels/{channel}/devices/{device}")
-    def patch_device(request: Request, channel: str, device: str, body: Any = Body(...),
-                     if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).update_device(_dev_id(channel, device), body, partial=True,
-                                                            if_match=if_match))
+    @r.delete("/channels/{channel}")
+    async def delete_channel(request: Request, channel: str, if_match: IfMatch = None,
+                             apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).delete_channel(channel, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.delete("/config/channels/{channel}/devices/{device}")
-    def delete_device(request: Request, channel: str, device: str, if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).delete_device(_dev_id(channel, device), if_match=if_match))
+    # --- devices -----------------------------------------------------------------
+    @r.get("/devices")
+    def list_devices(request: Request, channel: str | None = None) -> list[dict[str, Any]]:
+        return _store(request).list_devices(channel)
 
-    # --- tags --------------------------------------------------------------------
-    @r.get("/config/channels/{channel}/devices/{device}/tags")
-    def list_tags(request: Request, channel: str, device: str) -> list[dict[str, Any]]:
-        return _store(request).get_device(_dev_id(channel, device))["device"]["tags"]
+    @r.get("/devices/{device_id:path}")
+    def get_device(request: Request, device_id: str) -> JSONResponse:
+        return with_rev(_store(request).get_device(device_id))
 
-    @r.post("/config/channels/{channel}/devices/{device}/tags", status_code=201)
-    def create_tags(request: Request, channel: str, device: str, body: Any = Body(...),
-                    if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).create_tags(_dev_id(channel, device), body, if_match=if_match), 201)
+    @r.put("/devices/{device_id:path}")
+    async def put_device(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
+                         apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).update_device(device_id, body, partial=False,
+                                                                           if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.get("/config/channels/{channel}/devices/{device}/tags/{tag}")
-    def get_tag(request: Request, channel: str, device: str, tag: str) -> JSONResponse:
-        return _with_rev(_store(request).get_tag(_dev_id(channel, device), tag))
+    @r.patch("/devices/{device_id:path}")
+    async def patch_device(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
+                           apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).update_device(device_id, body, partial=True,
+                                                                           if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.put("/config/channels/{channel}/devices/{device}/tags/{tag}")
-    def put_tag(request: Request, channel: str, device: str, tag: str, body: Any = Body(...),
-                if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).update_tag(_dev_id(channel, device), tag, body, partial=False,
-                                                         if_match=if_match))
-
-    @r.patch("/config/channels/{channel}/devices/{device}/tags/{tag}")
-    def patch_tag(request: Request, channel: str, device: str, tag: str, body: Any = Body(...),
-                  if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).update_tag(_dev_id(channel, device), tag, body, partial=True,
-                                                         if_match=if_match))
-
-    @r.delete("/config/channels/{channel}/devices/{device}/tags/{tag}")
-    def delete_tag(request: Request, channel: str, device: str, tag: str,
-                   if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).delete_tag(_dev_id(channel, device), tag, if_match=if_match))
+    @r.delete("/devices/{device_id:path}")
+    async def delete_device(request: Request, device_id: str, if_match: IfMatch = None,
+                            apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).delete_device(device_id, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
     # --- devices_map.yaml --------------------------------------------------------
-    @r.get("/config/map")
+    @r.get("/map")
     def get_map(request: Request) -> JSONResponse:
-        return _with_rev(_store(request).get_map())
+        return with_rev(_store(request).get_map())
 
-    @r.put("/config/map/defaults")
-    def put_map_defaults(request: Request, body: Any = Body(...), if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).put_map_defaults(body, if_match=if_match))
+    @r.put("/map/defaults")
+    async def put_map_defaults(request: Request, body: JsonBody, if_match: IfMatch = None,
+                               apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).put_map_defaults(body, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.get("/config/map/devices/{device_id:path}")
+    @r.get("/map/devices/{device_id:path}")
     def get_map_entry(request: Request, device_id: str) -> JSONResponse:
-        return _with_rev(_store(request).get_map_entry(device_id))
+        return with_rev(_store(request).get_map_entry(device_id))
 
-    @r.put("/config/map/devices/{device_id:path}")
-    def put_map_entry(request: Request, device_id: str, body: Any = Body(...),
-                      if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).put_map_entry(device_id, body, partial=False, if_match=if_match))
+    @r.put("/map/devices/{device_id:path}")
+    async def put_map_entry(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
+                            apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).put_map_entry(device_id, body, partial=False,
+                                                                           if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.patch("/config/map/devices/{device_id:path}")
-    def patch_map_entry(request: Request, device_id: str, body: Any = Body(...),
-                        if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).put_map_entry(device_id, body, partial=True, if_match=if_match))
+    @r.patch("/map/devices/{device_id:path}")
+    async def patch_map_entry(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
+                              apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).put_map_entry(device_id, body, partial=True,
+                                                                           if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.delete("/config/map/devices/{device_id:path}")
-    def delete_map_entry(request: Request, device_id: str, if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).delete_map_entry(device_id, if_match=if_match))
+    @r.delete("/map/devices/{device_id:path}")
+    async def delete_map_entry(request: Request, device_id: str, if_match: IfMatch = None,
+                               apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).delete_map_entry(device_id, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
     # --- overrides.yaml ----------------------------------------------------------
-    @r.get("/config/overrides")
+    @r.get("/overrides")
     def get_overrides(request: Request) -> JSONResponse:
-        return _with_rev(_store(request).get_overrides())
+        return with_rev(_store(request).get_overrides())
 
-    @r.get("/config/overrides/channels/{channel}")
+    @r.get("/overrides/channels/{channel}")
     def get_channel_override(request: Request, channel: str) -> JSONResponse:
-        return _with_rev(_store(request).get_channel_override(channel))
+        return with_rev(_store(request).get_channel_override(channel))
 
-    @r.put("/config/overrides/channels/{channel}")
-    def put_channel_override(request: Request, channel: str, body: Any = Body(...),
-                             if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).put_channel_override(channel, body, if_match=if_match))
+    @r.put("/overrides/channels/{channel}")
+    async def put_channel_override(request: Request, channel: str, body: JsonBody, if_match: IfMatch = None,
+                                   apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).put_channel_override(channel, body, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.delete("/config/overrides/channels/{channel}")
-    def delete_channel_override(request: Request, channel: str, if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).delete_channel_override(channel, if_match=if_match))
+    @r.delete("/overrides/channels/{channel}")
+    async def delete_channel_override(request: Request, channel: str, if_match: IfMatch = None,
+                                      apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).delete_channel_override(channel, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.get("/config/overrides/devices/{device_id:path}")
+    @r.get("/overrides/devices/{device_id:path}")
     def get_device_override(request: Request, device_id: str) -> JSONResponse:
-        return _with_rev(_store(request).get_device_override(device_id))
+        return with_rev(_store(request).get_device_override(device_id))
 
-    @r.put("/config/overrides/devices/{device_id:path}")
-    def put_device_override(request: Request, device_id: str, body: Any = Body(...),
-                            if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).put_device_override(device_id, body, partial=False,
-                                                                  if_match=if_match))
+    @r.put("/overrides/devices/{device_id:path}")
+    async def put_device_override(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
+                                  apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).put_device_override(device_id, body, partial=False,
+                                                                                 if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.patch("/config/overrides/devices/{device_id:path}")
-    def patch_device_override(request: Request, device_id: str, body: Any = Body(...),
-                              if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).put_device_override(device_id, body, partial=True,
-                                                                  if_match=if_match))
+    @r.patch("/overrides/devices/{device_id:path}")
+    async def patch_device_override(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
+                                    apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).put_device_override(device_id, body, partial=True,
+                                                                                 if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    @r.delete("/config/overrides/devices/{device_id:path}")
-    def delete_device_override(request: Request, device_id: str, if_match: IfMatch = None) -> JSONResponse:
-        return _done(request, _store(request).delete_device_override(device_id, if_match=if_match))
+    @r.delete("/overrides/devices/{device_id:path}")
+    async def delete_device_override(request: Request, device_id: str, if_match: IfMatch = None,
+                                     apply: Apply = False) -> JSONResponse:
+        return await _write(request, lambda: _store(request).delete_device_override(device_id, if_match=if_match),
+                            if_match=if_match, apply=apply)
 
-    # --- export / import ---------------------------------------------------------
-    @r.get("/config/export")
-    def export(request: Request, download: bool = False) -> JSONResponse:
+    # --- project -----------------------------------------------------------------
+    @r.get("/project")
+    def project(request: Request, download: bool = False) -> JSONResponse:
+        """The whole config (the four files' texts): a backup, or a body for /project/import."""
         data = _store(request).export()
-        resp = _with_rev(data)
+        resp = with_rev(data)
         if download:
             resp.headers["Content-Disposition"] = f'attachment; filename="opencap-config-{data["revision"]}.json"'
         return resp
 
-    @r.post("/config/import")
-    async def import_config(request: Request, dry_run: bool = True, filename: str | None = None,
-                            if_match: IfMatch = None) -> JSONResponse:
+    @r.get("/project/status")
+    def project_status(request: Request) -> JSONResponse:
         store = _store(request)
-        raw = await read_json_body(request)
-        report = await run_in_threadpool(store.import_config, raw, dry_run=dry_run, filename=filename,
-                                         if_match=if_match)
-        return await run_in_threadpool(import_response, _ctx(request), request.state.principal, report)
+        return with_rev({**store.summary(), "status": _ctx(request).tracker.status()})
 
-    # --- check / audit -----------------------------------------------------------
-    @r.get("/check")
-    def check(request: Request, site: str | None = None, verbose: bool = False) -> dict[str, Any]:
+    @r.get("/project/pending")
+    def project_pending(request: Request) -> dict[str, Any]:
+        """Does the config on disk differ from the running config? (cheap; the UI polls it)"""
+        return _ctx(request).tracker.status()
+
+    @r.get("/project/schema")
+    def project_schema() -> dict[str, Any]:
+        models = {"channel": Channel, "device": Device, "tag": Tag, "map_entry": DeviceMapEntry,
+                  "map_defaults": PublishCfg, "device_override": DeviceOverride}
+        return {name: m.model_json_schema() for name, m in models.items()}
+
+    @r.get("/project/validate")
+    def project_validate(request: Request, site: str | None = None, verbose: bool = False) -> dict[str, Any]:
+        """`opencap check` as JSON: validation, block plan and cycle estimates of the files."""
         from opencap.core.plan_report import check_report
 
         return check_report(_store(request).dir, site=site, verbose=verbose)
 
+    @r.get("/project/revisions")
+    def project_revisions(request: Request, limit: int = Query(50, ge=1, le=500)) -> dict[str, Any]:
+        """Revisions written through the API, newest first (from the audit log)."""
+        entries = [e for e in _ctx(request).audit.tail(limit * 4) if e.get("revision") and e.get("files")]
+        return {"current": _store(request).revision(),
+                "revisions": [{k: e.get(k) for k in ("revision", "ts", "who", "action", "target", "files")}
+                              for e in entries[:limit]]}
+
+    @r.post("/project/import")
+    async def project_import(request: Request, dry_run: bool = True, filename: str | None = None,
+                             if_match: IfMatch = None, apply: Apply = False) -> JSONResponse:
+        """A KEPServerEX project.json or an opencap export (GET /api/v1/project). Dry run by default."""
+        store = _store(request)
+        if not dry_run:
+            _need_if_match(if_match)
+        raw = await read_json_body(request)
+        report = await run_in_threadpool(store.import_config, raw, dry_run=dry_run, filename=filename,
+                                         if_match=if_match)
+        ctx = _ctx(request)
+        result: Result | None = report.pop("result", None)
+        if result is not None:
+            await run_in_threadpool(ctx.record, request.state.principal, result,
+                                    {"kind": report["kind"], **(result.data or {})})
+            report["applied"], report["changes"] = True, result.changes
+            if apply and result.files:
+                try:
+                    report["reload"] = await ctx.reload(request.state.principal)
+                except Exception as exc:  # noqa: BLE001
+                    report["reload_error"] = f"reload failed, old config kept: {exc}"
+        else:
+            report["applied"] = False
+        report["pending_reload"] = (await run_in_threadpool(ctx.tracker.status)).get("pending_reload", False)
+        return with_rev(report)
+
+    # --- audit -------------------------------------------------------------------
     @r.get("/audit")
     def audit(request: Request, limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0),
               action: str | None = None, who: str | None = None, target: str | None = None) -> dict[str, Any]:
@@ -280,18 +425,3 @@ async def read_json_body(request: Request) -> bytes:
                                                 "type": "too_large"}])
         chunks.append(chunk)
     return b"".join(chunks)
-
-
-def import_response(ctx: ApiContext, principal: Any, report: dict[str, Any]) -> JSONResponse:
-    result: Result | None = report.pop("result", None)
-    if result is not None:
-        ctx.record(principal, result, detail={"kind": report["kind"], **(result.data or {})})
-        report["applied"] = True
-        report["changes"] = result.changes
-    else:
-        report["applied"] = False
-    report["pending_reload"] = ctx.tracker.status().get("pending_reload", False)
-    return _with_rev(report)
-
-
-__all__ = ["build_router", "Unavailable", "NotFound", "read_json_body", "import_response"]

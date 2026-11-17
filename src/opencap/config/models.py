@@ -229,7 +229,8 @@ class SafCfg(_Model):
 
 
 class ApiToken(_Model):
-    """A named API / UI token. The secret itself lives in the env var `token_env`, never in yaml."""
+    """A named API token (also used to log in to the web UI). The secret lives in the env var
+    `token_env`, never in yaml."""
 
     name: str = Field(min_length=1)   # shown in the audit log as "who"
     role: Literal["viewer", "admin"] = "viewer"   # viewer = read-only (GET), admin = also changes
@@ -242,6 +243,7 @@ class ApiCfg(_Model):
     token_env: str = "OPENCAP_API_TOKEN"   # legacy single token: name "default", role admin
     tokens: list[ApiToken] = Field(default_factory=list)
     audit_log: str = "data/audit.jsonl"    # config-change audit log (JSON lines)
+    cors_origins: list[str] = Field(default_factory=list)   # other web origins allowed to call the API (desktop app)
 
     @model_validator(mode="after")
     def _unique_token_names(self) -> "ApiCfg":

@@ -18,6 +18,7 @@ from opencap.config.store import (
     Conflict,
     Invalid,
     NotFound,
+    PreconditionFailed,
     atomic_write,
     merge_patch,
 )
@@ -333,8 +334,10 @@ def test_missing_yaml_files_are_created_from_templates(store: ConfigStore, cfg: 
 def test_if_match(store: ConfigStore):
     rev = store.revision()
     store.update_device(DEV, {"retries": 1}, partial=True, if_match=f'"{rev}"')
-    with pytest.raises(Conflict):
+    with pytest.raises(PreconditionFailed):
         store.update_device(DEV, {"retries": 0}, partial=True, if_match=rev)    # stale now
+    with pytest.raises(Invalid, match="reserved"):
+        store.create_device("SITE MODBUS", {"name": "tags", "driver": "modbus_tcp", "host": "192.0.2.1", "port": 502})
 
 
 def test_broken_files_block_changes(store: ConfigStore, cfg: Path):
@@ -387,7 +390,7 @@ def test_import_kep_apply(store: ConfigStore, cfg: Path):
     assert map_doc["devices"]["SITE PCCC/7 PUMP"]["stub"] is True
     assert map_doc["devices"][DEV] == {"sub_device_id": "SUB_ONE"}               # kept
     assert "# confirmed with the backend 2026-11-01" in (cfg / "devices_map.yaml").read_text()
-    with pytest.raises(Conflict):
+    with pytest.raises(PreconditionFailed):
         store.import_config(SAMPLE.read_bytes(), dry_run=False, if_match=rev)
 
 

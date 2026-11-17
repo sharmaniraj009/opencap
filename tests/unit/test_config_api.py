@@ -1,4 +1,5 @@
-"""Configuration REST API: every endpoint, roles, validation errors, import dry run, audit."""
+"""Configuration REST API under /api/v1: every endpoint, roles, If-Match, validation errors,
+import dry run, audit (contract: docs/architecture/03-deep-dive.md §3.6)."""
 
 from __future__ import annotations
 
@@ -19,8 +20,9 @@ ADMIN = {"Authorization": "Bearer adm1n-secret"}
 VIEWER = {"Authorization": "Bearer v1ewer-secret"}
 LEGACY = {"Authorization": "Bearer legacy-secret"}
 ENV = {"T_ADMIN": "adm1n-secret", "T_VIEW": "v1ewer-secret", "OPENCAP_API_TOKEN": "legacy-secret"}
+V1 = "/api/v1"
 DEV = "SITE MODBUS/Device1"
-DEV_PATH = "/config/channels/SITE MODBUS/devices/Device1"
+DEV_PATH = f"{V1}/devices/{DEV}"
 
 
 def make_config(tmp_path: Path) -> Path:
@@ -48,31 +50,44 @@ def audit_lines(tmp_path: Path) -> list[dict]:
     return [json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
 
 
+def rev(c: TestClient) -> str:
+    return c.get(f"{V1}/project/status", headers=VIEWER).json()["revision"]
+
+
+def admin_w(c: TestClient) -> dict:
+    """Admin headers with If-Match set to the current revision."""
+    return {**ADMIN, "If-Match": f'"{rev(c)}"'}
+
+
 # --- roles -----------------------------------------------------------------------------
 
 ENDPOINTS = [
-    ("get", "/config", None), ("get", "/config/schema", None), ("get", "/config/channels", None),
-    ("post", "/config/channels", {"name": "R SITE"}),
-    ("get", "/config/channels/SITE MODBUS", None), ("patch", "/config/channels/SITE MODBUS", {"enabled": True}),
-    ("get", "/config/devices", None), ("get", "/config/channels/SITE MODBUS/devices", None),
-    ("post", "/config/channels/SITE MODBUS/devices",
-     {"name": "R2", "driver": "modbus_tcp", "host": "192.0.2.3", "port": 502}),
-    ("get", DEV_PATH, None), ("patch", DEV_PATH, {"retries": 1}),
+    ("get", f"{V1}/whoami", None), ("get", f"{V1}/status", None),
+    ("get", f"{V1}/project", None), ("get", f"{V1}/project/status", None), ("get", f"{V1}/project/pending", None),
+    ("get", f"{V1}/project/schema", None), ("get", f"{V1}/project/validate", None),
+    ("get", f"{V1}/project/revisions", None), ("get", f"{V1}/audit", None),
+    ("get", f"{V1}/channels", None), ("post", f"{V1}/channels", {"name": "R SITE"}),
+    ("get", f"{V1}/channels/SITE MODBUS", None), ("patch", f"{V1}/channels/SITE MODBUS", {"enabled": True}),
+    ("get", f"{V1}/channels/SITE MODBUS/devices", None),
+    ("post", f"{V1}/channels/SITE MODBUS/devices", {"name": "R2", "driver": "modbus_tcp", "host": "192.0.2.3", "port": 502}),
+    ("get", f"{V1}/devices", None), ("get", DEV_PATH, None), ("patch", DEV_PATH, {"retries": 1}),
     ("get", f"{DEV_PATH}/tags", None), ("post", f"{DEV_PATH}/tags", {"name": "R", "address": "400401", "dtype": "uint16"}),
     ("get", f"{DEV_PATH}/tags/FLOW_1", None), ("patch", f"{DEV_PATH}/tags/FLOW_1", {"scan_ms": 500}),
-    ("get", "/config/map", None), ("put", "/config/map/defaults", {"env": "prod"}),
-    ("put", f"/config/map/devices/{DEV}", {"sub_device_id": "SUB_R"}), ("get", f"/config/map/devices/{DEV}", None),
-    ("get", "/config/overrides", None),
-    ("put", f"/config/overrides/devices/{DEV}", {"retries": 0}), ("get", f"/config/overrides/devices/{DEV}", None),
-    ("put", "/config/overrides/channels/SITE MODBUS", {"enabled": True}),
-    ("get", "/config/overrides/channels/SITE MODBUS", None),
-    ("get", "/config/export", None), ("get", "/check", None), ("get", "/audit", None),
-    ("get", f"/devices/{DEV}/plan", None), ("get", f"/devices/{DEV}/identity", None),
-    ("delete", "/config/overrides/channels/SITE MODBUS", None),
-    ("delete", f"/config/overrides/devices/{DEV}", None), ("delete", f"/config/map/devices/{DEV}", None),
-    ("delete", f"{DEV_PATH}/tags/R", None), ("delete", "/config/channels/R SITE", None),
-    ("post", "/reload", None),
+    ("get", f"{DEV_PATH}/status", None), ("get", f"{DEV_PATH}/values", None),
+    ("get", f"{DEV_PATH}/plan", None), ("get", f"{DEV_PATH}/identity", None),
+    ("get", f"{V1}/map", None), ("put", f"{V1}/map/defaults", {"env": "prod"}),
+    ("put", f"{V1}/map/devices/{DEV}", {"sub_device_id": "SUB_R"}), ("get", f"{V1}/map/devices/{DEV}", None),
+    ("get", f"{V1}/overrides", None),
+    ("put", f"{V1}/overrides/devices/{DEV}", {"retries": 0}), ("get", f"{V1}/overrides/devices/{DEV}", None),
+    ("put", f"{V1}/overrides/channels/SITE MODBUS", {"enabled": True}),
+    ("get", f"{V1}/overrides/channels/SITE MODBUS", None),
+    ("delete", f"{V1}/overrides/channels/SITE MODBUS", None),
+    ("delete", f"{V1}/overrides/devices/{DEV}", None), ("delete", f"{V1}/map/devices/{DEV}", None),
+    ("delete", f"{DEV_PATH}/tags/R", None), ("delete", f"{V1}/devices/SITE MODBUS/R2", None),
+    ("delete", f"{V1}/channels/R SITE", None),
+    ("post", f"{DEV_PATH}/read-once", None), ("post", f"{V1}/reload", None),
 ]
+NO_IF_MATCH = {f"{DEV_PATH}/read-once", f"{V1}/reload"}
 
 
 def call(c: TestClient, method: str, path: str, body, headers):
@@ -93,18 +108,26 @@ def test_roles_on_every_endpoint(env):
         else:
             assert r.status_code == 403, (method, path, r.text)
             assert "viewer" in r.json()["detail"]
-        r = call(c, method, path, body, ADMIN)
+        headers = ADMIN if method == "get" or path in NO_IF_MATCH else admin_w(c)
+        r = call(c, method, path, body, headers)
         assert r.status_code in (200, 201), (method, path, r.text)
+
+
+def test_open_endpoints(env):
+    c, _, _, _ = env
+    assert c.get(f"{V1}/auth-info").json() == {"open": False}
+    assert c.get("/health").status_code == 200
+    assert c.get(f"{V1}/whoami", headers=VIEWER).json() == {"name": "grafana", "role": "viewer", "open": False}
 
 
 def test_401_has_www_authenticate(env):
     c, _, _, _ = env
-    assert c.get("/config").headers["www-authenticate"] == "Bearer"
+    assert c.get(f"{V1}/channels").headers["www-authenticate"] == "Bearer"
 
 
 def test_legacy_token_is_admin_named_default(env):
     c, _, _, tmp = env
-    assert c.patch(DEV_PATH, json={"retries": 1}, headers=LEGACY).status_code == 200
+    assert c.patch(DEV_PATH, json={"retries": 1}, headers={**LEGACY, "If-Match": rev(c)}).status_code == 200
     assert audit_lines(tmp)[-1]["who"] == "default"
 
 
@@ -128,13 +151,32 @@ def test_token_names_unique_and_default_reserved():
 def test_open_loopback_api_refuses_cross_site_changes(tmp_path):
     poller = ConfigPoller(make_config(tmp_path))
     c = TestClient(create_app(poller, ApiCfg(audit_log=str(tmp_path / "a.jsonl")), environ={}))
-    assert c.patch(DEV_PATH, json={"retries": 1}).status_code == 200
+    assert c.get(f"{V1}/auth-info").json() == {"open": True}
+    assert c.get(f"{V1}/whoami").json()["name"] == "anonymous"
+    assert c.patch(DEV_PATH, json={"retries": 1}, headers={"If-Match": rev(c)}).status_code == 200
     evil = {"Origin": "http://evil.example", "Sec-Fetch-Site": "cross-site"}
+    assert c.post(f"{V1}/reload", headers=evil).status_code == 403
     assert c.post("/reload", headers=evil).status_code == 403
-    assert c.patch(DEV_PATH, json={"retries": 0}, headers=evil).status_code == 403
-    assert c.get("/config", headers=evil).status_code == 200            # reads are fine
+    assert c.patch(DEV_PATH, json={"retries": 0}, headers={**evil, "If-Match": rev(c)}).status_code == 403
+    assert c.get(f"{V1}/channels", headers=evil).status_code == 200           # reads are fine
     lines = [json.loads(x) for x in (tmp_path / "a.jsonl").read_text().splitlines()]
     assert lines[0]["who"] == "anonymous"
+
+
+def test_cors_only_for_configured_origins(tmp_path):
+    poller = ConfigPoller(make_config(tmp_path))
+    c = TestClient(create_app(poller, api_cfg(tmp_path, cors_origins=["tauri://localhost"]), environ=ENV))
+    pre = {"Origin": "tauri://localhost", "Access-Control-Request-Method": "PATCH",
+           "Access-Control-Request-Headers": "authorization,if-match,content-type"}
+    r = c.options(DEV_PATH, headers=pre)
+    assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "tauri://localhost"
+    r = c.get(f"{V1}/whoami", headers={**VIEWER, "Origin": "tauri://localhost"})
+    assert r.headers["access-control-allow-origin"] == "tauri://localhost"
+    evil = c.get(f"{V1}/whoami", headers={**VIEWER, "Origin": "http://evil.example"})
+    assert "access-control-allow-origin" not in evil.headers
+    c2 = TestClient(create_app(poller, api_cfg(tmp_path), environ=ENV))          # none by default
+    r = c2.get(f"{V1}/whoami", headers={**VIEWER, "Origin": "tauri://localhost"})
+    assert "access-control-allow-origin" not in r.headers
 
 
 def test_config_api_without_config_dir_is_503(tmp_path):
@@ -143,19 +185,30 @@ def test_config_api_without_config_dir_is_503(tmp_path):
             return {}
 
     c = TestClient(create_app(Bare(), api_cfg(tmp_path), environ=ENV))
-    assert c.get("/config", headers=ADMIN).status_code == 503
+    assert c.get(f"{V1}/channels", headers=ADMIN).status_code == 503
 
 
 # --- reads -----------------------------------------------------------------------------
 
-def test_config_summary_and_etag(env):
+def test_project_status_and_etag(env):
     c, _, _, _ = env
-    r = c.get("/config", headers=VIEWER)
+    r = c.get(f"{V1}/project/status", headers=VIEWER)
     body = r.json()
     assert body["valid"] and body["counts"]["devices"] == 9
     assert r.headers["etag"] == f'"{body["revision"]}"'
     assert body["status"]["available"] and body["status"]["pending_reload"] is False
-    assert c.get("/config/schema", headers=VIEWER).json()["tag"]["properties"]["dtype"]
+    assert c.get(f"{V1}/project/pending", headers=VIEWER).json()["pending_reload"] is False
+    assert c.get(f"{V1}/project/schema", headers=VIEWER).json()["tag"]["properties"]["dtype"]
+
+
+def test_runtime_status(env):
+    c, _, _, _ = env
+    body = c.get(f"{V1}/status", headers=VIEWER).json()
+    assert body["health"]["mqtt_connected"] is True and body["health"]["saf_queue"] == 7
+    assert [ch["name"] for ch in body["channels"]][0] == "SITE MODBUS"
+    assert body["config"]["pending_reload"] is False
+    assert c.get(f"{DEV_PATH}/status", headers=VIEWER).json()["state"] == "ok"
+    assert c.get(f"{DEV_PATH}/values", headers=VIEWER).json()["FLOW_1"]["quality"] == "good"
 
 
 def test_device_and_tag_reads(env):
@@ -164,151 +217,175 @@ def test_device_and_tag_reads(env):
     assert dev["device"]["id"] == DEV and dev["map_entry"]["stub"] is True
     assert len(c.get(f"{DEV_PATH}/tags", headers=VIEWER).json()) == 9
     assert c.get(f"{DEV_PATH}/tags/FLOW_1", headers=VIEWER).json()["tag"]["address"] == "400045"
-    assert [d["id"] for d in c.get("/config/channels/SITE MODBUS/devices", headers=VIEWER).json()] == [DEV]
-    assert len(c.get("/config/devices", headers=VIEWER).json()) == 9
-    assert c.get("/config/devices?channel=S7 MULTI", headers=VIEWER).json()[1]["name"] == "OUT-2"
-    for path in ("/config/channels/NOPE", "/config/channels/NOPE/devices", "/config/channels/SITE MODBUS/devices/NOPE",
-                 f"{DEV_PATH}/tags/NOPE", "/config/map/devices/NOPE/X", f"/config/overrides/devices/{DEV}",
-                 "/config/overrides/channels/SITE MODBUS"):
+    assert [d["id"] for d in c.get(f"{V1}/channels/SITE MODBUS/devices", headers=VIEWER).json()] == [DEV]
+    assert len(c.get(f"{V1}/devices", headers=VIEWER).json()) == 9
+    assert c.get(f"{V1}/devices?channel=S7 MULTI", headers=VIEWER).json()[1]["name"] == "OUT-2"
+    for path in (f"{V1}/channels/NOPE", f"{V1}/channels/NOPE/devices", f"{V1}/devices/SITE MODBUS/NOPE",
+                 f"{DEV_PATH}/tags/NOPE", f"{V1}/map/devices/NOPE/X", f"{V1}/overrides/devices/{DEV}",
+                 f"{V1}/overrides/channels/SITE MODBUS", f"{V1}/devices/NOPE/X/values"):
         assert c.get(path, headers=VIEWER).status_code == 404, path
 
 
-# --- changes ---------------------------------------------------------------------------
+# --- writes ----------------------------------------------------------------------------
+
+def test_writes_need_if_match(env):
+    c, _, cfg, _ = env
+    before = (cfg / "devices.json").read_bytes()
+    r = c.patch(DEV_PATH, json={"retries": 1}, headers=ADMIN)
+    assert r.status_code == 428 and "If-Match" in r.json()["detail"]
+    r = c.patch(DEV_PATH, json={"retries": 1}, headers={**ADMIN, "If-Match": "0000000000000000"})
+    assert r.status_code == 412 and "changed since" in r.json()["detail"]
+    assert (cfg / "devices.json").read_bytes() == before
+    current = rev(c)
+    assert c.patch(DEV_PATH, json={"retries": 1}, headers={**ADMIN, "If-Match": f'"{current}"'}).status_code == 200
+    r = c.patch(DEV_PATH, json={"retries": 0}, headers={**ADMIN, "If-Match": f'"{current}"'})
+    assert r.status_code == 412                     # two editors never silently overwrite each other
+
 
 def test_change_response_audit_and_pending_reload(env):
     c, poller, cfg, tmp = env
-    r = c.patch(DEV_PATH, json={"timeout_ms": 1500}, headers=ADMIN)
+    r = c.patch(DEV_PATH, json={"timeout_ms": 1500}, headers=admin_w(c))
     body = r.json()
     assert body["ok"] and body["files"] == ["devices.json"] and body["pending_reload"] is True
     assert body["changes"] == [{"path": "timeout_ms", "old": 1000, "new": 1500}]
-    assert r.headers["etag"] == f'"{body["revision"]}"'
+    assert r.headers["etag"] == f'"{body["revision"]}"' and body["revision"] == rev(c)
     entry = audit_lines(tmp)[-1]
     assert entry["who"] == "alice" and entry["role"] == "admin" and entry["via"] == "api"
     assert entry["action"] == "device.update" and entry["target"] == DEV
     assert entry["changes"] == body["changes"] and entry["revision"] == body["revision"]
-    status = c.get("/config", headers=VIEWER).json()["status"]
+    status = c.get(f"{V1}/project/pending", headers=VIEWER).json()
     assert status["channels"]["changed"] == ["SITE MODBUS"]
-    r = c.post("/reload", headers=ADMIN)
+    r = c.post(f"{V1}/reload", headers=ADMIN)
     assert r.json()["restarted"] == ["SITE MODBUS"] and poller.reloads == 1
     assert audit_lines(tmp)[-1]["action"] == "reload"
     assert audit_lines(tmp)[-1]["detail"] == {"restarted": ["SITE MODBUS"]}
-    assert c.get("/config", headers=VIEWER).json()["status"]["pending_reload"] is False
+    assert c.get(f"{V1}/project/pending", headers=VIEWER).json()["pending_reload"] is False
+    revisions = c.get(f"{V1}/project/revisions", headers=VIEWER).json()
+    assert revisions["current"] == body["revision"] and revisions["revisions"][0]["revision"] == body["revision"]
+
+
+def test_apply_reloads_right_after_the_write(env):
+    c, poller, _, tmp = env
+    r = c.patch(f"{DEV_PATH}?apply=true", json={"retries": 0}, headers=admin_w(c))
+    body = r.json()
+    assert body["reload"]["restarted"] == ["SITE MODBUS"] and poller.reloads == 1
+    assert body["pending_reload"] is False
+    assert [e["action"] for e in audit_lines(tmp)] == ["device.update", "reload"]
 
 
 def test_validation_errors_are_422_with_locations(env):
     c, _, cfg, tmp = env
     before = (cfg / "devices.json").read_bytes()
-    r = c.patch(DEV_PATH, json={"port": "x", "timeout_ms": -1.5, "nope": 1}, headers=ADMIN)
+    r = c.patch(DEV_PATH, json={"port": "x", "timeout_ms": -1.5, "nope": 1}, headers=admin_w(c))
     assert r.status_code == 422
     locs = {tuple(e["loc"]) for e in r.json()["detail"]}
     assert {("port",), ("timeout_ms",), ("nope",)} <= locs
-    r = c.post(f"{DEV_PATH}/tags", json={"name": "X", "address": "999999", "dtype": "float32"}, headers=ADMIN)
+    r = c.post(f"{DEV_PATH}/tags", json={"name": "X", "address": "999999", "dtype": "float32"}, headers=admin_w(c))
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["address"]
-    r = c.post(f"{DEV_PATH}/tags", json={"name": "X", "address": "400001", "dtype": "float99"}, headers=ADMIN)
+    r = c.post(f"{DEV_PATH}/tags", json={"name": "X", "address": "400001", "dtype": "float99"}, headers=admin_w(c))
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["dtype"]
-    r = c.patch(DEV_PATH, json={"params": {"max_holding": 0}}, headers=ADMIN)
+    r = c.patch(DEV_PATH, json={"params": {"max_holding": 0}}, headers=admin_w(c))
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["params"]
+    r = c.post(f"{V1}/channels/SITE MODBUS/devices", json={"name": "tags", "driver": "modbus_tcp", "host": "192.0.2.1",
+                                                            "port": 502}, headers=admin_w(c))
+    assert r.status_code == 422 and "reserved" in r.json()["detail"][0]["msg"]
     assert (cfg / "devices.json").read_bytes() == before
     assert audit_lines(tmp) == []                         # rejected changes are not audited
 
 
 def test_non_json_body_is_refused(env):
     c, _, _, _ = env
-    r = c.patch(DEV_PATH, content=b'{"retries": 1}', headers={**ADMIN, "Content-Type": "text/plain"})
+    r = c.patch(DEV_PATH, content=b'{"retries": 1}', headers={**admin_w(c), "Content-Type": "text/plain"})
     assert r.status_code == 422
-    r = c.post("/config/import", content=SAMPLE.read_bytes(), headers={**ADMIN, "Content-Type": "text/plain"})
+    r = c.post(f"{V1}/project/import", content=SAMPLE.read_bytes(), headers={**ADMIN, "Content-Type": "text/plain"})
     assert r.status_code == 422
 
 
-def test_conflicts_and_if_match(env):
+def test_conflicts(env):
     c, _, _, _ = env
-    assert c.post("/config/channels", json={"name": "SITE MODBUS"}, headers=ADMIN).status_code == 409
-    rev = c.get("/config", headers=VIEWER).json()["revision"]
-    assert c.patch(DEV_PATH, json={"retries": 1}, headers={**ADMIN, "If-Match": f'"{rev}"'}).status_code == 200
-    r = c.patch(DEV_PATH, json={"retries": 0}, headers={**ADMIN, "If-Match": f'"{rev}"'})
-    assert r.status_code == 409 and "changed since" in r.json()["detail"]
+    assert c.post(f"{V1}/channels", json={"name": "SITE MODBUS"}, headers=admin_w(c)).status_code == 409
+    r = c.post(f"{DEV_PATH}/tags", json={"name": "FLOW_1", "address": "400001", "dtype": "uint16"}, headers=admin_w(c))
+    assert r.status_code == 409
 
 
 def test_channel_device_tag_lifecycle(env):
     c, _, cfg, _ = env
-    assert c.post("/config/channels", json={"name": "NEW"}, headers=ADMIN).status_code == 201
-    r = c.post("/config/channels/NEW/devices", json={
+    assert c.post(f"{V1}/channels", json={"name": "NEW"}, headers=admin_w(c)).status_code == 201
+    r = c.post(f"{V1}/channels/NEW/devices", json={
         "name": "PLC", "driver": "modbus_tcp", "host": "192.0.2.9", "port": 502,
-        "tags": [{"name": "A", "address": "400001", "dtype": "uint16"}]}, headers=ADMIN)
+        "tags": [{"name": "A", "address": "400001", "dtype": "uint16"}]}, headers=admin_w(c))
     assert r.status_code == 201 and r.json()["target"] == "NEW/PLC"
-    r = c.post("/config/channels/NEW/devices/PLC/tags", json=[
-        {"name": "B", "address": "400002", "dtype": "uint16"}, {"name": "C", "address": "400003", "dtype": "uint16"}],
-        headers=ADMIN)
+    r = c.post(f"{V1}/devices/NEW/PLC/tags", json=[{"name": "B", "address": "400002", "dtype": "uint16"},
+                                                  {"name": "C", "address": "400003", "dtype": "uint16"}],
+               headers=admin_w(c))
     assert r.status_code == 201
-    dev = c.get("/config/channels/NEW/devices/PLC", headers=ADMIN).json()["device"]
-    r = c.put("/config/channels/NEW/devices/PLC", json={**dev, "host": "192.0.2.10"}, headers=ADMIN)
-    assert r.status_code == 200
-    r = c.put("/config/channels/NEW/devices/PLC/tags/A", json={"address": "400010", "dtype": "int16"}, headers=ADMIN)
+    dev = c.get(f"{V1}/devices/NEW/PLC", headers=ADMIN).json()["device"]
+    assert c.put(f"{V1}/devices/NEW/PLC", json={**dev, "host": "192.0.2.10"}, headers=admin_w(c)).status_code == 200
+    r = c.put(f"{V1}/devices/NEW/PLC/tags/A", json={"address": "400010", "dtype": "int16"}, headers=admin_w(c))
     assert r.status_code == 200 and r.json()["data"] == {"name": "A", "address": "400010", "dtype": "int16",
                                                         "enabled": True}
-    r = c.patch("/config/channels/NEW/devices/PLC", json={"name": "PLC2"}, headers=ADMIN)
+    r = c.patch(f"{V1}/devices/NEW/PLC", json={"name": "PLC2"}, headers=admin_w(c))
     assert r.json()["data"]["id"] == "NEW/PLC2"
-    r = c.patch("/config/channels/NEW", json={"name": "NEWER", "enabled": False}, headers=ADMIN)
-    assert r.status_code == 200
-    assert c.get("/config/channels/NEWER/devices/PLC2", headers=ADMIN).json()["device"]["host"] == "192.0.2.10"
-    assert c.delete("/config/channels/NEWER/devices/PLC2/tags/B", headers=ADMIN).status_code == 200
-    assert c.delete("/config/channels/NEWER/devices/PLC2", headers=ADMIN).status_code == 200
-    assert c.delete("/config/channels/NEWER", headers=ADMIN).status_code == 200
-    assert c.delete("/config/channels/NEWER", headers=ADMIN).status_code == 404
+    assert c.patch(f"{V1}/channels/NEW", json={"name": "NEWER", "enabled": False}, headers=admin_w(c)).status_code == 200
+    assert c.get(f"{V1}/devices/NEWER/PLC2", headers=ADMIN).json()["device"]["host"] == "192.0.2.10"
+    assert c.delete(f"{V1}/devices/NEWER/PLC2/tags/B", headers=admin_w(c)).status_code == 200
+    assert c.delete(f"{V1}/devices/NEWER/PLC2", headers=admin_w(c)).status_code == 200
+    assert c.delete(f"{V1}/channels/NEWER", headers=admin_w(c)).status_code == 200
+    assert c.delete(f"{V1}/channels/NEWER", headers=admin_w(c)).status_code == 404
 
 
 def test_map_and_overrides_endpoints(env):
     c, _, cfg, _ = env
-    r = c.put(f"/config/map/devices/{DEV}", json={"sub_device_id": "SUB_REAL"}, headers=ADMIN)
+    r = c.put(f"{V1}/map/devices/{DEV}", json={"sub_device_id": "SUB_REAL"}, headers=admin_w(c))
     assert r.json()["files"] == ["devices_map.yaml"]
-    assert c.patch(f"/config/map/devices/{DEV}", json={"env": "test"}, headers=ADMIN).status_code == 200
-    assert c.get(f"/config/map/devices/{DEV}", headers=VIEWER).json()["entry"] == {"sub_device_id": "SUB_REAL",
-                                                                                 "env": "test"}
-    assert c.put("/config/map/defaults", json={"bogus": 1}, headers=ADMIN).status_code == 422
-    assert c.put("/config/map/defaults", json={"env": "prod"}, headers=ADMIN).json()["data"] == {"env": "prod"}
-    assert c.get("/config/map", headers=VIEWER).json()["defaults"] == {"env": "prod"}
-    r = c.put(f"/config/overrides/devices/{DEV}", json={"tags": {"FLOW_1": {"enabled": False}}}, headers=ADMIN)
+    assert c.patch(f"{V1}/map/devices/{DEV}", json={"env": "test"}, headers=admin_w(c)).status_code == 200
+    assert c.get(f"{V1}/map/devices/{DEV}", headers=VIEWER).json()["entry"] == {"sub_device_id": "SUB_REAL", "env": "test"}
+    assert c.put(f"{V1}/map/defaults", json={"bogus": 1}, headers=admin_w(c)).status_code == 422
+    assert c.put(f"{V1}/map/defaults", json={"env": "prod"}, headers=admin_w(c)).json()["data"] == {"env": "prod"}
+    assert c.get(f"{V1}/map", headers=VIEWER).json()["defaults"] == {"env": "prod"}
+    r = c.put(f"{V1}/overrides/devices/{DEV}", json={"tags": {"FLOW_1": {"enabled": False}}}, headers=admin_w(c))
     assert r.json()["files"] == ["overrides.yaml"]
-    assert c.patch(f"/config/overrides/devices/{DEV}", json={"retries": 0}, headers=ADMIN).status_code == 200
-    assert c.get("/config/overrides", headers=VIEWER).json()["devices"][DEV] == {
+    assert c.patch(f"{V1}/overrides/devices/{DEV}", json={"retries": 0}, headers=admin_w(c)).status_code == 200
+    assert c.get(f"{V1}/overrides", headers=VIEWER).json()["devices"][DEV] == {
         "tags": {"FLOW_1": {"enabled": False}}, "retries": 0}
-    assert c.put("/config/overrides/channels/SITE MODBUS", json={"enabled": "x"}, headers=ADMIN).status_code == 422
-    assert c.put("/config/overrides/channels/SITE MODBUS", json={"enabled": False}, headers=ADMIN).status_code == 200
-    assert c.delete("/config/overrides/channels/SITE MODBUS", headers=ADMIN).status_code == 200
-    assert c.delete(f"/config/overrides/devices/{DEV}", headers=ADMIN).status_code == 200
-    assert c.delete(f"/config/map/devices/{DEV}", headers=ADMIN).status_code == 200
-    assert c.delete(f"/config/map/devices/{DEV}", headers=ADMIN).status_code == 404
-    assert c.put("/config/map/devices/NOPE/X", json={"sub_device_id": "S"}, headers=ADMIN).status_code == 404
+    assert c.put(f"{V1}/overrides/channels/SITE MODBUS", json={"enabled": "x"}, headers=admin_w(c)).status_code == 422
+    assert c.put(f"{V1}/overrides/channels/SITE MODBUS", json={"enabled": False}, headers=admin_w(c)).status_code == 200
+    assert c.delete(f"{V1}/overrides/channels/SITE MODBUS", headers=admin_w(c)).status_code == 200
+    assert c.delete(f"{V1}/overrides/devices/{DEV}", headers=admin_w(c)).status_code == 200
+    assert c.delete(f"{V1}/map/devices/{DEV}", headers=admin_w(c)).status_code == 200
+    assert c.delete(f"{V1}/map/devices/{DEV}", headers=admin_w(c)).status_code == 404
+    assert c.put(f"{V1}/map/devices/NOPE/X", json={"sub_device_id": "S"}, headers=admin_w(c)).status_code == 404
 
 
-# --- export / import / check / audit ---------------------------------------------------
-
-def test_export_and_import_round_trip(env):
-    c, _, cfg, tmp = env
-    r = c.get("/config/export?download=true", headers=VIEWER)
-    exported = r.json()
-    assert "attachment" in r.headers["content-disposition"]
-    assert set(exported["files"]) == {"devices.json", "devices_map.yaml", "overrides.yaml"}
-    c.patch(DEV_PATH, json={"retries": 0}, headers=ADMIN)
-    r = c.post("/config/import", json=exported, headers=ADMIN)                  # dry run by default
-    body = r.json()
-    assert body["applied"] is False and body["files"] == ["devices.json"] and body["kind"] == "opencap-export"
-    assert device_retries(cfg) == 0
-    r = c.post("/config/import?dry_run=false", json=exported, headers={**ADMIN, "If-Match": body["revision"]})
-    assert r.json()["applied"] is True and device_retries(cfg) == 2
-    assert audit_lines(tmp)[-1]["action"] == "config.import"
-
+# --- project: export / import / validate / audit ---------------------------------------
 
 def device_retries(cfg: Path) -> int:
     doc = json.loads((cfg / "devices.json").read_text())
     return next(d for ch in doc["channels"] for d in ch["devices"] if d["id"] == DEV)["retries"]
 
 
+def test_export_and_import_round_trip(env):
+    c, _, cfg, tmp = env
+    r = c.get(f"{V1}/project?download=true", headers=VIEWER)
+    exported = r.json()
+    assert "attachment" in r.headers["content-disposition"]
+    assert set(exported["files"]) == {"devices.json", "devices_map.yaml", "overrides.yaml"}
+    c.patch(DEV_PATH, json={"retries": 0}, headers=admin_w(c))
+    r = c.post(f"{V1}/project/import", json=exported, headers=ADMIN)                  # dry run by default
+    body = r.json()
+    assert body["applied"] is False and body["files"] == ["devices.json"] and body["kind"] == "opencap-export"
+    assert device_retries(cfg) == 0
+    assert c.post(f"{V1}/project/import?dry_run=false", json=exported, headers=ADMIN).status_code == 428
+    r = c.post(f"{V1}/project/import?dry_run=false", json=exported, headers={**ADMIN, "If-Match": body["revision"]})
+    assert r.json()["applied"] is True and device_retries(cfg) == 2
+    assert audit_lines(tmp)[-1]["action"] == "config.import"
+
+
 def test_import_kepserver_dry_run_then_apply(env):
     c, _, cfg, tmp = env
-    c.delete("/config/channels/SITE PCCC", headers=ADMIN)
+    c.delete(f"{V1}/channels/SITE PCCC", headers=admin_w(c))
     before = {p.name: p.read_bytes() for p in cfg.iterdir()}
-    r = c.post("/config/import?filename=project.json", content=SAMPLE.read_bytes(),
+    r = c.post(f"{V1}/project/import?filename=project.json", content=SAMPLE.read_bytes(),
                headers={**ADMIN, "Content-Type": "application/json"})
     body = r.json()
     assert r.status_code == 200 and body["kind"] == "kepserver" and body["applied"] is False
@@ -318,8 +395,8 @@ def test_import_kepserver_dry_run_then_apply(env):
     assert body["import_summary"]["source"]["file"] == "project.json"
     assert {p.name: p.read_bytes() for p in cfg.iterdir()} == before           # dry run wrote nothing
     stale = {**ADMIN, "Content-Type": "application/json", "If-Match": "0000000000000000"}
-    assert c.post("/config/import?dry_run=false", content=SAMPLE.read_bytes(), headers=stale).status_code == 409
-    r = c.post("/config/import?dry_run=false&filename=project.json", content=SAMPLE.read_bytes(),
+    assert c.post(f"{V1}/project/import?dry_run=false", content=SAMPLE.read_bytes(), headers=stale).status_code == 412
+    r = c.post(f"{V1}/project/import?dry_run=false&filename=project.json", content=SAMPLE.read_bytes(),
                headers={**ADMIN, "Content-Type": "application/json", "If-Match": body["revision"]})
     assert r.json()["applied"] is True
     assert "SITE PCCC/7 PUMP" in yaml.safe_load((cfg / "devices_map.yaml").read_text())["devices"]
@@ -329,72 +406,65 @@ def test_import_kepserver_dry_run_then_apply(env):
 
 def test_import_rejects_unknown_documents(env):
     c, _, _, _ = env
-    r = c.post("/config/import", json={"hello": 1}, headers=ADMIN)
-    assert r.status_code == 422
+    assert c.post(f"{V1}/project/import", json={"hello": 1}, headers=ADMIN).status_code == 422
 
 
-def test_check_endpoint(env):
+def test_validate_endpoint(env):
     c, _, _, _ = env
-    report = c.get("/check", headers=VIEWER).json()
+    report = c.get(f"{V1}/project/validate", headers=VIEWER).json()
     assert report["rtt_ms"] == 60.0 and report["totals"]["devices"] == 9
     modbus = next(ch for ch in report["channels"] if ch["name"] == "SITE MODBUS")["devices"][0]
     assert modbus["blocks"] >= 1 and modbus["wire_requests"] >= 1 and "block_plan" not in modbus
     s7 = next(ch for ch in report["channels"] if ch["name"] == "SITE S7")["devices"][0]
     assert "not implemented" in s7["plan_error"]
-    verbose = c.get("/check?site=SITE MODBUS&verbose=true", headers=VIEWER).json()
+    verbose = c.get(f"{V1}/project/validate?site=SITE MODBUS&verbose=true", headers=VIEWER).json()
     assert [ch["name"] for ch in verbose["channels"]] == ["SITE MODBUS"]
     assert verbose["channels"][0]["devices"][0]["block_plan"][0]["describe"].startswith("FC")
-    assert c.get("/check?site=NOPE", headers=VIEWER).json()["ok"] is False
+    assert c.get(f"{V1}/project/validate?site=NOPE", headers=VIEWER).json()["ok"] is False
 
 
-def test_check_reports_an_invalid_config(env):
+def test_validate_reports_an_invalid_config(env):
     c, _, cfg, _ = env
     (cfg / "overrides.yaml").write_text("devices: {X/Y: {timeout_ms: soon}}\n")
-    report = c.get("/check", headers=VIEWER).json()
+    report = c.get(f"{V1}/project/validate", headers=VIEWER).json()
     assert report["ok"] is False and "Overrides" in report["error"]
 
 
 def test_audit_endpoint_filters(env):
     c, _, _, _ = env
-    c.patch(DEV_PATH, json={"retries": 1}, headers=ADMIN)
-    c.put(f"/config/map/devices/{DEV}", json={"sub_device_id": "S"}, headers=ADMIN)
-    entries = c.get("/audit", headers=VIEWER).json()["entries"]
+    c.patch(DEV_PATH, json={"retries": 1}, headers=admin_w(c))
+    c.put(f"{V1}/map/devices/{DEV}", json={"sub_device_id": "S"}, headers=admin_w(c))
+    entries = c.get(f"{V1}/audit", headers=VIEWER).json()["entries"]
     assert [e["action"] for e in entries] == ["map.put", "device.update"]           # newest first
-    assert [e["action"] for e in c.get("/audit?action=device", headers=VIEWER).json()["entries"]] == ["device.update"]
-    assert len(c.get("/audit?limit=1", headers=VIEWER).json()["entries"]) == 1
-    assert c.get("/audit?who=bob", headers=VIEWER).json()["entries"] == []
+    assert [e["action"] for e in c.get(f"{V1}/audit?action=device", headers=VIEWER).json()["entries"]] == ["device.update"]
+    assert len(c.get(f"{V1}/audit?limit=1", headers=VIEWER).json()["entries"]) == 1
+    assert c.get(f"{V1}/audit?who=bob", headers=VIEWER).json()["entries"] == []
+    ui = c.patch(DEV_PATH, json={"retries": 2}, headers={**admin_w(c), "X-Opencap-Client": "ui"})
+    assert ui.status_code == 200 and c.get(f"{V1}/audit?limit=1", headers=VIEWER).json()["entries"][0]["via"] == "ui"
 
 
 # --- runtime additions -----------------------------------------------------------------
 
-def test_device_plan_and_identity(env):
+def test_device_plan_identity_and_read_once(env):
     c, poller, _, _ = env
-    plan = c.get(f"/devices/{DEV}/plan", headers=VIEWER).json()
+    plan = c.get(f"{DEV_PATH}/plan", headers=VIEWER).json()
     assert plan["id"] == DEV and plan["block_plan"] and "invalid" in plan
-    assert c.get(f"/devices/{DEV}/identity", headers=VIEWER).json() == {"connected": False, "identity": {}}
+    assert c.get(f"{DEV_PATH}/identity", headers=VIEWER).json() == {"connected": False, "identity": {}}
     poller.identities[DEV] = {"vendor": "Example"}
-    assert c.get(f"/devices/{DEV}/identity", headers=VIEWER).json()["identity"] == {"vendor": "Example"}
-    assert c.get("/devices/NOPE/X/plan", headers=VIEWER).status_code == 404
-    assert c.get("/devices/NOPE/X/identity", headers=VIEWER).status_code == 404
+    assert c.get(f"{DEV_PATH}/identity", headers=VIEWER).json()["identity"] == {"vendor": "Example"}
+    assert c.post(f"{DEV_PATH}/read-once", headers=ADMIN).json()["FLOW_1"]["quality"] == "good"
+    assert poller.read_onces == [DEV]
+    for path in ("plan", "identity", "status"):
+        assert c.get(f"{V1}/devices/NOPE/X/{path}", headers=VIEWER).status_code == 404
 
 
 def test_reload_failure_keeps_running_and_is_not_audited(env):
     c, poller, cfg, tmp = env
     (cfg / "devices.json").write_text("{ broken")
-    r = c.post("/reload", headers=ADMIN)
+    r = c.post(f"{V1}/reload", headers=ADMIN)
     assert r.status_code == 400 and "old config kept" in r.json()["detail"]
     assert poller.reloads == 0 and audit_lines(tmp) == []
-    assert c.get("/config", headers=VIEWER).json()["status"]["disk_valid"] is False
-
-
-def test_api_starts_without_the_ui_template_engine(tmp_path, monkeypatch):
-    import sys
-
-    monkeypatch.setitem(sys.modules, "jinja2", None)            # as if jinja2 were not installed
-    monkeypatch.delitem(sys.modules, "opencap.api.ui", raising=False)
-    c = TestClient(create_app(ConfigPoller(make_config(tmp_path)), api_cfg(tmp_path), environ=ENV))
-    assert c.get("/config", headers=VIEWER).status_code == 200
-    assert c.get("/ui", follow_redirects=False).status_code == 404
+    assert c.get(f"{V1}/project/pending", headers=VIEWER).json()["disk_valid"] is False
 
 
 async def test_reload_waits_for_a_config_write_in_progress(tmp_path):
@@ -406,7 +476,7 @@ async def test_reload_waits_for_a_config_write_in_progress(tmp_path):
     app = create_app(poller, api_cfg(tmp_path), environ=ENV)
     ctx = app.state.ctx
     ctx.store.lock.acquire()                                    # a multi-file write is under way
-    task = asyncio.create_task(ctx.reload(Principal("alice", "admin", "api")))
+    task = asyncio.create_task(ctx.reload(Principal("alice", "admin")))
     await asyncio.sleep(0.1)
     assert not task.done() and poller.reloads == 0
     ctx.store.lock.release()
@@ -414,7 +484,7 @@ async def test_reload_waits_for_a_config_write_in_progress(tmp_path):
     assert poller.reloads == 1 and not ctx.store.lock.locked()
     # a cancelled reload never leaves the lock taken
     ctx.store.lock.acquire()
-    task = asyncio.create_task(ctx.reload(Principal("alice", "admin", "api")))
+    task = asyncio.create_task(ctx.reload(Principal("alice", "admin")))
     await asyncio.sleep(0.05)
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)

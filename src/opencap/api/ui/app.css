@@ -1,4 +1,5 @@
-/* opencap UI. No inline styles anywhere (Content-Security-Policy: style-src 'self'). */
+/* opencap web UI. No inline styles anywhere (Content-Security-Policy: style-src 'self'). */
+[x-cloak] { display: none !important; }
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dfe3ea;
   --accent: #1f5fbf; --accent-text: #ffffff; --ok: #187a3e; --ok-bg: #e3f4e9; --bad: #b42318; --bad-bg: #fdeceb;
@@ -55,7 +56,6 @@ small, .small { font-size: 0.85em; }
 .banner.info { background: var(--info-bg); }
 .banner button { margin-left: 8px; }
 #flash { max-width: 1280px; margin: 0 auto; padding: 0 var(--gutter); }
-#flash:empty { display: none; }
 .flash { margin: 10px 0; padding: 8px 12px; border-radius: var(--radius); display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .flash ul { margin: 4px 0 0; padding-left: 20px; width: 100%; }
 .flash .close { margin-left: auto; font-size: 1.2em; line-height: 1; }
@@ -139,8 +139,6 @@ label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--t
 .grid-form .field { display: flex; flex-direction: column; justify-content: flex-end; min-height: 100%; }
 #tag-create { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
 .inline-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 10px; }
-.htmx-indicator { opacity: 0; }
-.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
 
 /* phones: tables marked .responsive become stacked cards */
 @media (max-width: 640px) {

@@ -1,14 +1,16 @@
-"""Admin REST API (PLAN.md section 9), configuration API and web UI. Bind to localhost or
-the VPN only.
+"""Admin REST API (PLAN.md section 9), configuration API (`/api/v1`) and the web UI (`/ui/`).
+Bind to localhost or the VPN only.
 
-Auth (D-019, D-029): `Authorization: Bearer <token>`. Tokens are named and carry a role
+Auth (D-019, D-033): `Authorization: Bearer <token>`. Tokens are named and carry a role
 (`viewer`: GET only; `admin`: also changes), see `opencap.api.auth`. The legacy single
 token from the env var named in `poller.yaml` `api.token_env` is the admin "default".
-`/health` and `/metrics` are open so monitoring can scrape them; everything else needs a
-token. With no token set the API refuses to start unless it is bound to a loopback address.
+`/health`, `/metrics`, `/api/v1/auth-info` and the UI's static files are open; everything
+else needs a token.
+With no token set the API refuses to start unless it is bound to a loopback address.
 
-Routes: runtime status (`/channels`, `/devices/...`), `POST /reload`, the configuration API
-(`/config/...`, `/check`, `/audit`, see `config_api.py`) and the UI under `/ui` (`ui.py`).
+Routes: runtime status (`/channels`, `/devices/...`, `POST /reload`; unversioned, kept for
+existing clients), the configuration API (`/api/v1/...`, see `config_api.py`) and the UI,
+a static bundle that uses only `/api/v1` (ADR-0010, `src/opencap/api/ui/`).
 """
 
 from __future__ import annotations
@@ -17,9 +19,10 @@ import ipaddress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from opencap import metrics
 from opencap.api.audit import AuditLog
@@ -32,7 +35,27 @@ from opencap.config.store import ConfigError, ConfigStore
 if TYPE_CHECKING:
     from opencap.core.runtime import Poller
 
-log = structlog.get_logger("opencap.api")
+UI_DIR = Path(__file__).parent / "ui"
+# The UI has no inline script or style; Alpine.js runs as its CSP build (no eval).
+UI_HEADERS = {
+    "Content-Security-Policy": ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                                "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; "
+                                "base-uri 'none'; object-src 'none'"),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+}
+
+
+class _UiFiles(StaticFiles):
+    """The UI bundle, with the security headers on every file."""
+
+    async def get_response(self, path: str, scope: Any) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers.update(UI_HEADERS)
+        if path in ("", ".", "index.html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def _is_loopback(host: str) -> bool:
@@ -45,7 +68,7 @@ def _is_loopback(host: str) -> bool:
 
 
 def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
-               environ: dict[str, str] | None = None, ui: bool = True) -> FastAPI:
+               environ: dict[str, str] | None = None) -> FastAPI:
     """The FastAPI app. `config_dir` defaults to `poller.config_dir`; without one the
     configuration API answers 503 (runtime routes still work)."""
     auth = Auth(cfg, environ)
@@ -55,15 +78,21 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
         )
     config_dir = config_dir if config_dir is not None else getattr(poller, "config_dir", None)
     store = ConfigStore(Path(config_dir)) if config_dir is not None else None
-    ctx = ApiContext(poller=poller, cfg=cfg, auth=auth, store=store, audit=AuditLog(cfg.audit_log))
+    ctx = ApiContext(poller=poller, cfg=cfg, auth=auth, store=store,
+                     audit=AuditLog(cfg.audit_log or None))
 
     def require_token(request: Request) -> Principal:
-        principal = auth.api_principal(request.method, request.headers, request.headers.get("host"))
+        principal = auth.principal(request.method, request.headers, request.headers.get("host"))
         request.state.principal = principal
         return principal
 
     app = FastAPI(title="opencap", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.ctx = ctx
+    if cfg.cors_origins:
+        app.add_middleware(CORSMiddleware, allow_origins=cfg.cors_origins, allow_credentials=False,
+                           allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                           allow_headers=["Authorization", "Content-Type", "If-Match", "X-Opencap-Client"],
+                           expose_headers=["ETag"])
     auth_dep = [Depends(require_token)]
 
     @app.exception_handler(AuthError)
@@ -92,6 +121,11 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
     def health() -> dict:
         return poller.health()
 
+    @app.get("/api/v1/auth-info")
+    def auth_info() -> dict:
+        """Open: does this API need a token? (lets the UI skip its login page in open mode)"""
+        return {"open": auth.open}
+
     @app.get("/metrics")
     def prometheus() -> Response:
         return Response(metrics.render(), media_type="text/plain; version=0.0.4")
@@ -104,19 +138,6 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
     @app.get("/devices/{device_id:path}/values", dependencies=auth_dep)
     def device_values(device_id: str) -> dict:
         return _lookup(poller.device_values, device_id)
-
-    @app.get("/devices/{device_id:path}/plan", dependencies=auth_dep)
-    def device_plan(device_id: str) -> dict:
-        return _lookup(poller.device_plan, device_id)
-
-    @app.get("/devices/{device_id:path}/identity", dependencies=auth_dep)
-    async def device_identity(device_id: str) -> dict:
-        try:
-            return await poller.device_identity(device_id)
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"unknown device {device_id!r}") from None
-        except Exception as exc:  # noqa: BLE001 - e.g. the safety timeout: report, do not 500
-            return {"connected": True, "identity": {}, "error": f"{type(exc).__name__}: {exc}"}
 
     @app.post("/devices/{device_id:path}/read-once", dependencies=auth_dep)
     async def read_once(device_id: str) -> dict:
@@ -138,11 +159,13 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
 
     app.include_router(build_router(), dependencies=auth_dep)
 
-    if ui:
-        try:
-            from opencap.api.ui import install_ui
-        except ModuleNotFoundError as exc:   # the API must not depend on the UI's template engine
-            log.warning("ui_disabled", reason=f"{exc.name} is not installed (pip install 'opencap[north]')")
-        else:
-            install_ui(app, ctx)
+    @app.get("/", include_in_schema=False)
+    def root() -> Response:
+        return RedirectResponse("/ui/", status_code=307)
+
+    @app.get("/ui", include_in_schema=False)
+    def ui_root() -> Response:
+        return RedirectResponse("/ui/", status_code=307)
+
+    app.mount("/ui", _UiFiles(directory=str(UI_DIR), html=True), name="ui")
     return app

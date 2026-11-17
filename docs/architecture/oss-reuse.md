@@ -25,6 +25,8 @@ table; the lead merges it into this file when that PR lands.
 | OPC UA | asyncua | LGPL-3.0 | no | Adopt: imported unmodified, separately installed (LGPL OK); not vendored |
 | MQTT | aiomqtt + paho-mqtt | BSD-3-Clause; EPL-2.0 or EDL-1.0 | no | Adopt (EDL-1.0 = BSD-3) |
 | API | FastAPI, uvicorn | MIT; BSD-3-Clause | no | Adopt (in use) |
+| YAML edits that keep comments (config API) | ruamel.yaml | MIT ([PyPI 0.19.1](https://pypi.org/project/ruamel.yaml/0.19.1/), `LICENSE` in the wheel) | yes (0.19.1) | Adopt (`north` extra; D-034) |
+| Web UI framework, vendored in `src/opencap/api/ui/vendor/` | Alpine.js 3.17.5, CSP build | MIT ([LICENSE.md](https://github.com/alpinejs/alpine/blob/v3.17.5/LICENSE.md)) | yes (3.17.5) | Adopt (vendored, listed in `NOTICE`; D-037) |
 | Metrics | prometheus-client | Apache-2.0 | no | Adopt (in use) |
 | Test broker | amqtt | MIT | no | Test-only |
 

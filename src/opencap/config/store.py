@@ -72,6 +72,8 @@ from opencap.config.models import (
 )
 
 CONFIG_FILES = (POLLER_FILE, DEVICES_FILE, MAP_FILE, OVERRIDES_FILE)
+# `/api/v1/devices/{id}/<suffix>` routes: a device with one of these names would be ambiguous
+RESERVED_DEVICE_NAMES = frozenset({"tags", "values", "plan", "identity", "status", "read-once"})
 EXPORT_FORMAT = "opencap-config"
 MAP_TEMPLATE = DEVICES_MAP_HEADER + "defaults: {}\ndevices: {}\n"
 MAX_IMPORT_BYTES = 64 * 1024 * 1024
@@ -99,6 +101,12 @@ class NotFound(ConfigError):
 
 class Conflict(ConfigError):
     status = 409
+
+
+class PreconditionFailed(ConfigError):
+    """`If-Match` names a revision that is no longer current (someone else changed the config)."""
+
+    status = 412
 
 
 class Invalid(ConfigError):
@@ -432,7 +440,7 @@ class ConfigStore:
     @staticmethod
     def _check_if_match(if_match: str | None, state: _State) -> None:
         if if_match and if_match.strip().strip('"') != state.revision:
-            raise Conflict(f"config changed since revision {if_match.strip().strip(chr(34))} "
+            raise PreconditionFailed(f"config changed since revision {if_match.strip().strip(chr(34))} "
                            f"(now {state.revision}); read it again and retry")
 
     def load_disk(self) -> DiskState:
@@ -743,6 +751,9 @@ class ConfigStore:
     # devices ------------------------------------------------------------------------
     def _device_body(self, body: dict[str, Any], channel: str, name: str, *, given_id: Any) -> dict[str, Any]:
         _check_name(name, "device")
+        if name in RESERVED_DEVICE_NAMES:
+            raise Invalid("reserved device name", [_err(("name",), f"{name!r} is reserved by the API paths; "
+                                                    f"pick another name")])
         _check_name(channel, "channel", loc="channel")
         _check_text(body, "host", "host")
         derived = f"{channel}/{name}"

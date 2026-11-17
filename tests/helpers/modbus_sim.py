@@ -8,6 +8,11 @@
     await sims[0].stop(); await sims[0].restart()   # kill / bring back on the same port
     await stop_sims(sims)
 
+RTU: `ModbusSim.start(device, framer="rtu")` serves Modbus RTU frames (unit id + PDU + CRC) on
+the TCP socket, as a serial-over-TCP gateway in transparent mode would (put `PtyBridge` in front
+for a real tty). An RTU sim stays silent for a unit id it does not serve, like a serial bus.
+`add_unit(device)` adds another unit (multi-drop line) with its own register image.
+
 Fault injection on a running sim: `mute` (accept requests, never answer), `exception_code`
 (answer every read with that Modbus exception), `short_reply` (drop N registers/bits from
 every reply), `identity = None` (reject FC43/14 with exception 01).
@@ -36,6 +41,7 @@ from typing import Any
 
 from pymodbus.constants import ExcCodes
 from pymodbus.exceptions import NoSuchIdException
+from pymodbus.framer import FramerType
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.pdu.mei_message import ReadDeviceInformationResponse
 from pymodbus.server import ModbusTcpServer
@@ -491,7 +497,7 @@ class _Store:
         self._sim = sim
 
     def device_ids(self) -> list[int]:
-        return [self._sim.unit_id]
+        return list(self._sim.images)
 
     async def async_getValues(self, device_id: int, func_code: int, address: int, count: int = 1):
         return self._sim._serve(device_id, func_code, address, count)
@@ -504,12 +510,16 @@ class _Store:
 class ModbusSim:
     """One simulated Modbus TCP device on 127.0.0.1. Create with `await ModbusSim.start(device)`."""
 
-    def __init__(self, device: Device, host: str = SIM_HOST) -> None:
+    def __init__(self, device: Device, host: str = SIM_HOST, framer: str = "socket") -> None:
+        if framer not in ("socket", "rtu"):
+            raise ValueError("framer must be socket or rtu")
+        self.framer = framer
         self.image = SimImage(device)
         self.host = host
         self.port = 0
         self.device = device
         self.unit_id = int(device.params.get("unit_id", 0) or 0)
+        self.images: dict[int, SimImage] = {self.unit_id: self.image}
         self.identity: dict[str, str] | None = dict(DEFAULT_IDENTITY)
         self.mute = False                       # accept requests but never answer
         self.exception_code: int | None = None  # answer every read with this Modbus exception
@@ -519,11 +529,20 @@ class ModbusSim:
         self._server: ModbusTcpServer | None = None
 
     @classmethod
-    async def start(cls, device: Device, *, port: int = 0, host: str = SIM_HOST) -> ModbusSim:
-        """Serve the device's register image. port=0 picks an ephemeral port."""
-        sim = cls(device, host)
+    async def start(cls, device: Device, *, port: int = 0, host: str = SIM_HOST, framer: str = "socket") -> ModbusSim:
+        """Serve the device's register image. port=0 picks an ephemeral port. framer="rtu" serves
+        RTU frames on the socket (RTU over TCP)."""
+        sim = cls(device, host, framer)
         await sim._listen(port)
         return sim
+
+    def add_unit(self, device: Device) -> SimImage:
+        """Serve another unit id (from `device.params.unit_id`) on the same line."""
+        unit = int(device.params.get("unit_id", 0) or 0)
+        if unit in self.images:
+            raise ValueError(f"unit {unit} is already served")
+        self.images[unit] = SimImage(device)
+        return self.images[unit]
 
     @property
     def running(self) -> bool:
@@ -562,8 +581,10 @@ class ModbusSim:
 
     async def _listen(self, port: int) -> None:
         dummy = SimDevice(self.unit_id, simdata=[SimData(0, count=1, values=0, datatype=DataType.REGISTERS)])
+        rtu = self.framer == "rtu"
         server = ModbusTcpServer(
-            dummy, address=(self.host, port),
+            dummy, address=(self.host, port), framer=FramerType.RTU if rtu else FramerType.SOCKET,
+            ignore_missing_devices=rtu,
             trace_packet=self._trace_packet, trace_pdu=self._trace_pdu,
         )
         server.context = _Store(self)          # replace pymodbus' datastore with the SimImage facade
@@ -578,14 +599,15 @@ class ModbusSim:
 
     def _serve(self, device_id: int, func_code: int, address: int, count: int):
         self.request_count += 1
-        if device_id != self.unit_id:
-            raise NoSuchIdException(f"unit {device_id}")     # pymodbus answers exception 0B
+        image = self.images.get(device_id)
+        if image is None:
+            raise NoSuchIdException(f"unit {device_id}")     # pymodbus answers 0B (TCP) / stays silent (RTU)
         if self.exception_code is not None:
             return ExcCodes(self.exception_code)
         area = _FC_AREA.get(func_code)
         if area is None:
             return ExcCodes.ILLEGAL_FUNCTION
-        values = self.image.read(area, address, count)
+        values = image.read(area, address, count)
         if values is None:
             return ExcCodes.ILLEGAL_ADDRESS
         if self.short_reply:

@@ -16,7 +16,8 @@ DType = Literal[
     "bool", "int16", "uint16", "int32", "uint32", "int64", "uint64",
     "float32", "float64", "string",
 ]
-DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client"]
+DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client",
+                     "modbus_rtu", "ab_df1"]
 Quality = Literal["good", "bad_comm", "bad_config", "bad_decode", "stale"]
 
 DEFAULT_TOPIC_PREFIX = "opencap"   # poller.yaml mqtt.topic_prefix default
@@ -190,6 +191,9 @@ class DeviceOverride(_Model):
 class Overrides(_Model):
     channels: dict[str, dict[str, bool]] = Field(default_factory=dict)  # {"SITE": {"enabled": false}}
     devices: dict[str, DeviceOverride] = Field(default_factory=dict)    # key = device id
+    # KEPServer COM port -> where opencap reaches that line (serial drivers with transport: unmapped):
+    # "COM112": "192.0.2.50:4001" (raw TCP gateway), "rfc2217://host:port", "/dev/ttyUSB0"
+    serial_ports: dict[str, str] = Field(default_factory=dict)
 
 
 # --- poller.yaml ------------------------------------------------------------

@@ -230,11 +230,14 @@ def test_load_after_import(tmp_path):
     write_outputs(import_kep(SAMPLE), cfg, tmp_path / "reports")
     loaded = load_config(cfg)
     devices = [d for c in loaded.channels for d in c.devices]
-    assert len(devices) == 9
-    assert len(loaded.excluded) == 6
+    assert len(devices) == 10
+    assert len(loaded.excluded) == 5
     assert all(d.publish.sub_device_id and d.publish.topic for d in devices)
     assert _dev(loaded, "Test OPC/E+H").publish.topic == "opencap/test_opc/e_h/data"
-    assert len(loaded.warnings) == 1 and "9 device(s) use a stub SubDeviceId" in loaded.warnings[0]
+    assert len(loaded.warnings) == 2
+    assert "LC_DF1/Device1: COM112 is not mapped" in loaded.warnings[0]     # DF1: skipped until mapped
+    assert _dev(loaded, "LC_DF1/Device1").enabled is False
+    assert "10 device(s) use a stub SubDeviceId" in loaded.warnings[1]
     # the loaded devices still round-trip through the models
     DevicesFile.model_validate(json.loads(json.dumps(
         {"channels": [c.model_dump(mode="json") for c in loaded.channels]}

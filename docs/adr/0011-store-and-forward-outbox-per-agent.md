@@ -11,7 +11,9 @@ drained in id order, deleted only after PUBACK. Phase 1 acceptance proved no los
 REST client, data logger) need the same guarantee without sharing a failure domain.
 
 ## Decision
-- Every agent configured as durable owns **one outbox file** (`data/outbox/<agent>.sqlite`)
+- Every agent configured as durable owns **one outbox file** (`data/outbox/<agent>.sqlite`;
+  until a second durable agent exists, the one MQTT agent keeps using `saf.path` in both
+  engines, and the per-agent layout arrives with Sparkplug, #51)
   with D-016 semantics: WAL, `synchronous=NORMAL`, ordered drain in windows, delete after
   the peer's acknowledgement, `max_bytes` cap with oldest-first drop and a counter.
 - Agents never share an outbox: a slow database cannot hold back MQTT.

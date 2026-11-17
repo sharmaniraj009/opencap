@@ -36,7 +36,7 @@ These rules come before everything else:
 ```bash
 git clone https://github.com/sharmaniraj009/opencap && cd opencap
 python3.12 -m venv .venv            # 3.12 and 3.13 are tested in CI
-.venv/bin/pip install -e '.[dev,modbus,ab,north,serial]'
+.venv/bin/pip install -e '.[dev,all]'
 .venv/bin/pytest -m "not acceptance"          # must stay green (~30 s)
 .venv/bin/pytest -m acceptance                # slower end-to-end runs
 ```

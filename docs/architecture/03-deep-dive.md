@@ -1,7 +1,8 @@
 # 3. Deep dive
 
-Rust signatures below are the **target contract**. RFC 0001 (`rust-engine` PR) may rename
-things; the lead reconciles the two when that PR lands and updates this file.
+Reconciled with RFC 0001 (`docs/rfc/0001-rust-engine.md`, merged in #64). Where the Rust
+engine already exists, this file describes it as built; where it does not yet, the text is
+the target contract and names the issue that brings it.
 
 ## 3.1 Data model
 
@@ -64,30 +65,47 @@ last good `source_ts` and changes only the quality; never-read tags are `(None, 
 
 ## 3.3 Driver contract
 
-The Python ABC (`src/opencap/drivers/base.py`) is the reference. Rust mirrors it:
+The Python ABC (`src/opencap/drivers/base.py`) is the reference. The Rust trait as built in
+`engine/crates/opencap-core/src/driver.rs` (#64, RFC 0001 §2.5) mirrors it one to one:
 
 ```rust
+#[async_trait]
 pub trait Driver: Send {
+    fn name(&self) -> &'static str;
     /// Pure: parse addresses, merge tags into wire blocks. No I/O, no protocol library calls.
-    fn plan(&self, tags: &[TagDef]) -> Plan;                      // Plan { blocks, invalid: map tag -> reason }
+    fn plan(&self, tags: &[&Tag]) -> Plan;                        // Plan { blocks, invalid: tag -> reason }
     fn connected(&self) -> bool;
-    fn connect_timeout(&self) -> Option<Duration> { None }       // e.g. Logix tag-list upload
-    async fn connect(&mut self) -> Result<(), DriverError>;      // ONE attempt
-    async fn close(&mut self);                                   // idempotent, never fails
-    async fn read(&mut self, block: &Block) -> Result<BlockResult, DriverError>; // ONE attempt
-    async fn identity(&mut self) -> Result<Identity, DriverError> { Ok(Identity::default()) }
-    async fn browse(&mut self) -> Result<Vec<TagDef>, DriverError> { Err(DriverError::Unsupported) }
+    fn reports_connection(&self) -> bool;                         // = Python's "implements `connected`"
+    fn connect_timeout(&self) -> Option<Duration> { None }        // e.g. Logix tag-list upload
+    async fn connect(&mut self) -> Result<(), DriverError>;       // ONE attempt
+    async fn close(&mut self);                                    // idempotent, never fails
+    async fn read(&mut self, block: &dyn Block)                   // ONE attempt; downcast via as_any()
+        -> Result<HashMap<String, TagValue>, DriverError>;        // every tag of the block, any quality
+    async fn identity(&mut self) -> Map<String, Json>;            // {} when the device has none (as Python)
 }
-pub enum DriverError { Comm(String), ConnectionLost(String), BlockConfig(String), Unsupported }
-pub enum Reading { Value(Variant, Option<UtcTime>), Decode(String), BadConfig(String), BadComm(String) }
+pub enum DriverError { Comm(String), ConnectionLost(String), BlockConfig(String), NotImplemented(String), Other(String) }
 ```
+
+- Per-tag outcomes are expressed as the returned `TagValue`'s quality (`good`, `bad_decode`,
+  and, where a protocol reports per-item errors such as Logix CIP status, `bad_config` or
+  `bad_comm`), exactly like Python's `dict[str, TagValue]`.
+- **`browse()`** (automatic tag generation, Python #11) is added to the trait, with a default
+  that returns `NotImplemented`, by the first Rust port that needs it (#43).
+- **Crates:** `engine/crates/opencap-{core,drivers,north,api,engine}` (#64). Each driver moves
+  to its own crate `engine/drivers/<name>` behind an `opencap-engine` Cargo feature (#67)
+  before the ports pile up.
 
 - There is **no write method** on the trait. A future `Writer` trait would live behind a
   Cargo feature and the approved write-safety RFC (ADR-0008).
 - **Push drivers** (OPC UA client subscriptions, MQTT client, BACnet COV, DNP3 unsolicited
-  responses) add `subscribe(blocks, sink)` that delivers batches into the same store path;
-  the worker still owns connection state, retries and health. The Python OPC UA client
-  (`opcua` PR) is the first one; its shape is reviewed against this paragraph.
+  responses). *Today (Python, #61):* the driver keeps the latest notification per tag in a
+  buffer and `read()` returns it without wire traffic (`wire_requests() == 0`); the worker
+  samples it once per rate period and still owns connection state, reconnect/backoff, health
+  and demotion. `Driver.stale_by_read_time` makes staleness count from the last `read()`
+  instead of the device timestamp, because monitored items report only changes. Cost: up to
+  one rate period of latency, and changes between two reads are coalesced. *Target (Rust,
+  #46):* `subscribe(blocks, sink)` delivers notification batches straight into the store path,
+  under the same worker ownership.
 - **Sync libraries** run on the channel's single-thread executor (Python, D-015) or a
   dedicated blocking thread per channel (Rust, `spawn_blocking` is not used for long-lived
   sockets).
@@ -113,7 +131,7 @@ pub enum Reading { Value(Variant, Option<UtcTime>), Decode(String), BadConfig(St
 | No good read within 3 × effective rate | stale tick | none | `stale` |
 | `demote_after` consecutive failed cycles | — | device demoted for `demote_for_ms`, then one probe | unchanged |
 | Driver call exceeds its safety net (`timeout × 1.25 + 0.1 s` × wire requests) | treated as `CommError` | connection closed | `bad_comm` |
-| Rust driver task panics | caught at the channel task boundary | channel restarted, `driver.panic` event logged, metric | `bad_comm` until recovered |
+| Rust device loop panics or errors | caught at the device task boundary | device loop resumes after 1 s, `device.loop_error` event logged, `driver_panics_total{device}` (#66) | `bad_comm` until recovered |
 | Out-of-process plugin dies | plugin host reports | restart with backoff; its devices are `ConnectionLost` | `bad_comm` |
 | Broker / database / north peer down | north agent | outbox keeps rows, link retries with backoff | — |
 | Outbox full (`max_bytes`) | outbox | drop oldest, `saf_dropped_total` | — |

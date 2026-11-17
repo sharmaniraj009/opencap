@@ -1,0 +1,10 @@
+{
+  "document": "poller",
+  "expected_error": "must not be empty",
+  "semantic": true,
+  "data": {
+    "mqtt": {
+      "topic_prefix": " "
+    }
+  }
+}

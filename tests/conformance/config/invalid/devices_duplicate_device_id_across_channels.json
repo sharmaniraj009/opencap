@@ -1,0 +1,50 @@
+{
+  "document": "devices",
+  "expected_error": "duplicate device id",
+  "semantic": true,
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "SITE_A",
+        "devices": [
+          {
+            "id": "X/PLC1",
+            "channel": "SITE_A",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "uint16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SITE_B",
+        "devices": [
+          {
+            "id": "X/PLC1",
+            "channel": "SITE_B",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "uint16"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

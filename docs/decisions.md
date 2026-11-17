@@ -554,3 +554,11 @@ demotes only its devices and they resume, nothing but reads on any line, the unm
 answers STS 0x10 and the block becomes `bad_config` — and ACK timing over the IPsec link); a Modbus RTU slave on
 RS-485 (inter-frame timing, local echo); one byte-for-byte frame capture (D-035); RFC 2217 against a real
 COM-port server.
+
+### D-059 Config JSON Schema exported from the Pydantic models (#2)
+`python -m opencap.config.schema --out schema/` writes `schema/{devices,poller,devices_map,overrides}.schema.json`
+(JSON Schema 2020-12, sorted keys, `$id`, top-level `version`; the `$id` base is the repo URL, not a hosted
+endpoint). A drift test regenerates and compares. Conformance fixtures in `tests/conformance/config/` are
+`{"document", "data"}` envelopes (invalid ones add `expected_error` and `semantic`, true when only Pydantic's
+validators, not the schema, can reject it) so the Rust engine can load them without knowing the file naming.
+`jsonschema` (MIT) is a dev dependency only. The CLI is not wired into `opencap.__main__` yet (issue scope).

@@ -442,10 +442,15 @@ and on manual dispatch.
 
 ## Contributing, security, license
 
-- [CONTRIBUTING.md](CONTRIBUTING.md): development setup, how to add a driver, the decisions log.
+- [CONTRIBUTING.md](CONTRIBUTING.md): development setup, the engineering protocol (board,
+  claims, reviews), how to add a driver, the decisions log.
 - [SECURITY.md](SECURITY.md): how to report a vulnerability privately; what never to post in
   an issue (real PLC addresses, project exports, credentials).
 - [ROADMAP.md](ROADMAP.md): the plan to cover what KEPServerEX does.
+- [docs/architecture/](docs/architecture/README.md) and [docs/adr/](docs/adr/README.md): the
+  architecture of record and its decision records.
+- [Program board](https://github.com/sharmaniraj009/opencap/issues/1)
+  ([mirror](docs/BOARD.md)): status, who works on what, next priorities.
 
 ## License
 

@@ -14,7 +14,7 @@ and returns validated models. Order of application for a device:
 3. publish settings, lowest priority first: devices.json `publish` ->
    `devices_map.yaml` `defaults` -> `overrides.yaml` `publish` ->
    `devices_map.yaml` entry (`sub_device_id`, `topic`, `env`)
-4. `publish.topic` still unset -> `default_topic(device)`
+4. `publish.topic` still unset -> `default_topic(device, poller.mqtt.topic_prefix)`
 
 Unknown channel names, device ids and tag names in `overrides.yaml` / `devices_map.yaml`
 are warnings, not errors. Invalid values are errors (pydantic `ValidationError`).
@@ -32,6 +32,7 @@ from typing import Any
 import yaml
 
 from opencap.config.models import (
+    DEFAULT_TOPIC_PREFIX,
     Channel,
     Device,
     DeviceMap,
@@ -75,8 +76,9 @@ def slug(s: str) -> str:
     return out or "_"
 
 
-def default_topic(device: Device) -> str:
-    return f"opencap/{slug(device.channel)}/{slug(device.name)}/data"
+def default_topic(device: Device, prefix: str = DEFAULT_TOPIC_PREFIX) -> str:
+    """`<prefix>/<slug(channel)>/<slug(device)>/data`; `prefix` is poller.yaml `mqtt.topic_prefix`."""
+    return f"{prefix}/{slug(device.channel)}/{slug(device.name)}/data"
 
 
 def _ids(ids: list[str]) -> str:
@@ -201,7 +203,7 @@ def load_config(config_dir: Path) -> LoadedConfig:
             dev["publish"] = publish
             new = Device.model_validate(dev)
             if new.publish.topic is None:
-                new.publish.topic = default_topic(new)
+                new.publish.topic = default_topic(new, poller.mqtt.topic_prefix)
             devices.append(new)
         channels.append(Channel(name=ch.name, enabled=ch_enabled, devices=devices))
 

@@ -74,7 +74,7 @@ maps it to `bad_decode`. One shared frozen dataclass replaces the per-driver cop
   (229 duplicate Micro800 addresses). Tag lookup is case-sensitive.
 
 ### D-009 PCCC-style addresses on a Micro800 device are `bad_config`
-Device "2 PUMP" (Micro800 driver in KEPServer) has 132 PCCC-style addresses (`F28:0`,
+One device (Micro800 driver in KEPServer) has 132 PCCC-style addresses (`F28:0`,
 `B3:0/14`) that a Micro800 cannot serve. They fail in KEPServer too, so the device is
 probably set to the wrong driver. The 13 symbolic names on PCCC devices are `bad_config`
 as well.
@@ -93,7 +93,7 @@ as well.
 - Modbus port comes from the device key (502). The channel port key is not the PLC port.
 - Scan mode 2 ("all data at scan rate"): device `scan_ms` = rate, tag rates dropped.
   Scan mode 1 ("no faster than"): `min_scan_ms` = max(default, rate).
-- The trailing-space id string `"192.0.2.10 "` (Site 130) is recovered.
+- A trailing-space id string such as `"192.0.2.10 "` (one device) is recovered.
   kep2poller dropped this device.
 - Kepware's scaled data type has no field in `Scale` and is dropped (20 tags; 4 scale to Word).
 - Mitsubishi `plc_type = "Q"` for KEPServer model 5 is a guess. **Confirm on site.** The
@@ -112,7 +112,7 @@ SEWAGE_LAST_DAY vs SEWAGE_PREVIOUS_DAY_TOTALIZER) come out as suspect.
 Publish settings, lowest priority first: devices.json → `devices_map.yaml` `defaults` →
 `overrides.yaml` `publish` → the device's `devices_map.yaml` entry. Default topic:
 `opencap/<slug(channel)>/<slug(device)>/data`, lowercase, MQTT-safe (e.g.
-`opencap/site_001/8_pump/data`). `devices_map.yaml` is never rewritten. New devices are
+`opencap/site_001/8_pump/data`); the `opencap` level is `mqtt.topic_prefix` (D-028). `devices_map.yaml` is never rewritten. New devices are
 appended as `stub: true`, or written to `devices_map.stubs.yaml` when appending is not safe.
 
 ## Phase 1
@@ -188,7 +188,7 @@ topic + payload bytes (not file size), and the oldest rows are dropped first
   The deadband is absolute and compared with the last published, rounded value.
 - Status messages (retained) are sent at start, on a state change (checked every 1 s) and
   every 60 s. `stop()` publishes `offline` (retained) before a clean disconnect. The
-  last-will topic is `opencap/poller/<slug(instance)>/status`.
+  last-will topic is `opencap/poller/<slug(instance)>/status` (prefix configurable, D-028).
 - aiomqtt's `publish(qos=1)` returns only on a real PUBACK (paho fires `on_publish` for
   QoS > 0 only from its PUBACK handler). A lost connection does not wake a waiting publish,
   so the link watches `client.messages` to detect a disconnect and opens a new client per
@@ -322,7 +322,7 @@ picks by catalog prefix. Stock pycomm3 `SLCDriver` works against it unmodified.
   hardware.
 - `tables_for(tags)` builds data tables that cover a device's addresses, so the 30 real
   PCCC devices can be simulated with their real tag lists and block plans.
-- **Real-project finding:** on Site 092/10 PUMP, `LT_1_CURRENTDAY_HOUR` is `F54:17`
+- **Real-project finding:** on one SLC device, one tag is `F54:17`
   while its 36 siblings use `N54` (`N54:17`, …). It cannot read on the PLC and is
   `bad_config`. Check it on site; it is almost certainly a typo in the KEPServer project.
 
@@ -357,3 +357,69 @@ picks by catalog prefix. Stock pycomm3 `SLCDriver` works against it unmodified.
   and block plans: 10,298 tags verified (KEPServer scaling included), 21 `bad_config` at plan
   time (RTC, symbolic), 1 rejected by the directory (`F54:17`), 694 blocks → 691 requests/s at
   a 1 s scan (one request per block).
+
+## Open-source project setup
+
+### D-028 Configurable MQTT topic prefix (`mqtt.topic_prefix`)
+Every derived topic used to start with a hard-coded `opencap/`. `poller.yaml`
+`mqtt.topic_prefix` (default `"opencap"`, so existing deployments are unchanged) now sets
+the first level(s) of the default data topic `<prefix>/<channel>/<device>/data` (applied
+by the loader), the device status topic `<prefix>/<channel>/<device>/status`, and the LWT
+and online topic `<prefix>/poller/<instance>/status`.
+- The prefix is used **verbatim**: it is not slugged, so `Acme/plant-1` stays as typed.
+  Channel, device and instance levels are still slugged. A prefix may have several
+  levels; it is rejected at load time if it is empty, contains `+`, `#` or NUL, starts with
+  `$`, or has an empty level (`/x`, `x/`, `x//y`).
+- An explicit `publish.topic` (`devices_map.yaml` or `overrides.yaml`) is used as is; the
+  prefix does not apply to it.
+- `default_topic()`, `status_topic()`, `lwt_topic()` and `Publisher` take the prefix as an
+  optional argument that defaults to `opencap`, so existing callers keep working.
+- **Reload:** a changed prefix moves the data and status topics at the next reload (the
+  loader and the publisher are rebuilt). The MQTT link, and with it the LWT topic and
+  every other `mqtt` setting, is built once at start, so those change only at restart.
+  A reload that changes `mqtt` logs `mqtt_settings_changed`. Retained status messages
+  under the old prefix stay on the broker until they are cleared.
+
+### D-029 CI runs on Python 3.12 and 3.13
+D-003: development was on 3.14 only. CI (`.github/workflows/ci.yml`) now runs
+`pytest -m "not acceptance"` on 3.12 and 3.13 for every push and pull request, and
+`pytest -m acceptance` on both nightly and on manual dispatch (`OPENCAP_OUTAGE_S` is an
+input, default 8 s). Running the suite on 3.12.3 and 3.13 exposed no incompatibility; no
+code change was needed. A third job builds the wheel, installs it in a clean virtualenv,
+builds the container image, and smoke-tests it (`--help`, `import-kep` of the sample
+project, `check`, non-root uid). `pyproject.toml` now needs setuptools ≥ 77, which is what
+reads the SPDX `license = "Apache-2.0"` expression and `license-files` (PEP 639).
+
+### D-030 Packaging: container image, systemd, logs
+- **Image:** `python:3.12-slim` (D-017: 3.12 accepts a CA without keyUsage), a
+  two-stage build (wheels, then a runtime image with no build tools). `tzdata` is
+  installed for `payload.timezone`. It runs as the non-root user `opencap` (uid 10001)
+  from `/opencap`, so the default `saf.path` `data/saf.sqlite` lands in the
+  `/opencap/data` volume; config is a second, read-only volume. Entrypoint `opencap`,
+  default command `run --config /opencap/config`. `EXTRAS` (build arg) selects drivers.
+  The health check probes `/health`, which is liveness only (it answers while the process
+  runs).
+- **API in a container:** the default `api.bind: 127.0.0.1` is not reachable through a
+  published port. The image does not change the default; the deployment guide says to set
+  `api.bind: 0.0.0.0` together with a token, which D-019 enforces.
+- **systemd:** `Restart=on-failure`, no start limit, secrets from an optional
+  `EnvironmentFile`, `StateDirectory=` as the working directory, a hardened sandbox, and
+  SIGHUP as `ExecReload`.
+- **Logs:** opencap never writes or rotates log files. JSON lines go to stdout, and
+  journald, Docker's log driver or WinSW rotate them (`docs/deployment.md`).
+
+### D-031 Windows: no SIGHUP, selector event loop, WinSW
+- `Poller.run_forever()` referenced `signal.SIGHUP`, which does not exist on Windows, so
+  `opencap run` failed there with an `AttributeError` before it started. The signal table
+  now includes SIGHUP only where it exists. On Windows, reload is `POST /reload`.
+- aiomqtt (paho) needs `loop.add_reader`, which the default Windows `ProactorEventLoop`
+  lacks. `opencap run` passes `asyncio.run(..., loop_factory=event_loop_factory())`:
+  `SelectorEventLoop` on Windows, the default loop elsewhere.
+- The service wrapper is WinSW v2 (`deploy/windows/opencap-service.xml`). It runs
+  `python.exe -m opencap run` (one process, so WinSW's Ctrl+C on stop reaches opencap;
+  asyncio turns it into a cancellation, and `run_forever()` then calls `stop()`; asyncio
+  then re-raises `KeyboardInterrupt`, which `opencap run` turns into a clean exit 0). It
+  restarts on failure and rolls logs by size. That stop path was checked on Linux with
+  `add_signal_handler` disabled, as on Windows: `poller_stopped` and every channel closed.
+- **Not tested on real Windows yet.** Both fixes are covered by unit tests on Linux; the
+  WinSW setup follows WinSW's documentation.

@@ -78,11 +78,11 @@ def read_cmd(
         cache.register(device)
         worker = ChannelWorker(single, {device.id: plan}, cache)
         try:
-            return await worker.read_once(device.id)
+            return await worker.read_once(device.id), worker.device_status(device.id).get("last_error")
         finally:
             await worker.stop()
 
-    values = asyncio.run(go())
+    values, last_error = asyncio.run(go())
     names = [tag] if tag else sorted(values)
     for name in names:
         tv = values.get(name)
@@ -91,6 +91,8 @@ def read_cmd(
             continue
         typer.echo(f"{name:<40} {tv.quality:<10} {tv.value!r}")
     bad = sum(1 for tv in values.values() if tv.quality != "good")
+    if bad and last_error:
+        typer.echo(f"{device_id}: {last_error}", err=True)
     raise typer.Exit(0 if bad == 0 else 3)
 
 

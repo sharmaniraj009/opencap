@@ -32,6 +32,8 @@ client library talks to unmodified; deviations are recorded in
 | Admin API and metrics | ✅ | `/health`, `/metrics` open; devices, values, read-once and reload behind a bearer token; refuses a non-loopback bind without a token; Prometheus metrics for requests, cycles, states and outbox. |
 | Config reload | ✅ | SIGHUP or `POST /reload` restarts only the channels whose config changed; a bad config keeps the old one running. |
 | Project infrastructure | ✅ | Apache-2.0 license, CI on Python 3.12 and 3.13, container image, systemd unit, Windows service definition, configurable MQTT topic prefix. |
+| Modbus RTU driver (`modbus_rtu`) | ✅ | Same planning as Modbus TCP over a serial line or RTU over TCP; round trips against pymodbus' RTU server on TCP and behind a pty; one connection and one request at a time per line. Field check on a real RS-485 slave still to do. |
+| Allen-Bradley DF1 driver (`ab_df1`) | ✅ | SLC/MicroLogix data-table reads over DF1 full duplex (own link layer: BCC/CRC, ACK/NAK/ENQ, retries, duplicate detection) against a DF1 simulator on TCP and behind a pty; KEPServerEX DF1 devices are imported and polled once `overrides.yaml` `serial_ports` maps their COM port. Field check on a real MicroLogix/SLC and the site gateways still to do. |
 
 ## In progress (parallel pull requests)
 
@@ -41,8 +43,6 @@ client library talks to unmodified; deviations are recorded in
 | Mitsubishi MC driver (`melsec_mc`) | 🚧 | 3E-frame batch reads of word and bit devices (D, M, X, Y, ...) against a simulator that the client library talks to unmodified; KEPServerEX Mitsubishi Ethernet devices import and poll. |
 | OPC UA client driver (`opcua_client`) | 🚧 | Reads (and subscriptions where configured) from an asyncua test server with security policies None and Basic256Sha256; credentials from environment variables only. |
 | OPC UA server (north side) | 🚧 | SCADA/HMI clients browse `channel/device/tag` and read live values with quality and source timestamps; read-only address space; authenticated, encrypted endpoints. |
-| Modbus RTU (serial) driver | 🚧 | Same planning as Modbus TCP over a serial line; round trips against a simulated serial slave (pty pair); one request at a time per port. |
-| Allen-Bradley DF1 (serial) driver | 🚧 | SLC/MicroLogix data-table reads over DF1 full duplex against a simulator; the devices the importer excludes today as "DF1 serial" are imported and polled. |
 | Web UI and config API | 🚧 | Browse channels, devices and live values; edit `overrides.yaml` and `devices_map.yaml` through a validated API that writes the files atomically; changes go live through reload; same token as the admin API. |
 
 ## Rust engine, desktop apps and SCADA connectivity

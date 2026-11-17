@@ -457,3 +457,100 @@ the admin API and `run`/`check`/`read`/`identity`, ported rule by rule from the 
   handed to the MQTT link to that file (JSON lines) before it enters the outbox; the
   conformance adapter uses it where the Python test spied on `link.publish`.
 
+## Serial PLCs: Allen-Bradley DF1, Modbus RTU (M1)
+
+### D-033 Serial transports, and one connection per physical line
+- `params.transport` selects how a serial line is reached: `tcp` (raw TCP to a serial-over-TCP gateway or
+  virtual COM server, the migrated site's setup), `serial` (a local port; the device path goes in `Device.host`,
+  `port` 0, so no new field and the API/`check` still show where the device is), `rfc2217`, or `unmapped`.
+  pyserial is the optional extra `serial`; a TCP gateway needs no extra package.
+- **Shared lines.** Several devices on one line (stations behind a bridge, unit ids on RS-485, several KEPServer
+  devices on one COM port) must share one connection: a serial port opens once (pymodbus opens it exclusively)
+  and many gateways accept one TCP client. `_serial.LinkPool` (one per event loop) hands every driver on the same
+  endpoint (kind, host, port) the same open link; an error that closes the line closes it for all of them (they
+  reconnect on their next request); the last driver to leave closes it. The ChannelWorker's wire lock already
+  allows one request per channel; a per-line lock also serialises devices of different channels pointed (by
+  mistake) at one line.
+- Errors: open failure, peer close, hang-up (EIO on a tty) → `TransportClosed`, a `ConnectionLost`; a read
+  timeout is a `TimeoutError` that the drivers turn into `CommError`.
+- RFC 2217 goes through pyserial's `rfc2217://` client (polled reads, no file descriptor), tested against
+  pyserial's own `PortManager`. pymodbus' serial transport needs a file descriptor, so modbus_rtu offers no RFC 2217.
+- Test artefact: a Linux pty refuses parity on every open but the first (EINVAL from tcsetattr); the pty tests
+  use 8N1. Real serial ports do not do this.
+
+### D-034 ab_df1: own DF1 full-duplex link layer, PCCC reads from the ab_pccc planner
+- No maintained Python DF1 library exists, so the link layer is in `drivers/ab_df1.py` (DF1 manual 1770-6.5.16):
+  DLE STX/ETX framing, DLE stuffing (check bytes are not stuffed), BCC and CRC-16/ARC (over data + ETX, low byte
+  first), DLE ACK/NAK/ENQ (also embedded in a frame), NAK → resend (`nak_retries` 3), ACK timeout → ENQ
+  (`ack_timeout_ms` 1000, `enq_retries` 3), duplicate detection on SRC/CMD/STS/TNS. The whole transaction is
+  bounded by `device.timeout_ms`; the ChannelWorker's retries use a new TNS.
+- **Reads:** one `ab_pccc` block = one protected typed logical read, CMD 0x0F FNC 0xA2 with exactly the fields
+  pycomm3 sends over EtherNet/IP (cross-checked against pycomm3's `parse_tag`); `read_fnc: a1` selects the
+  two-field variant. Reply bytes become exactly what pycomm3's `_parse_read_reply` returns (cross-checked on random
+  data for every block kind), so `ab_pccc.decode_block` decodes both drivers identically. `plan_pccc()` was pulled
+  out of `AbPcccDriver.plan` (behaviour unchanged) so both drivers share it.
+- **Reply matching by TNS and CMD | 0x40 only, not by SRC.** On a point-to-point full-duplex link the PLC answers
+  from its own configured station number whatever DST said; checking SRC would reject every reply of a PLC whose
+  station differs from the KEPServer device id. A different SRC is counted (`source_mismatch`) and logged once.
+  Late and duplicate replies are ACKed and dropped (a late reply after a timeout is never taken for a newer request).
+- `close_on_timeout` defaults to **false** (Modbus: true): TNS matching makes a late reply harmless, and closing a
+  serial port or gateway socket does not help a PLC that does not answer; demotion still closes the line.
+- No file-directory check over DF1 (reading system file 0 is ~35 extra requests on a slow line): a block for a
+  missing file is rejected by the PLC's STS 0x10 → `BlockConfigError`, as `ab_pccc` does without a directory.
+- **Known DF1 gap (spec behaviour):** if a frame is lost entirely after earlier traffic, the PLC answers our ENQ
+  with its last response (the ACK of the previous frame); we then wait for a reply that never comes and the
+  attempt fails within `timeout_ms`. The worker's retry succeeds. On a fresh line the last response is NAK and the
+  frame is resent at once.
+- Not supported: half duplex, PLC-5 typed reads (FNC 0x68), DH+/DH-485 routing beyond DST/SRC, unsolicited PLC
+  messages (ACKed, dropped), writes (only (0x0F, 0xA2), (0x0F, 0xA1), (0x06, 0x03) can be sent).
+
+### D-035 DF1 check vectors are not the manual's own
+The DF1 manual's worked example frames could not be retrieved from this environment (no copy of 1770-6.5.16
+reachable). The tests use instead: the CRC-16/ARC catalogue check value (b"123456789" → 0xBB3D, the algorithm the
+manual specifies), frames computed with an independent bitwise CRC and checked by hand for the BCC (including a
+check byte equal to DLE), random round trips split at every chunk boundary, and the simulator's separate link
+implementation. Breaking the CRC scope (no ETX), duplicate detection, TNS matching, ENQ, NAK, retransmission or
+word signedness each fails the tests (mutation-checked). **Still to do:** compare one captured frame from the site
+(or the manual) byte for byte.
+
+### D-036 modbus_rtu on pymodbus' RTU framer
+- `ModbusRtuDriver` subclasses `ModbusTcpDriver`: same params, parser, planner, decoder, error mapping and
+  identity (FC43/14). Wire: `AsyncModbusSerialClient(framer=RTU)` for `serial`, `AsyncModbusTcpClient(framer=RTU)`
+  for `tcp` (RTU over TCP). Units on one line share the client (D-033).
+- pymodbus does not keep the RTU inter-frame silence: the driver waits `inter_frame_ms` (default 3.5 characters at
+  `baudrate`, ≥ 1.75 ms) since the last frame on the line before each request.
+- RTU has no transaction id, so a reply that arrives after its request timed out could be taken for the next
+  request's (pymodbus only checks unit id and function code). `close_on_timeout` stays true by default: closing
+  the line throws such late bytes away.
+- The RTU simulator is pymodbus' own server with the RTU framer (`ModbusSim(framer="rtu")`, silent for unknown
+  unit ids like a serial bus, `add_unit` for multi-drop); `PtyBridge` puts it behind a tty for the serial path.
+
+### D-037 Importer and loader: DF1 devices are imported, unmapped until overrides.yaml maps the COM port
+- "Allen-Bradley DF1" devices are no longer excluded ("DF1 serial: Phase 7" is gone): they become `ab_df1` with
+  `transport: unmapped`, `host` = the COM port name (`COM112`), `port` 0, the channel's serial settings, the
+  device's station and error check. Raw KEPServer serial/DF1 values are kept in `source.kep_serial` / `kep_df1`.
+- `overrides.yaml` gets `serial_ports: {COMnnn: "host:port" | "tcp://…" | "rfc2217://…" | "/dev/…"}`. The loader
+  maps every unmapped serial device whose `params.com_port` matches (case-insensitive); per-device overrides win.
+  A device that stays unmapped is **disabled with a warning** (not polled, not published; `opencap check` shows
+  it `(disabled)` with its block plan); a bad mapping or an unsupported transport is a config error.
+- `opencap read` now prints the device's last error on stderr when tags are not good (it printed only
+  `bad_comm`; this helps every driver).
+- **Unverified KEPServer keys (no real DF1 export here):** serial settings are read from
+  `servermain.CHANNEL_SERIAL_COMMUNICATIONS_{COM_ID,BAUD_RATE,DATA_BITS,PARITY,STOP_BITS}` (with a suffix match as
+  fallback), parity as ASCII codes (78 N, 69 E, 79 O) or names; the error check from any DF1-prefixed key named
+  `*ERROR_CHECK*`/`*CHECKSUM*` (strings with CRC/BCC trusted; 0/1 read as BCC/CRC and flagged); absent → CRC,
+  flagged. The station id is read as decimal; ids ≥ 8 are flagged because the meaning of
+  `servermain.DEVICE_ID_FORMAT` (octal/decimal/hex codes) is not verified. Half duplex in a link-protocol key is
+  flagged. **Check all of these against the real export** (`reports/import_summary.json` lists each one).
+
+### D-038 Simulated serial acceptance; real hardware still to do
+`tests/integration/test_serial_acceptance.py` (acceptance): 5 DF1 devices on 4 lines (CRC, BCC, two stations on one
+line, one line behind a tty mapped as a local serial port) and 4 Modbus RTU devices on 3 lines (mapped through
+`serial_ports`, configured by hand, two units on one line), plus one unmapped DF1 device, through the whole poller
+and MQTT: correct values, values follow the PLC, NAKs and corrupted replies cost nothing, a gateway power-off
+demotes only its devices and they resume, nothing but reads on any line, the unmapped device is never polled.
+**Still to do on real hardware:** a MicroLogix/SLC on a real RS-232 port and through the site's router gateways
+(map the real COM ports; check error check, station numbers, `request_size` — a PLC that refuses large reads
+answers STS 0x10 and the block becomes `bad_config` — and ACK timing over the IPsec link); a Modbus RTU slave on
+RS-485 (inter-frame timing, local echo); one byte-for-byte frame capture (D-035); RFC 2217 against a real
+COM-port server.

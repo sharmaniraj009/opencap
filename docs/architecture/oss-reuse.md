@@ -25,6 +25,7 @@ table; the lead merges it into this file when that PR lands.
 | OPC UA | asyncua | LGPL-3.0 | no | Adopt: imported unmodified, separately installed (LGPL OK); not vendored |
 | MQTT | aiomqtt + paho-mqtt | BSD-3-Clause; EPL-2.0 or EDL-1.0 | no | Adopt (EDL-1.0 = BSD-3) |
 | API | FastAPI, uvicorn | MIT; BSD-3-Clause | no | Adopt (in use) |
+| Serial ports (modbus_rtu, ab_df1) | pyserial 3.5 | BSD-3-Clause (SPDX header in `serial/__init__.py`; LICENSE.txt at tag v3.5) | yes | Adopt (optional `serial` extra, #62) |
 | Metrics | prometheus-client | Apache-2.0 | no | Adopt (in use) |
 | Test broker | amqtt | MIT | no | Test-only |
 

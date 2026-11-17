@@ -33,6 +33,10 @@ PARAM_KEYS = {
         "endpoint", "security_policy", "message_mode", "username_env", "password_env",
         "publishing_interval_ms", "sampling_interval_ms",
     },
+    "ab_df1": {
+        "station", "src_station", "error_check", "transport", "com_port", "baudrate", "bytesize",
+        "parity", "stopbits", "max_elements", "max_gap", "request_size",
+    },
 }
 
 
@@ -125,10 +129,10 @@ def test_classify_group_is_suspect_if_any_pair_is():
 def test_counts(result):
     s = result.summary
     assert s["source"] == {**s["source"], "channels": 14, "devices": 15, "tags": 46}
-    assert s["included"]["devices"] == 9
-    assert s["included"]["channels"] == 8
+    assert s["included"]["devices"] == 10
+    assert s["included"]["channels"] == 9
     assert {k: v["devices"] for k, v in s["included"]["by_driver"].items()} == {
-        "ab_logix": 2, "ab_pccc": 1, "melsec_mc": 1, "modbus_tcp": 1, "opcua_client": 1, "s7": 3,
+        "ab_df1": 1, "ab_logix": 2, "ab_pccc": 1, "melsec_mc": 1, "modbus_tcp": 1, "opcua_client": 1, "s7": 3,
     }
     assert s["included"]["micro800"] == {"devices": 1, "tags": 6}
     assert s["excluded"]["channels_without_devices"] == ["Test API"]
@@ -141,12 +145,9 @@ def test_exclusions(excluded):
         "SIMULATOR/Device1": ki.REASON_SIMULATOR,
         "SIMULATOR/ph": ki.REASON_SIMULATOR,
         "MQTT1/Device1": ki.REASON_MQTT,
-        "LC_DF1/Device1": ki.REASON_DF1,
         "SITE DISABLED/Device1": ki.REASON_DISABLED,
     }
-    assert ki.REASON_DF1 == "DF1 serial: Phase 7"
-    assert excluded["LC_DF1/Device1"].tags == 3
-    assert excluded["LC_DF1/Device1"].kep_driver == "Allen-Bradley DF1"
+    assert "LC_DF1/Device1" not in excluded                 # DF1 is imported as ab_df1 (tests/unit/test_kep_import_df1.py)
 
 
 def test_ucon_without_devices_is_reported(result):
@@ -291,9 +292,9 @@ def test_same_address(result):
     assert rows[("SITE M800/8 PUMP", "EU_MAX")].classification == "alias"
     dtype_clash = rows[("SITE PCCC/7 PUMP", "B3:17/15")]
     assert dtype_clash.classification == "suspect" and dtype_clash.dtypes == ["bool", "float32"]
-    assert rows[("LC_DF1/Device1", "F19:0")].included is False
+    assert rows[("LC_DF1/Device1", "F19:0")].included is True
     assert result.summary["same_address"]["pairs"] == 5
-    assert result.summary["same_address"]["pairs_included"] == 4
+    assert result.summary["same_address"]["pairs_included"] == 5
 
 
 def test_defaults_are_used_when_kepserver_has_no_value(tmp_path):
@@ -307,7 +308,7 @@ def test_defaults_are_used_when_kepserver_has_no_value(tmp_path):
 def test_summary_text(result):
     text = result.summary_text()
     assert "14 channels, 15 devices, 46 tags" in text
-    assert "modbus_tcp" in text and "DF1 serial: Phase 7" in text
+    assert "modbus_tcp" in text and "ab_df1" in text
     assert "Micro800: 1 devices" in text
 
 
@@ -349,7 +350,7 @@ def test_devices_map_stubs(written):
     assert dm.devices["S7 MULTI/OUT 1"].sub_device_id == "SUB_S7_MULTI_OUT_1"
     assert dm.devices["S7 MULTI/OUT-2"].sub_device_id == "SUB_S7_MULTI_OUT_2"
     assert all(e.stub for e in dm.devices.values())
-    assert len(dm.devices) == 9
+    assert len(dm.devices) == 10
 
 
 def test_reimport_never_overwrites_map_or_overrides(written):
@@ -373,7 +374,7 @@ def test_reimport_never_overwrites_map_or_overrides(written):
     assert dm.devices["SITE MODBUS/Device1"].sub_device_id == "SUB_REAL_ID"
     assert dm.devices["SITE MODBUS/Device1"].stub is False
     assert dm.devices["SITE S7/PLC"].stub is True     # re-added as a stub
-    assert len(dm.devices) == 9
+    assert len(dm.devices) == 10
     assert ov_path.read_text(encoding="utf-8") == ov_text
     assert ov_path not in paths and map_path in paths
 
@@ -393,7 +394,7 @@ def test_devices_map_with_unappendable_layout_is_left_alone(tmp_path):
     write_outputs(res, cfg, tmp_path / "reports")
     assert (cfg / "devices_map.yaml").read_text(encoding="utf-8") == original
     side = DeviceMap.model_validate(yaml.safe_load((cfg / "devices_map.stubs.yaml").read_text(encoding="utf-8")))
-    assert len(side.devices) == 9
+    assert len(side.devices) == 10
     assert any("devices_map.yaml not updated" in p for p in res.problems)
 
 
@@ -417,7 +418,7 @@ def test_devices_map_without_devices_key_gets_one(tmp_path):
     text = (cfg / "devices_map.yaml").read_text(encoding="utf-8")
     assert text.startswith(original)
     dm = DeviceMap.model_validate(yaml.safe_load(text))
-    assert dm.defaults == {"env": "test"} and len(dm.devices) == 9
+    assert dm.defaults == {"env": "test"} and len(dm.devices) == 10
 
 
 def test_no_credentials_in_outputs(written):

@@ -1,0 +1,41 @@
+# poller.yaml: global opencap settings (model: opencap.config.models.PollerConfig).
+# Every key is optional; a missing file means all defaults. Unknown keys are an error.
+# Secrets are never stored here: only the NAMES of environment variables that hold them.
+
+instance: opencap-1            # used in the LWT topic opencap/poller/<instance>/status
+
+mqtt:
+  host: localhost
+  port: 1883                     # 8883 with TLS
+  tls: false                     # isSecure in the payload is true only when this is true
+  ca_file: null                  # CA bundle for TLS, e.g. /etc/opencap/ca.pem
+  username: null
+  password_env: OPENCAP_MQTT_PASSWORD   # env var holding the broker password
+  client_id: null                # null = derived from instance
+  qos: 1
+  keepalive_s: 30
+
+saf:                             # store-and-forward when the broker is down (PLAN 7.3)
+  path: data/saf.sqlite
+  max_bytes: 2147483648          # 2 GiB, oldest messages dropped first
+
+api:                             # admin REST API (PLAN 9): bind to localhost or the VPN only
+  bind: 127.0.0.1
+  port: 8080
+  token_env: OPENCAP_API_TOKEN    # env var holding the bearer token
+
+payload:                         # SubDevice JSON (PLAN 7.1)
+  float_decimals: 4              # round floats to remove float32 noise
+  bad_tags_field: true           # add "BadTags": [...] for tags without good quality
+  timezone: Asia/Kolkata         # DateTime is written in this zone
+
+defaults:                        # used by `opencap import-kep` when KEPServer has no value
+  scan_ms: 1000
+  min_scan_ms: 1000              # "request data no faster than": clamps 10/100 ms KEPServer tags
+  timeout_ms: 3000
+  retries: 2                     # retries after the first request
+  demote_after: 3                # consecutive failed cycles before demotion
+  demote_for_ms: 30000
+
+check:                           # `opencap check` cycle-time estimate
+  est_rtt_ms: 60.0               # assumed round trip per wire request over the IPsec link

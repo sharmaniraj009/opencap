@@ -1,0 +1,29 @@
+# overrides.yaml: hand fixes applied on top of devices.json when the config is loaded.
+# `opencap import-kep` writes this template only when the file is missing and never
+# touches an existing one, so fixes survive a re-import.
+#
+# Unknown channel names, device ids or tag names are reported as warnings by
+# `opencap check`; they are never fatal.
+
+# Per channel (= KEPServer channel = site):
+#   "SITE NAME": {enabled: false}
+channels: {}
+
+# Per device, keyed by device id "<channel>/<device>". Every field is optional.
+#   "SITE NAME/DEVICE":
+#     enabled: false
+#     host: 192.0.2.10
+#     port: 502
+#     scan_ms: 5000           # device default scan rate
+#     min_scan_ms: 1000       # "request data no faster than"
+#     timeout_ms: 2000
+#     retries: 2
+#     demote_after: 3
+#     demote_for_ms: 30000
+#     params: {max_holding: 32}          # merged into the device params (docs/driver_params.md)
+#     publish: {mode: on_change, deadband: 0.5}   # merged into publish settings
+#     tags:
+#       PUMP_1_CURRENT_B: {enabled: false}
+#       FLOW_1: {scan_ms: 10000, address: "400047", dtype: float32}
+#       LEVEL_1: {scale: {raw_lo: 0, raw_hi: 4095, eng_lo: 0, eng_hi: 10}}
+devices: {}

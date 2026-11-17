@@ -1,0 +1,894 @@
+﻿{
+  "project": {
+    "common.ALLTYPES_DESCRIPTION": "synthetic sample for opencap tests",
+    "servermain.PROJECT_TITLE": "sample",
+    "channels": [
+      {
+        "common.ALLTYPES_NAME": "SITE MODBUS",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Modbus TCP/IP Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "modbus_ethernet.CHANNEL_ETHERNET_PORT_NUMBER": 4840,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "Device1",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Modbus TCP/IP Ethernet",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "<192.0.2.10>.1",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 1000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "modbus_ethernet.DEVICE_ETHERNET_PORT_NUMBER": 502,
+            "modbus_ethernet.DEVICE_ETHERNET_IP_PROTOCOL": 1,
+            "modbus_ethernet.DEVICE_ETHERNET_CLOSE_TCP_SOCKET_ON_TIMEOUT": true,
+            "modbus_ethernet.DEVICE_ZERO_BASED_ADDRESSING": true,
+            "modbus_ethernet.DEVICE_ZERO_BASED_BIT_ADDRESSING": true,
+            "modbus_ethernet.DEVICE_MODBUS_BYTE_ORDER": true,
+            "modbus_ethernet.DEVICE_FIRST_WORD_LOW": true,
+            "modbus_ethernet.DEVICE_FIRST_DWORD_LOW": true,
+            "modbus_ethernet.DEVICE_MODICON_BIT_ORDER": false,
+            "modbus_ethernet.DEVICE_OUTPUT_COILS": 32,
+            "modbus_ethernet.DEVICE_INPUT_COILS": 32,
+            "modbus_ethernet.DEVICE_INTERNAL_REGISTERS": 32,
+            "modbus_ethernet.DEVICE_HOLDING_REGISTERS": 32,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "400045",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_CURRENT_Y",
+                "servermain.TAG_ADDRESS": "400133",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_CURRENT_B",
+                "servermain.TAG_ADDRESS": "400133",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "SEWAGE_LAST_DAY",
+                "servermain.TAG_ADDRESS": "400201",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "SEWAGE_LAST_DAY_1",
+                "servermain.TAG_ADDRESS": "400201",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_RFB",
+                "servermain.TAG_ADDRESS": "000139",
+                "servermain.TAG_DATA_TYPE": 1,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 10,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "LEVEL_1",
+                "servermain.TAG_ADDRESS": "400063",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 1,
+                "servermain.TAG_SCALING_RAW_LOW": 0,
+                "servermain.TAG_SCALING_RAW_HIGH": 4095,
+                "servermain.TAG_SCALING_SCALED_DATA_TYPE": 8,
+                "servermain.TAG_SCALING_SCALED_LOW": 0,
+                "servermain.TAG_SCALING_SCALED_HIGH": 10,
+                "servermain.TAG_SCALING_CLAMP_LOW": true,
+                "servermain.TAG_SCALING_CLAMP_HIGH": true,
+                "servermain.TAG_SCALING_NEGATE_VALUE": false,
+                "servermain.TAG_SCALING_UNITS": "m"
+              },
+              {
+                "common.ALLTYPES_NAME": "FLOW_SQRT",
+                "servermain.TAG_ADDRESS": "400070",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 2,
+                "servermain.TAG_SCALING_RAW_LOW": 0,
+                "servermain.TAG_SCALING_RAW_HIGH": 1000,
+                "servermain.TAG_SCALING_SCALED_DATA_TYPE": 8,
+                "servermain.TAG_SCALING_SCALED_LOW": 0,
+                "servermain.TAG_SCALING_SCALED_HIGH": 50,
+                "servermain.TAG_SCALING_CLAMP_LOW": false,
+                "servermain.TAG_SCALING_CLAMP_HIGH": false,
+                "servermain.TAG_SCALING_NEGATE_VALUE": false,
+                "servermain.TAG_SCALING_UNITS": ""
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_HOURS",
+                "servermain.TAG_ADDRESS": "400080",
+                "servermain.TAG_DATA_TYPE": 7,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 10000,
+                "servermain.TAG_SCALING_TYPE": 0,
+                "common.ALLTYPES_DESCRIPTION": "run hours"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SITE M800",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley Micro800 Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "8 PUMP",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley Micro800 Ethernet",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "192.0.2.20 ",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 2000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "allenbradley_micro800_ethernet.DEVICE_PORT_NUMBER": 44818,
+            "allenbradley_micro800_ethernet.DEVICE_DEFAULT_DATA_TYPE": 8,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "FT_01",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "EU_MAX",
+                "servermain.TAG_ADDRESS": "EU_MAX",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "LEVEL_1_MAX",
+                "servermain.TAG_ADDRESS": "EU_MAX",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_RUN",
+                "servermain.TAG_ADDRESS": "P1_RUN",
+                "servermain.TAG_DATA_TYPE": 1,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 10,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "TOTAL_DEFAULT",
+                "servermain.TAG_ADDRESS": "TOT_01",
+                "servermain.TAG_DATA_TYPE": -1,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "STATUS_TEXT",
+                "servermain.TAG_ADDRESS": "STS_TXT",
+                "servermain.TAG_DATA_TYPE": 0,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SITE LOGIX",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley ControlLogix Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "STP",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley ControlLogix Ethernet",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "<192.0.2.30>,1,0",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 1000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "controllogix_ethernet.DEVICE_PORT_NUMBER": 44818,
+            "controllogix_ethernet.DEVICE_CL_ENET_PORT_NUMBER": 44818,
+            "controllogix_ethernet.DEVICE_CONNECTION_SIZE_BYTES": 500,
+            "controllogix_ethernet.DEVICE_REQUEST_SIZE": 232,
+            "controllogix_ethernet.DEVICE_DEFAULT_DATA_TYPE": -1,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "INF_DAY_TOT",
+                "servermain.TAG_ADDRESS": "INF_DAY_TOT.TOTAL",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "RUN_SECONDS",
+                "servermain.TAG_ADDRESS": "RUN_SEC",
+                "servermain.TAG_DATA_TYPE": 6,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "ENERGY",
+                "servermain.TAG_ADDRESS": "KWH_TOTAL",
+                "servermain.TAG_DATA_TYPE": 9,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "TEMP_RAW",
+                "servermain.TAG_ADDRESS": "TEMP_RAW",
+                "servermain.TAG_DATA_TYPE": 2,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SITE PCCC",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley ControlLogix Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "7 PUMP",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley ControlLogix Ethernet",
+            "servermain.DEVICE_MODEL": 23,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "<192.0.2.40>",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 2,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 5000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 1000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 4,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": true,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 5,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 60000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "controllogix_ethernet.DEVICE_PORT_NUMBER": 44818,
+            "controllogix_ethernet.DEVICE_CL_ENET_PORT_NUMBER": 44818,
+            "controllogix_ethernet.DEVICE_CONNECTION_SIZE_BYTES": 500,
+            "controllogix_ethernet.DEVICE_REQUEST_SIZE": 232,
+            "controllogix_ethernet.DEVICE_DEFAULT_DATA_TYPE": -1,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "F34:3",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_HOURS",
+                "servermain.TAG_ADDRESS": "N54:17",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_RUN",
+                "servermain.TAG_ADDRESS": "B3:17/14",
+                "servermain.TAG_DATA_TYPE": 1,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_HOURS",
+                "servermain.TAG_ADDRESS": "N54:18",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_RFB",
+                "servermain.TAG_ADDRESS": "B3:17/15",
+                "servermain.TAG_DATA_TYPE": 1,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_CURRENT_R",
+                "servermain.TAG_ADDRESS": "B3:17/15",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SITE CLX OTHER",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley ControlLogix Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "PLC",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley ControlLogix Ethernet",
+            "servermain.DEVICE_MODEL": 5,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "<192.0.2.45>",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 2000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "controllogix_ethernet.DEVICE_PORT_NUMBER": 44818,
+            "controllogix_ethernet.DEVICE_CL_ENET_PORT_NUMBER": 44818,
+            "controllogix_ethernet.DEVICE_CONNECTION_SIZE_BYTES": 500,
+            "controllogix_ethernet.DEVICE_REQUEST_SIZE": 232,
+            "controllogix_ethernet.DEVICE_DEFAULT_DATA_TYPE": -1,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "A",
+                "servermain.TAG_ADDRESS": "N7:0",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "B",
+                "servermain.TAG_ADDRESS": "N7:1",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SITE S7",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Siemens TCP/IP Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "PLC",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Siemens TCP/IP Ethernet",
+            "servermain.DEVICE_MODEL": 3,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "192.0.2.50",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 2000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "siemens_tcpip_ethernet.DEVICE_COMMUNICATIONS_PORT_NUMBER": 102,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_MAX_PDU": 960,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_300_400_1200_1500_LINK_TYPE": 3,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_RACK": 0,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_SLOT": 1,
+            "siemens_tcpip_ethernet.DEVICE_ADDRESSING_BYTE_ORDER": 0,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "MD232",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "COUNT_0",
+                "servermain.TAG_ADDRESS": "C0",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "S7 MULTI",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Siemens TCP/IP Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "OUT 1",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Siemens TCP/IP Ethernet",
+            "servermain.DEVICE_MODEL": 3,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "192.0.2.51",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 2000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "siemens_tcpip_ethernet.DEVICE_COMMUNICATIONS_PORT_NUMBER": 102,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_MAX_PDU": 960,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_300_400_1200_1500_LINK_TYPE": 3,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_RACK": 0,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_SLOT": 1,
+            "siemens_tcpip_ethernet.DEVICE_ADDRESSING_BYTE_ORDER": 0,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "MD100",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          },
+          {
+            "common.ALLTYPES_NAME": "OUT-2",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Siemens TCP/IP Ethernet",
+            "servermain.DEVICE_MODEL": 4,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "192.0.2.52",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 2000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "siemens_tcpip_ethernet.DEVICE_COMMUNICATIONS_PORT_NUMBER": 102,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_MAX_PDU": 960,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_300_400_1200_1500_LINK_TYPE": 3,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_RACK": 0,
+            "siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_SLOT": 1,
+            "siemens_tcpip_ethernet.DEVICE_ADDRESSING_BYTE_ORDER": 0,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "MD100",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SITE MELSEC",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Mitsubishi Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "STP",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Mitsubishi Ethernet",
+            "servermain.DEVICE_MODEL": 5,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "192.0.2.60",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 250,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "mitsubishi_ethernet.DEVICE_FIRST_WORD_LOW": true,
+            "mitsubishi_ethernet.DEVICE_IP_PROTOCOL": 1,
+            "mitsubishi_ethernet.DEVICE_PORT_NUMBER": 5001,
+            "mitsubishi_ethernet.DEVICE_CPU": 1023,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "D0000002",
+                "servermain.TAG_DATA_TYPE": 5,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "PUMP_1_RUN",
+                "servermain.TAG_ADDRESS": "B0000",
+                "servermain.TAG_DATA_TYPE": 1,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "Test OPC",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "OPC UA Client",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "opcuaclient.CHANNEL_UA_SERVER_ENDPOINT_URL": "opc.tcp://192.0.2.70:4841/Server",
+        "opcuaclient.CHANNEL_UA_SERVER_SECURITY_POLICY": 0,
+        "opcuaclient.CHANNEL_UA_SERVER_MESSAGE_MODE": 1,
+        "opcuaclient.CHANNEL_AUTHENTICATION_USERNAME": "dummy-user-x",
+        "opcuaclient.CHANNEL_AUTHENTICATION_PASSWORD": "dummy-pass-x",
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "E+H",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "OPC UA Client",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "opcuaclient.DEVICE_SUBSCRIPTION_PUBLISHING_INTERVAL_MILLISECONDS": 1000,
+            "opcuaclient.DEVICE_MONITORED_ITEMS_SAMPLE_INTERVAL_MILLISECONDS": 500,
+            "tag_groups": [
+              {
+                "common.ALLTYPES_NAME": "LTI002",
+                "tags": [
+                  {
+                    "common.ALLTYPES_NAME": "Pv",
+                    "servermain.TAG_ADDRESS": "ns=7;s=LTI002_PV",
+                    "servermain.TAG_DATA_TYPE": 9,
+                    "servermain.TAG_READ_WRITE_ACCESS": 1,
+                    "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                    "servermain.TAG_SCALING_TYPE": 0
+                  },
+                  {
+                    "common.ALLTYPES_NAME": "Qv",
+                    "servermain.TAG_ADDRESS": "ns=7;s=LTI002_QV",
+                    "servermain.TAG_DATA_TYPE": 9,
+                    "servermain.TAG_READ_WRITE_ACCESS": 1,
+                    "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                    "servermain.TAG_SCALING_TYPE": 0
+                  }
+                ],
+                "tag_groups": [
+                  {
+                    "common.ALLTYPES_NAME": "1"
+                  }
+                ]
+              },
+              {
+                "common.ALLTYPES_NAME": "Tags",
+                "tag_groups": [
+                  {
+                    "common.ALLTYPES_NAME": "Dev 1",
+                    "tag_groups": [
+                      {
+                        "common.ALLTYPES_NAME": "Values",
+                        "tags": [
+                          {
+                            "common.ALLTYPES_NAME": "Angle",
+                            "servermain.TAG_ADDRESS": "ns=7;s=DEV1_ANGLE",
+                            "servermain.TAG_DATA_TYPE": 9,
+                            "servermain.TAG_READ_WRITE_ACCESS": 1,
+                            "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                            "servermain.TAG_SCALING_TYPE": 0
+                          },
+                          {
+                            "common.ALLTYPES_NAME": "Battery",
+                            "servermain.TAG_ADDRESS": "ns=7;s=DEV1_BATT",
+                            "servermain.TAG_DATA_TYPE": 9,
+                            "servermain.TAG_READ_WRITE_ACCESS": 1,
+                            "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                            "servermain.TAG_SCALING_TYPE": 0
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SIMULATOR",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Simulator",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "Device1",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Simulator",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "1",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "RAMP",
+                "servermain.TAG_ADDRESS": "RAMP (15, 0.0, 10.0, 1.0)",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          },
+          {
+            "common.ALLTYPES_NAME": "ph",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Simulator",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "1",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "ph",
+                "servermain.TAG_ADDRESS": "RANDOM (10, 6.5, 7.5)",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "cl",
+                "servermain.TAG_ADDRESS": "RANDOM (10, 0.0, 1.0)",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "MQTT1",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "MQTT Client",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "mqtt_client.CHANNEL_HOST_ADDRESS": "192.0.2.80",
+        "mqtt_client.CHANNEL_PORT_NUMBER": 1883,
+        "mqtt_client.CHANNEL_USERNAME": "dummy-mqtt-user-x",
+        "mqtt_client.CHANNEL_PASSWORD": "dummy-mqtt-pass-x",
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "Device1",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "MQTT Client",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "data1",
+                "servermain.TAG_ADDRESS": "test+data1",
+                "servermain.TAG_DATA_TYPE": 0,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "Test API",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "U-CON (user-configurable)",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0
+      },
+      {
+        "common.ALLTYPES_NAME": "LC_DF1",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley DF1",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "servermain.CHANNEL_SERIAL_COMMUNICATIONS_COM_ID": 112,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "Device1",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Allen-Bradley DF1",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "1",
+            "servermain.DEVICE_DATA_COLLECTION": true,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 10000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "F19:0",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "FT1_FLOW",
+                "servermain.TAG_ADDRESS": "F19:0",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "LEVEL_1",
+                "servermain.TAG_ADDRESS": "F19:2",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "common.ALLTYPES_NAME": "SITE DISABLED",
+        "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Modbus TCP/IP Ethernet",
+        "servermain.CHANNEL_DIAGNOSTICS_CAPTURE": false,
+        "servermain.CHANNEL_UNIQUE_ID": 1,
+        "servermain.CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING": 0,
+        "devices": [
+          {
+            "common.ALLTYPES_NAME": "Device1",
+            "servermain.MULTIPLE_TYPES_DEVICE_DRIVER": "Modbus TCP/IP Ethernet",
+            "servermain.DEVICE_MODEL": 0,
+            "servermain.DEVICE_UNIQUE_ID": 1,
+            "servermain.DEVICE_ID_FORMAT": 0,
+            "servermain.DEVICE_ID_STRING": "<192.0.2.90>.0",
+            "servermain.DEVICE_DATA_COLLECTION": false,
+            "servermain.DEVICE_SCAN_MODE": 0,
+            "servermain.DEVICE_SCAN_MODE_RATE_MS": 1000,
+            "servermain.DEVICE_SCAN_MODE_PROVIDE_INITIAL_UPDATES_FROM_CACHE": false,
+            "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS": 2000,
+            "servermain.DEVICE_RETRY_ATTEMPTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES": false,
+            "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS": 3,
+            "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS": 10000,
+            "servermain.DEVICE_AUTO_DEMOTION_DISCARD_WRITES": false,
+            "modbus_ethernet.DEVICE_ETHERNET_PORT_NUMBER": 502,
+            "modbus_ethernet.DEVICE_ETHERNET_IP_PROTOCOL": 1,
+            "modbus_ethernet.DEVICE_ETHERNET_CLOSE_TCP_SOCKET_ON_TIMEOUT": true,
+            "modbus_ethernet.DEVICE_ZERO_BASED_ADDRESSING": true,
+            "modbus_ethernet.DEVICE_ZERO_BASED_BIT_ADDRESSING": true,
+            "modbus_ethernet.DEVICE_MODBUS_BYTE_ORDER": true,
+            "modbus_ethernet.DEVICE_FIRST_WORD_LOW": true,
+            "modbus_ethernet.DEVICE_FIRST_DWORD_LOW": true,
+            "modbus_ethernet.DEVICE_MODICON_BIT_ORDER": false,
+            "modbus_ethernet.DEVICE_OUTPUT_COILS": 32,
+            "modbus_ethernet.DEVICE_INPUT_COILS": 32,
+            "modbus_ethernet.DEVICE_INTERNAL_REGISTERS": 32,
+            "modbus_ethernet.DEVICE_HOLDING_REGISTERS": 32,
+            "tags": [
+              {
+                "common.ALLTYPES_NAME": "FLOW_1",
+                "servermain.TAG_ADDRESS": "400001",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              },
+              {
+                "common.ALLTYPES_NAME": "LEVEL_1",
+                "servermain.TAG_ADDRESS": "400003",
+                "servermain.TAG_DATA_TYPE": 8,
+                "servermain.TAG_READ_WRITE_ACCESS": 1,
+                "servermain.TAG_SCAN_RATE_MILLISECONDS": 100,
+                "servermain.TAG_SCALING_TYPE": 0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

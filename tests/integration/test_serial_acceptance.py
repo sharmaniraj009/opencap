@@ -13,7 +13,7 @@ in overrides.yaml `serial_ports`.
   resume after power-on; nothing but read commands goes on any line.
 
 Real-hardware checks (a MicroLogix/SLC on a real serial line and on the site's router gateways,
-a Modbus RTU slave on RS-485) are still to do: see docs/decisions.md D-037.
+a Modbus RTU slave on RS-485) are still to do: see docs/decisions.md D-038.
 """
 
 from __future__ import annotations

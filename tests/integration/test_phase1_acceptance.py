@@ -7,6 +7,9 @@
   (OPENCAP_OUTAGE_S, default 8 s; the plan's 10-minute run is
   `OPENCAP_OUTAGE_S=600 pytest -m acceptance`).
 
+`--engine=rust` (or OPENCAP_ENGINE=rust) runs the same scenario against the Rust engine
+binary instead of the Python `Poller` (conformance; tests/helpers/engine.py).
+
 The outage is a cut TCP path (`NetCut`), not a broker shutdown: amqtt PUBACKs a message
 before it routes it, so stopping amqtt itself can drop messages it has already
 acknowledged. That is a property of the test broker, not of opencap (see
@@ -19,12 +22,10 @@ import asyncio
 import math
 import os
 import re
-from collections import defaultdict
 
 import httpx
 import pytest
 
-from opencap.core.runtime import Poller
 from opencap.logsetup import configure_logging
 from tests.helpers.broker import TestBroker
 from tests.helpers.configdir import write_config
@@ -61,19 +62,19 @@ async def _wait(pred, timeout: float, what: str, step: float = 0.1) -> None:
         await asyncio.sleep(step)
 
 
-async def test_phase1_acceptance(tmp_path):
+async def test_phase1_acceptance(tmp_path, engine_factory):
     configure_logging("WARNING")
     timeout_s = max(120.0, OUTAGE_S * 3 + 120)
     async with asyncio.timeout(timeout_s):
         async with TestBroker() as broker, NetCut(broker.host, broker.port) as netcut:
             sims = await start_sims(make_sim_devices(N_DEVICES, TAGS_PER_DEVICE, scan_ms=SCAN_MS, timeout_ms=1000))
             try:
-                await _scenario(tmp_path, broker, netcut, sims)
+                await _scenario(tmp_path, broker, netcut, sims, engine_factory)
             finally:
                 await stop_sims(sims)
 
 
-async def _scenario(tmp_path, broker: TestBroker, netcut: NetCut, sims) -> None:
+async def _scenario(tmp_path, broker: TestBroker, netcut: NetCut, sims, engine_factory) -> None:
     devices = [s.device for s in sims]
     assert len(devices) == N_DEVICES
     assert 1_550 <= sum(len(d.tags) for d in devices) <= 1_650
@@ -84,17 +85,9 @@ async def _scenario(tmp_path, broker: TestBroker, netcut: NetCut, sims) -> None:
     )
     async with broker.collector("opencap/#") as col:
         await col.wait_ready()
-        poller = Poller(config_dir)
+        poller = engine_factory(config_dir)    # the Python Poller, or the Rust engine (--engine=rust)
         await poller.start()
-        # Spy on everything the publisher hands to the link (right after start, before any data).
-        sent: dict[str, list[bytes]] = defaultdict(list)
-        real_publish = poller.link.publish
-
-        async def spy(topic: str, payload: bytes, *, retain: bool = False) -> None:
-            sent[topic].append(payload)
-            await real_publish(topic, payload, retain=retain)
-
-        poller.link.publish = spy
+        sent = poller.sent                     # everything the publisher hands to the link
         try:
             loaded = {d.id: d for c in poller.loaded.channels for d in c.devices}
             topics = {d.id: loaded[d.id].publish.topic for d in devices}

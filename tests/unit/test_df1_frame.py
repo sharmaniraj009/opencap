@@ -3,7 +3,7 @@
 Check vectors: the CRC is CRC-16/ARC (reflected polynomial 0xA001, initial value 0), whose
 catalogue check value for b"123456789" is 0xBB3D. The frame vectors below were computed with
 an independent bitwise CRC (`_crc_bitwise`) and checked by hand for the BCC (two's complement
-of the 8-bit sum); see docs/decisions.md D-034 for why they are not the DF1 manual's own.
+of the 8-bit sum); see docs/decisions.md D-035 for why they are not the DF1 manual's own.
 Requests and reply decoding are cross-checked against pycomm3's SLC driver, which sends the
 same PCCC reads over EtherNet/IP.
 """

@@ -120,7 +120,7 @@ Addresses, block planning and decoding are `ab_pccc`'s, so `max_elements` (100),
 
 | key | type | default | KEPServer source |
 |---|---|---|---|
-| `station` | int 0–254 | 1 | `servermain.DEVICE_ID_STRING` (read as decimal; see D-036) — the DST station |
+| `station` | int 0–254 | 1 | `servermain.DEVICE_ID_STRING` (read as decimal; see D-037) — the DST station |
 | `src_station` | int 0–254 | 0 | — (our station number on the link) |
 | `error_check` | `crc` \| `bcc` | `crc` | the DF1 driver's error-checking property (any `*df1.*ERROR_CHECK*`/`CHECKSUM` key; default CRC, flagged) |
 | `transport`, `com_port` | | `unmapped`, `COM<n>` | `servermain.CHANNEL_SERIAL_COMMUNICATIONS_COM_ID` |

@@ -31,11 +31,53 @@ channel capacity ≈ 1 / (RTT + processing)    requests/s   (≈ 16 req/s at 60 
 | CPU, south (Rust) | ~0.3 core | ~20 µs per request (syscalls, framing), ~0.5 µs per tag (decode, scale, store) |
 | CPU, north MQTT | < 0.1 core | 2,000 devices / 10 s = 200 msg/s, ~4 KB each |
 | CPU, OPC UA server | ~1 core | 250k monitored items sampled from the store at 1 s; notifications only on change |
-| Memory, tag store | ~10 MB | ~40 B per `TagValue` |
-| Memory, definitions + plans | ~50 MB | ~200 B per tag |
+| Memory, tag store | ~17 MB (measured, #41) | 64 B per `TagValue` (two timestamps), 68 B per tag with the slot |
+| Memory, definitions + plans | ~50 MB | ~200 B per tag; of which the store's names and name index measure 102 B per tag (#41) |
 | Memory, OPC UA address space | 150–500 MB | ~0.6–2 KB per node depending on the stack: **the dominant cost; benchmark gate before choosing the stack** |
 | MQTT bandwidth | ~800 KB/s (~6.4 Mbit/s) | ~30 B per tag in SubDevice JSON |
 | Python reference ceiling | to be measured (benchmark issue) | ~5–10 µs per tag in the hot path suggests ~25k tags/s per core; one process, GIL-bound |
+
+### Measured: tag store and change-event bus (#41)
+
+`cargo bench -p opencap-core --bench store_load` (paced scenario) and `--bench store`
+(Criterion), on a 4 vCPU x86-64 cloud VM (Xeon @ 2.1 GHz), tokio runtime with 4 worker
+threads, 10 s per scenario. The ARM64 figures for NFR-2 come with the benchmark harness (#7).
+
+**Load:** 250,000 tags on 2,000 devices (125 tags each); 250,000 tag updates/s from 8 writer
+tasks, each owning 250 devices; one write = one 25-tag block (10,000 writes/s); every value
+changes on every write. Subscribers count the changes they receive; the slow one sleeps 1 ms
+after every batch (so it can take ~1,000 of the 10,000 batches/s) and resynchronises from
+snapshots of all 2,000 devices when it lags.
+
+| Scenario | Updates/s achieved | Write p50 | Write p99 | Write p99.9 | Process CPU | Subscribers |
+|---|---|---|---|---|---|---|
+| No subscribers | 250,000 | 1.4 µs | 3.4 µs | 20–25 µs | 0.07 core | — |
+| 4 fast | 250,000 | 2.3 µs | 11.8–14.0 µs | 35–40 µs | 0.11 core | none lagged |
+| 3 fast + 1 slow | 250,000 | 2.7 µs | 14.2–14.6 µs | 36–38 µs | 0.13 core | fast: none lagged; slow: 23 resyncs, 94.5k of 100k batches skipped |
+
+Ranges are two runs. **The slow subscriber does not move the writer's p99** beyond
+run-to-run noise (11.8–14.0 µs with 4 fast subscribers, 14.2–14.6 µs with 3 fast + 1 slow);
+the fast subscribers never lag. The step from no subscribers to some (3.4 → ~13 µs p99) is the
+cost of waking parked subscriber tasks inside `send`, which does not depend on subscriber
+speed. Maxima (1.5–6 ms) are OS scheduling preemptions on a shared VM and occur in every
+scenario. Before the receiver jumped to the newest batch on `Lagged` (tokio resumes at the
+oldest slot, which the next send overwrites), the slow subscriber resynchronised 150 times
+a second and pushed p99 to 32 µs (D-066).
+
+| Criterion micro-benchmark (mean) | 25 tags | 125 tags |
+|---|---|---|
+| `update_indexed`, no subscriber | 0.34 µs | 1.56 µs |
+| `update` by name, no subscriber | 1.05 µs | 4.2 µs |
+| `update_indexed`, 4 subscribers that never read (every send overwrites a batch) | 1.08 µs | 4.3 µs |
+| `update_indexed`, 4 live subscribers, one slow (back-to-back writes) | 2.9 µs | 7.5 µs |
+| `snapshot` of a device | — | 2.6 µs |
+| `get` of one tag | 71 ns | — |
+
+**Memory per tag** (RSS deltas, float values): values 68 B (`TagValue` is 64 B: value 32,
+two timestamps 12 each, quality), names and name index 102 B (each name allocated once,
+shared by the layout and the index). The bus keeps only batches some subscriber has not read
+yet: at most `capacity` × batch size, 4,096 × ~1.9 KB ≈ 7.6 MB for 25-tag batches, reached
+only by a subscriber a full ring behind.
 
 ### Store-and-forward sizing
 ```

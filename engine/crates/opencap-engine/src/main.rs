@@ -20,9 +20,9 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 
 use opencap_api::EngineView as _;
-use opencap_core::cache::ValueCache;
 use opencap_core::config::{load_config, Channel, Device, LoadedConfig};
 use opencap_core::registry::plan_device;
+use opencap_core::store::TagStore;
 use opencap_core::worker::{ChannelWorker, WorkerOptions};
 
 #[derive(Parser)]
@@ -112,16 +112,15 @@ async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Resu
         bail!("{device_id}: {e}");
     }
     let single = Channel { devices: vec![device.clone()], ..channel };
-    let cache = Arc::new(ValueCache::new());
-    cache.register(&device);
+    let store = Arc::new(TagStore::new());
     let plans = [(device.id.clone(), Arc::new(plan))].into_iter().collect();
-    let worker = ChannelWorker::new(&single, &plans, cache, factory, WorkerOptions::default());
+    let worker = ChannelWorker::new(&single, &plans, store, factory, WorkerOptions::default());
     let result = worker.read_once(&device.id).await;
     worker.stop().await;
     let values = result.map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut names: Vec<String> = match tag {
         Some(t) => vec![t.to_string()],
-        None => values.keys().cloned().collect(),
+        None => values.keys().map(str::to_string).collect(),
     };
     if tag.is_none() {
         names.sort();

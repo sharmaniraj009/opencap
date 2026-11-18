@@ -46,19 +46,28 @@ KEPServer keys are shown without the driver prefix where obvious.
 ## s7
 | key | type | default | KEPServer source |
 |---|---|---|---|
-| `rack` | int | 0 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_RACK` |
-| `slot` | int | 1 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_SLOT` |
-| `max_pdu` | int | 480 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_MAX_PDU` |
-| `link_type` | int \| null | null | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_300_400_1200_1500_LINK_TYPE` |
-| `byte_order_big` | bool | true | `siemens_tcpip_ethernet.DEVICE_ADDRESSING_BYTE_ORDER` |
+| `rack` | int | 0 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_RACK` (0..7) |
+| `slot` | int | 1 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_SLOT` (0..31) |
+| `max_pdu` | int | 480 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_MAX_PDU` (240..960; PDU requested at connect and used to plan blocks of at most `max_pdu` − 18 bytes; a smaller negotiated PDU splits reads, D-051) |
+| `link_type` | int \| str \| null | null | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_300_400_1200_1500_LINK_TYPE` (TSAP connection type: 1 = PG, 2 = OP, 3 = PC; also `"PG"`/`"OP"`/`"PC"`; null = 3, Kepware's default "PC"; enum values assumed, D-050) |
+| `byte_order_big` | bool | true | `siemens_tcpip_ethernet.DEVICE_ADDRESSING_BYTE_ORDER` (false = Kepware "Little Endian": the bytes of every 16/32/64-bit value reversed; not applied to timers, counters, strings) |
+| `max_gap` | int | 16 | — (unused bytes allowed between merged tags; timers/counters: `max_gap` / 2 elements) |
+| `nonnormal_float` | "zero" \| "unmodified" | "zero" | — (NaN/Inf/denormal REAL/LREAL; Kepware's channel default "Replace with Zero"; the importer writes it for modbus_tcp only) |
 
 ## melsec_mc
 | key | type | default | KEPServer source |
 |---|---|---|---|
-| `plc_type` | str | "Q" | `mitsubishi_ethernet.DEVICE_CPU` / `DEVICE_MODEL` |
-| `protocol` | "tcp" \| "udp" | "tcp" | `mitsubishi_ethernet.DEVICE_IP_PROTOCOL` |
-| `first_word_low` | bool | true | `mitsubishi_ethernet.DEVICE_FIRST_WORD_LOW` |
-| `frame` | str | "3E" | — |
+| `plc_type` | "Q" \| "L" \| "QnA" \| "iQ-L" \| "iQ-R" | "Q" | `mitsubishi_ethernet.DEVICE_CPU` / `DEVICE_MODEL` (importer writes "Q", a guess; only "iQ-R" changes the frames, D-054) |
+| `protocol` | "tcp" \| "udp" | "tcp" | `mitsubishi_ethernet.DEVICE_IP_PROTOCOL` (0 = UDP, 1 = TCP) |
+| `first_word_low` | bool | true | `mitsubishi_ethernet.DEVICE_FIRST_WORD_LOW` (word order of every 32/64-bit value) |
+| `frame` | "3E" | "3E" | — (MC protocol 3E frame, binary; nothing else is supported) |
+| `max_words` | int | 960 | — (words per batch read, 1..960, the MC 3E limit) |
+| `max_gap` | int | 16 | — (unused words allowed between merged tags) |
+| `nonnormal_float` | "zero" \| "unmodified" | "zero" | — (channel `CHANNEL_NON_NORMALIZED_FLOATING_POINT_HANDLING`; not written by the importer for this driver) |
+| `network` | int | 0 | `DEVICE_ID_STRING` `:Nzzz` network number (not imported) |
+| `pc` | int | 255 | `DEVICE_ID_STRING` `:XXX` PC number (not imported; 255 = the connected station) |
+| `dest_moduleio` | int | 1023 (0x3FF) | `mitsubishi_ethernet.DEVICE_CPU` (0x3FF = own CPU, 0x3E0..0x3E3 = CPU No. 1..4; not imported yet) |
+| `dest_modulesta` | int | 0 | — (3E request destination module station) |
 
 ## opcua_client
 | key | type | default | KEPServer source |

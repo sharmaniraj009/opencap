@@ -273,14 +273,14 @@ event messages are catalogued in plan 15.
 |---|---|---|---|---|---|
 | DIAG-01 | Server- and driver-level diagnostics at a glance | Adapt | Done | #63, #64, #84 | M1 |
 | DIAG-02 | Structured event stream | Adapt | Done | D-023, D-030 | M1 |
-| DIAG-03 | Event-log store with retention | Adapt | Planned (#56) | #56, ADM-11 | M5 |
-| DIAG-04 | Event-log viewer | Adapt | Not started | ADM-11 | M5 |
-| DIAG-05 | North protocol trace capture | Adapt | Not started | — | M5 |
-| DIAG-06 | Trace viewer | Adapt | Not started | — | M5 |
+| DIAG-03 | Event-log store with retention | Adapt | Planned (#136) | #136, ADM-11 | M5 |
+| DIAG-04 | Event-log viewer | Adapt | Planned (#136) | #136 | M5 |
+| DIAG-05 | North protocol trace capture | Adapt | Planned (#137) | #137 | M5 |
+| DIAG-06 | Trace viewer | Adapt | Planned (#137) | #137 | M5 |
 | DIAG-07 | OPC UA service trace content | Adapt | Not started | #74, #29 | M5 |
 | DIAG-08 | OPC DA method trace | Defer | Not started | #18 | M5 |
 | DIAG-09 | OPC HDA diagnostics | Out of scope | Out of scope | — | — |
 | DIAG-10 | Communication statistics per channel and device | Adapt | Done | — | M1 |
-| DIAG-11 | Frame capture on demand | Adapt | Planned (#56) | #56 | M5 |
-| DIAG-12 | Communication diagnostics viewer | Adapt | Not started | — | M5 |
+| DIAG-11 | Frame capture on demand | Adapt | Planned (#138) | #138 | M5 |
+| DIAG-12 | Communication diagnostics viewer | Adapt | Planned (#138) | #138 | M5 |
 | DIAG-13 | Refused-write diagnostics | Adapt | Not started | #29, #52 | M3 |

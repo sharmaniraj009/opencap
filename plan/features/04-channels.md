@@ -279,18 +279,18 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 | ID | Feature | Decision | Status | Issue/PR | Milestone |
 |---|---|---|---|---|---|
 | CH-01 | Channel object: create, rename, remove, unique name | Adapt | Done | #63 | M1 |
-| CH-02 | Channel description and driver summary | Adapt | Not started | — | — |
-| CH-03 | Static tag count per channel | Adopt | Not started | — | — |
+| CH-02 | Channel description and driver summary | Adapt | Planned (#103) | #103 | — |
+| CH-03 | Static tag count per channel | Adopt | Planned (#103) | #103 | — |
 | CH-04 | Non-normalized float handling | Adapt | Done | #64 | M2 |
-| CH-05 | Inter-device delay | Adopt | Not started | — | — |
-| CH-06 | Network adapter / interface selection | Adapt | Not started | — | — |
+| CH-05 | Inter-device delay | Adopt | Planned (#105) | #105 | — |
+| CH-06 | Network adapter / interface selection | Adapt | Planned (#106) | #106 | — |
 | CH-07 | Serial line settings and COM-port mapping | Adapt | Done | #62 (Rust: #47, #53) | M1 |
 | CH-08 | Shared serial line: setting checks and "shared" indicator | Adapt | Planned (#68) | #68 | M1 |
-| CH-09 | Flow control and manual RTS timing | Defer | Not started | — | — |
+| CH-09 | Flow control and manual RTS timing | Defer | Planned (#107) | #107 | — |
 | CH-10 | Serial operational behaviour: error reporting, idle close | Adapt | Done | #62 | M1 |
 | CH-11 | Ethernet encapsulation of serial protocols | Adapt | Done | #62 | M1 |
-| CH-12 | Import KEPServerEX encapsulation settings | Adopt | Not started | — | — |
+| CH-12 | Import KEPServerEX encapsulation settings | Adopt | Planned (#108) | #108 | — |
 | CH-13 | Operation with no communications | Out of scope | Out of scope | — | — |
-| CH-14 | Communication serialization (virtual networks) | Adapt | Not started | — | — |
+| CH-14 | Communication serialization (virtual networks) | Adapt | Planned (#104) | #104 | — |
 | CH-15 | Write optimizations | Out of scope | Out of scope | #19 | — |
-| CH-16 | Device discovery | Defer | Not started | — | M5 |
+| CH-16 | Device discovery | Defer | Planned (#110) | #110 | M5 |

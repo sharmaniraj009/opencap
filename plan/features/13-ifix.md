@@ -228,8 +228,8 @@ asks for them, so that blocks read only once at start (outputs, alarm values) ge
 | IFIX-05 | Bit addressing through bool tags | Adapt | Done | — | M1 |
 | IFIX-06 | Array addressing over OPC UA | Adapt | Planned (#28) | #28, #29 | M3 |
 | IFIX-07 | Read-side signal conditioning presets | Adapt | Not started | #3 | — |
-| IFIX-08 | BCD signal conditioning | Adapt | Not started | — | — |
+| IFIX-08 | BCD signal conditioning | Adapt | Planned (#115) | #115 | — |
 | IFIX-09 | Out-of-range alarm variants | Defer | Not started | #24 | M5 |
 | IFIX-10 | Write side of conditioning, output blocks | Out of scope | Out of scope | ADR-0008, #19 | — |
 | IFIX-11 | Initial values at SCADA start | Adapt | Done | D-015 | M1 |
-| IFIX-12 | Readiness signal so SCADA start can wait | Adapt | Not started | — | — |
+| IFIX-12 | Readiness signal so SCADA start can wait | Adapt | Planned (#123) | #123 | — |

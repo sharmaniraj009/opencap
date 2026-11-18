@@ -257,7 +257,7 @@ Store-and-forward tags are in plan 11; diagnostics capture and the event log are
 | SYS-07 | Channel-level system tags | Adapt | Planned (#22) | #22, #56 | M3 |
 | SYS-08 | Device-level system tags | Adapt | Planned (#22) | #22, #56 | M3 |
 | SYS-09 | Writable parameter-control and action tags | Out of scope | Out of scope | #19 | — |
-| SYS-10 | Property tags | Adapt | Not started | — | M3 |
+| SYS-10 | Property tags | Adapt | Planned (#119) | #119 | M3 |
 | SYS-11 | Statistics tags | Adapt | Planned (#22) | #22, #56 | M3 |
-| SYS-12 | Modem tags | Defer | Not started | — | — |
-| SYS-13 | Communication serialization tags | Adapt | Not started | — | — |
+| SYS-12 | Modem tags | Defer | Planned (#109) | #109 | — |
+| SYS-13 | Communication serialization tags | Adapt | Planned (#104) | #104 | — |

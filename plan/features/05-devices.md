@@ -284,20 +284,20 @@ plug-in (manual p. 86–95).
 | ID | Feature | Decision | Status | Issue/PR | Milestone |
 |---|---|---|---|---|---|
 | DEV-01 | Device object: name, channel, driver, model, id | Adapt | Done | #63, #64 | M2 |
-| DEV-02 | Device description | Adopt | Not started | — | — |
+| DEV-02 | Device description | Adopt | Planned (#103) | #103 | — |
 | DEV-03 | Data collection on/off | Adapt | Done | #63, #64 | M2 |
 | DEV-04 | Simulated mode | Adapt | Planned (#12) | #12 | M2 |
 | DEV-05 | Static tag count per device | Adopt | Done | #63 | M1 |
 | DEV-06 | Scan rates: tag rates, floor rate, forced rate | Adapt | Done | #64 | M2 |
-| DEV-07 | Client-driven scan rate | Defer | Not started | — | M3 |
-| DEV-08 | Demand poll only and `_DemandPoll` | Adapt | Not started | — | — |
+| DEV-07 | Client-driven scan rate | Defer | Planned (#111) | #111 | M3 |
+| DEV-08 | Demand poll only and `_DemandPoll` | Adapt | Planned (#111) | #111 | — |
 | DEV-09 | Initial updates from cache | Adapt | Done | — (OPC UA server: #74, #50) | M1 |
 | DEV-10 | Auto-demotion | Adapt | Done | #64 | M2 |
 | DEV-11 | Communication parameters / Ethernet encapsulation per device | Adapt | Done | #62 | M1 |
 | DEV-12 | Automatic tag database generation | Adapt | Planned (#11) | #11 | M1 |
-| DEV-13 | Device time zone for device timestamps | Defer | Not started | — | M5 |
+| DEV-13 | Device time zone for device timestamps | Defer | Planned (#112) | #112 | M5 |
 | DEV-14 | Device clock synchronisation | Out of scope | Out of scope | #19 | — |
 | DEV-15 | Timing: request timeout and attempts | Adapt | Done | #64 | M2 |
-| DEV-16 | Connect timeout | Adopt | Not started | — | — |
-| DEV-17 | Inter-request delay | Adopt | Not started | — | — |
-| DEV-18 | Media-level redundancy | Adapt | Not started | — | M5 |
+| DEV-16 | Connect timeout | Adopt | Planned (#105) | #105 | — |
+| DEV-17 | Inter-request delay | Adopt | Planned (#105) | #105 | — |
+| DEV-18 | Media-level redundancy | Adapt | Planned (#113) | #113 | M5 |

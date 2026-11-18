@@ -247,16 +247,16 @@ paths, mainly for legacy and DDE-style clients, with an optional scan-rate overr
 | TAG-01 | Tag object, name and online edits | Adapt | Done | #63 | M1 |
 | TAG-02 | Address | Adopt | Done | #63, #64 | M2 |
 | TAG-03 | Core data types | Adapt | Done | #64 | M2 |
-| TAG-04 | BCD, LBCD, Date and 8-bit types | Adopt | Not started | — | — |
+| TAG-04 | BCD, LBCD, Date and 8-bit types | Adopt | Planned (#115) | #115 | — |
 | TAG-05 | Client access: read only | Adapt | Done | #77 (Rust guard) | M2 |
 | TAG-06 | Client access: read/write | Out of scope | Out of scope | #19 | — |
 | TAG-07 | Per-tag scan rate | Adapt | Done | #64 | M2 |
 | TAG-08 | Description | Adopt | Done | — (OPC UA: #74, #50) | M1 |
-| TAG-09 | Multiple tag generation | Adapt | Not started | — | — |
+| TAG-09 | Multiple tag generation | Adapt | Planned (#117) | #117 | — |
 | TAG-10 | Scaling | Adopt | Done | #64; vectors #3 | M2 |
-| TAG-11 | Scaled data type | Adopt | Not started | — | — |
+| TAG-11 | Scaled data type | Adopt | Planned (#115) | #115 | — |
 | TAG-12 | Static (user-defined) tags | Adopt | Done | — | M1 |
-| TAG-13 | Dynamic tags | Defer | Not started | — | M5 |
+| TAG-13 | Dynamic tags | Defer | Planned (#118) | #118 | M5 |
 | TAG-14 | Tag groups in the browse tree | Adapt | Done | — (OPC UA: #74, #50) | M1 |
-| TAG-15 | Tag group objects in the API and UI | Adapt | Not started | — | — |
-| TAG-16 | Alias map | Defer | Not started | — | — |
+| TAG-15 | Tag group objects in the API and UI | Adapt | Planned (#117) | #117 | — |
+| TAG-16 | Alias map | Defer | Planned (#108) | #108 | — |

@@ -65,7 +65,7 @@ flowchart LR
 | Config manager | Load, validate (shared JSON Schema), layer, diff, atomically persist, keep revisions | `config/loader.py`, `kep_import.py` | `opencap-core::config` |
 | Address space / registry | Canonical tag paths, internal ids, rate groups, block plans | `core/registry.py` | `opencap-core` (registry) |
 | Scheduler + channel workers | Rate groups, one request on the wire per channel, retries, backoff, demotion, stale | `core/scheduler.py`, `core/channel_worker.py` | `opencap-core` (scheduler, `ChannelWorker`) |
-| Drivers | Protocol: pure `plan()`, one-attempt `read()`, `connect/close/identity/browse` | `drivers/*.py` | `engine/drivers/<name>` crates (#67; today `opencap-drivers`) + out-of-process plugins (#49) |
+| Drivers | Protocol: pure `plan()`, one-attempt `read()`, `connect/close/identity/browse` | `drivers/*.py` | `engine/drivers/<name>` crates behind `driver-<name>` features, listed by the `opencap-drivers` registry (#67) + out-of-process plugins (#49) |
 | Tag store | Current value, quality and timestamps of every tag; snapshots | `core/cache.py` (`ValueCache`) | `opencap-core` cache (global lock today); single-writer-per-device store of [ADR-0005](../adr/0005-north-plugins-tag-store-event-bus.md) in #41 |
 | Change-event bus | Device-batch change events to every consumer; south never blocks on north | `on_cycle` callback | `on_cycle` today; bounded broadcast with conflation in #41 |
 | Processing | Derived tags, alarms, system tags | — | `opencap-processing` (new crate, #55/#56) |

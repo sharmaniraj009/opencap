@@ -1,0 +1,4 @@
+# build output of the scenario clients (tests/scada/README.md)
+milo-client/target/
+open62541-client/build/
+open62541-client/.deps/

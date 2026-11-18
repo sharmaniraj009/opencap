@@ -79,8 +79,10 @@ policy-level summary, reconciled with it after #64.
 
 | Purpose | Tool | Licence | Decision |
 |---|---|---|---|
-| OPC UA client (Ignition's stack) | Eclipse Milo | EPL-2.0 | Test-only |
-| OPC UA client/server | open62541 tools | MPL-2.0 | Test-only |
+| OPC UA client (Ignition's stack), L1 SCADA suite | Eclipse Milo 0.6.16 (`sdk-client`, from Maven Central; [LICENSE](https://github.com/eclipse-milo/milo/blob/v0.6.16/LICENSE)) | EPL-2.0 | Test-only: built in CI from `tests/scada/milo-client/pom.xml` (#29) |
+| Milo's runtime dependencies (L1 suite) | Netty 4.1, Guava, digitalpetri strict-machine / netty-channel-fsm; BouncyCastle 1.78 (bcprov, bcpkix, bcutil); JAXB runtime 2.3 / Jakarta XML Bind / Activation; slf4j-api + slf4j-simple 1.7.36 | Apache-2.0; Bouncy Castle Licence (MIT-style); EDL-1.0 (BSD-3-Clause); MIT | Test-only (Maven scope `runtime` of the Milo client, #29) |
+| OPC UA client, L1 SCADA suite | open62541 v1.4.22 (commit `a9d7e2f2`, built with OpenSSL; [LICENSE](https://github.com/open62541/open62541/blob/v1.4.22/LICENSE)) | MPL-2.0 (OpenSSL 3: Apache-2.0) | Test-only: built in CI by `tests/scada/open62541-client/build.sh` (#29) |
+| OPC UA client, L1 SCADA suite | asyncua 2.1 (the `opcua` extra) | LGPL-3.0-or-later | Test-only use of a dependency already adopted above (#29) |
 | Sparkplug conformance | Eclipse Sparkplug TCK, Eclipse Tahu | EPL-2.0 | Test-only |
 | MQTT broker with persistence | Eclipse Mosquitto | EPL-2.0 or EDL-1.0 | Test-only (and recommended in production) |
 | BACnet device simulator | bacpypes3 | MIT (*verify*) | Test-only |

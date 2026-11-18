@@ -773,6 +773,13 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   body over the cap gets 413 on any route. Python counts only the bodies a route reads, and its legacy routes
   read none, so there such a body is ignored. Both refuse an oversized `Content-Length`. None of the Rust routes
   takes a body, so buffering costs nothing and keeps the cap in one place.
+- **No body without a token (lead's note on #84):** the open paths (`/health`, `/metrics`, `/api/v1/auth-info`,
+  the UI paths) and `OPTIONS` skip authentication, so they read no body either: any body there gets 413 at once,
+  unread and undrained. An anonymous caller cannot make the server buffer or drain anything; drain only ever runs
+  for an authenticated caller. Python ignores such a body instead (no open route reads one).
+- **Host names (lead's note on #84):** open mode answers exactly Python's `LOOPBACK_HOSTS` (`127.0.0.1`,
+  `localhost`, `::1`); other 127/8 names are refused, as in Python. The start-up bind check still accepts any
+  loopback address, as Python's `_is_loopback` does.
 - **Dependency:** `http-body-util` 0.1 (MIT) becomes a direct dependency of `opencap-api` to read the body frame by
   frame under the cap and to drain it. It was already in the lock file through axum; `tower-http` was not added.
 - **Tests:** `opencap-api` unit tests (roles, open mode, rebinding, 401 before the body, 413 by length and by

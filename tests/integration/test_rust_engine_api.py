@@ -153,6 +153,9 @@ async def test_open_mode_is_read_only_and_answers_only_loopback_hosts(engine, tm
         r = await http.get("/channels", headers={"Host": "attacker.example"})
         assert r.status_code == 403 and r.json() == {"detail": LOOPBACK_ONLY}
         assert (await http.get("/channels", headers={"Host": "localhost:8080"})).status_code == 200
+        # exactly 127.0.0.1, localhost and ::1 (Python's LOOPBACK_HOSTS), not all of 127/8
+        r = await http.get("/channels", headers={"Host": "127.0.0.2:8080"})
+        assert r.status_code == 403 and r.json() == {"detail": LOOPBACK_ONLY}
         assert (await http.get("/health", headers={"Host": "attacker.example"})).status_code == 200
 
 
@@ -194,6 +197,10 @@ async def test_rust_refuses_chunked_and_huge_bodies_with_a_clean_413(tmp_path, n
         for n in (17, 64, 17):
             r = await http.post("/reload", content=chunks(n), headers=OPS)
             assert r.status_code == 413 and r.json() == {"detail": "request body larger than 1048576 bytes"}, n
+        # open paths take no token, so they take no body either: refused unread (Python ignores it)
+        r = await http.request("GET", "/health", content=b"hello")
+        assert r.status_code == 413 and r.json() == {"detail": "this request takes no body"}
+        assert (await http.get("/health")).status_code == 200
         # declared larger than the drain limit (8 MiB): refused at once, before a body byte is sent
         host, port = http.base_url.host, http.base_url.port
         reader, writer = await asyncio.open_connection(host, port)

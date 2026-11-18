@@ -34,6 +34,7 @@ client library talks to unmodified; deviations are recorded in
 | Project infrastructure | ✅ | Apache-2.0 license, CI on Python 3.12 and 3.13, container image, systemd unit, Windows service definition, configurable MQTT topic prefix. |
 | Modbus RTU driver (`modbus_rtu`) | ✅ | Same planning as Modbus TCP over a serial line or RTU over TCP; round trips against pymodbus' RTU server on TCP and behind a pty; one connection and one request at a time per line. Field check on a real RS-485 slave still to do. |
 | Allen-Bradley DF1 driver (`ab_df1`) | ✅ | SLC/MicroLogix data-table reads over DF1 full duplex (own link layer: BCC/CRC, ACK/NAK/ENQ, retries, duplicate detection) against a DF1 simulator on TCP and behind a pty; KEPServerEX DF1 devices are imported and polled once `overrides.yaml` `serial_ports` maps their COM port. Field check on a real MicroLogix/SLC and the site gateways still to do. |
+| Simulator driver (`simulator`) | ✅ | RAMP, SINE, RANDOM, SQUARE, CONST, memory registers, TIME and COUNTER computed from the address with an injected clock (no network); fault switches for every quality; 50 simulator devices run through the poller, cache, publisher and API with no socket but the broker's and the API's; shared conformance vectors for the Rust port. |
 
 ## In progress (parallel pull requests)
 

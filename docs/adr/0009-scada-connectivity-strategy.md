@@ -36,3 +36,18 @@ Reverse-engineering SuiteLink (legal and maintenance risk); building OPC DA firs
 
 ## Revisit when
 A large user base needs a proprietary link that has a published specification.
+
+## As built (#96, 2026-11-18)
+- The Python OPC UA server (`north/opcua_server.py`, D-046) follows the naming rule: NodeIds are
+  `ns=2;s=<channel>.<device>[.<group>].<tag>`, with tag groups as folders. The configured
+  `namespace_uri` is registered first, so it is always index 2; set it to `KEPServerEX` for
+  clients that resolve the namespace by URI. Each device has a `_System` folder (`_Error`, `_State`,
+  `_LastGood`, ...), and `_System` is a reserved tag-group name in both engines.
+- Read-only in three layers (CurrentRead access, users never Admin, a permission ruleset that
+  refuses Write, HistoryUpdate, Call and node management). Values are copied from the cache, so no
+  client action reaches a PLC.
+- Secure by default: off unless enabled, bound to 127.0.0.1 by default, anonymous off, and
+  policy `None` refused on an endpoint that is not loopback unless `allow_insecure_remote`.
+- Still open: PKI folders, X.509 and several users, limits, EURange and units, a separate
+  advertised URL, and the 100k-node scale test (#28); the L1 suite with Milo and open62541
+  (#29); the Rust server (#50).

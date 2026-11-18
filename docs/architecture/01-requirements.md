@@ -18,9 +18,9 @@ never committed) uses; tier 2 is what most KEPServerEX installations use; tier 3
 | 1 | Allen-Bradley Logix / Micro800 (CIP symbolic) | ControlLogix Ethernet, Micro800 Ethernet | done (Python) |
 | 1 | Allen-Bradley SLC/MicroLogix/PLC-5 (PCCC over EtherNet/IP) | ControlLogix Ethernet (model 23) | done (Python) |
 | 1 | Allen-Bradley DF1 serial | DF1 | done (Python, #62) |
-| 1 | Siemens S7-300/400/1200/1500 (S7comm) | Siemens TCP/IP Ethernet | flight (#60, takeover #73) |
-| 1 | Mitsubishi MC protocol (3E/4E) | Mitsubishi Ethernet | flight (#60, takeover #73) |
-| 1 | OPC UA client | OPC UA Client | flight (#61, takeover #74) |
+| 1 | Siemens S7-300/400/1200/1500 (S7comm) | Siemens TCP/IP Ethernet | done (Python, #95; field check to do) |
+| 1 | Mitsubishi MC protocol (3E/4E) | Mitsubishi Ethernet | done (Python, #95; field check to do) |
+| 1 | OPC UA client | OPC UA Client | done (Python, #96; field check to do) |
 | 2 | Omron FINS (UDP/TCP) | Omron FINS Ethernet | planned M5 |
 | 2 | BACnet/IP | BACnet/IP | planned M5 |
 | 2 | DNP3 master (TCP/serial) | DNP Client Ethernet/Serial | planned M5 |
@@ -99,7 +99,7 @@ retention. Local historian: query API for trends in the UI.
 ### FR-8 Servers for SCADA
 | Server | Status |
 |---|---|
-| OPC UA server (security policies, users, certificates, subscriptions, browse) | flight (#61, takeover #74) |
+| OPC UA server (security policies, users, certificates, subscriptions, browse) | done (Python, #96: one user, secure defaults); hardening #28, L1 suite #29, Rust #50 |
 | MQTT / Sparkplug B (see FR-7) | MQTT done, Sparkplug planned M3 |
 | Modbus TCP server (register map over the tag store, read function codes only) | planned M3 |
 | OPC DA 2.05a/3.0 server (Windows, COM) | planned M5, RFC + owner decision on OPC Foundation components |

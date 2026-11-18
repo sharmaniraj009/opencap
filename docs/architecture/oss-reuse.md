@@ -21,9 +21,9 @@ policy-level summary, reconciled with it after #64.
 | Logging | structlog | MIT or Apache-2.0 | no | Adopt (in use) |
 | Modbus | pymodbus | BSD-3-Clause | no | Adopt (in use) |
 | Allen-Bradley CIP/PCCC | pycomm3 | MIT | no | Adopt (in use) |
-| Siemens S7 | python-snap7 ≥ 3.5 | MIT (3.x is pure Python: `py3-none-any` wheel, no bundled LGPL snap7 library) | yes (3.5.0 metadata + LICENSE) | Adopt (#60) |
-| Mitsubishi MC | pymcprotocol 0.3 | MIT | yes (0.3.0 metadata + LICENSE) | Adopt (#60; driver overrides its socket I/O) |
-| OPC UA | asyncua | LGPL-3.0 | no | Adopt: imported unmodified, separately installed (LGPL OK); not vendored |
+| Siemens S7 | python-snap7 ≥ 3.5 | MIT (3.x is pure Python: `py3-none-any` wheel, no bundled LGPL snap7 library) | yes (3.5.0 metadata + LICENSE) | Adopt (in use, #95) |
+| Mitsubishi MC | pymcprotocol 0.3 | MIT | yes (0.3.0 metadata + LICENSE) | Adopt (in use, #95; driver overrides its socket I/O) |
+| OPC UA client and server | asyncua 2.1 (pinned `>=2.1,<2.2`: the driver touches internals) | LGPL-3.0-or-later | no | Adopt (#96): imported unmodified, separately installed (LGPL OK); not vendored; ADR-0007 exception in `licenses/python-allow.toml` |
 | MQTT | aiomqtt + paho-mqtt | BSD-3-Clause; EPL-2.0 or EDL-1.0 | no | Adopt (EDL-1.0 = BSD-3) |
 | API | FastAPI, uvicorn | MIT; BSD-3-Clause | no | Adopt (in use) |
 | Serial ports (modbus_rtu, ab_df1) | pyserial 3.5 | BSD-3-Clause (SPDX header in `serial/__init__.py`; LICENSE.txt at tag v3.5) | yes | Adopt (optional `serial` extra, #62) |

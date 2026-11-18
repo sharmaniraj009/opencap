@@ -33,6 +33,9 @@ from tests.helpers.fake_driver import (
     uniq,
 )
 
+# timing bounds (cadence, staleness, channel isolation): no automatic GC pause inside a test (tests/conftest.py no_gc)
+pytestmark = pytest.mark.usefixtures("no_gc")
+
 
 # --- helpers ------------------------------------------------------------------------------
 

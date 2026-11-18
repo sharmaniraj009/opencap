@@ -303,11 +303,12 @@ async def test_power_off_gives_connection_lost_and_power_on_reconnects(executor)
         await sim.stop()
 
 
+@pytest.mark.usefixtures("no_gc")
 async def test_udp(executor) -> None:
     sim = await start_sim(port=stable_port())
     try:
         sim.fill(TAGS, seed=6)
-        drv = make_driver(sim, TAGS, executor, timeout_ms=300, protocol="udp")
+        drv = make_driver(sim, TAGS, executor, timeout_ms=1000, protocol="udp")   # CI runners stall
         await drv.connect()
         sim.reset_counters()
         assert_values(sim, TAGS, await read_all(drv))
@@ -315,16 +316,21 @@ async def test_udp(executor) -> None:
         assert (await drv.identity())["protocol"] == "udp"
 
         sim.mute = True                                              # no answer: timeout, new socket next time
-        with pytest.raises(CommError, match="no reply within 300 ms") as info:
+        with pytest.raises(CommError, match="no reply within 1000 ms") as info:
             await drv.read(blocks(drv)[0])
         assert not isinstance(info.value, ConnectionLost) and not drv.connected
         sim.mute = False
         await drv.connect()
         assert_values(sim, TAGS, await read_all(drv))
 
-        await sim.stop()                                             # port closed: ICMP port unreachable
-        with pytest.raises(ConnectionLost, match="connection lost"):
+        await sim.stop()           # port closed: the kernel may answer with ICMP port unreachable
+        with pytest.raises(CommError) as stopped:
             await drv.read(blocks(drv)[0])
+        # ConnectionLost when the ICMP error reaches the socket; a timeout when the kernel does
+        # not send or deliver it (seen on CI runners). Both mean "no PLC there"; the mapping of a
+        # refused socket to ConnectionLost is pinned in tests/unit/test_melsec_io.py.
+        assert isinstance(stopped.value, ConnectionLost) or "no reply within" in str(stopped.value)
+        assert not drv.connected
         await sim.restart()
         await drv.connect()
         assert_values(sim, TAGS, await read_all(drv))

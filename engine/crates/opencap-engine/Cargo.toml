@@ -1,0 +1,33 @@
+[package]
+name = "opencap-engine"
+description = "opencap engine binary: run, check, read"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "opencap-engine"
+path = "src/main.rs"
+
+[dependencies]
+opencap-core.workspace = true
+opencap-drivers.workspace = true
+opencap-north.workspace = true
+opencap-api.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+chrono.workspace = true
+indexmap.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

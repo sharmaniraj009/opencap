@@ -53,7 +53,7 @@ def _find_device(config_dir: Path, device_id: str):
 
 @app.command("read")
 def read_cmd(
-    device_id: str = typer.Argument(..., help="'<channel>/<device>', e.g. 'Site 008/Device1'"),
+    device_id: str = typer.Argument(..., help="'<channel>/<device>', e.g. 'Plant A/PLC1'"),
     tag: str | None = typer.Option(None, "--tag", help="Only print this tag"),
     config_dir: Path = CONFIG_OPT,
 ) -> None:
@@ -78,11 +78,11 @@ def read_cmd(
         cache.register(device)
         worker = ChannelWorker(single, {device.id: plan}, cache)
         try:
-            return await worker.read_once(device.id)
+            return await worker.read_once(device.id), worker.device_status(device.id).get("last_error")
         finally:
             await worker.stop()
 
-    values = asyncio.run(go())
+    values, last_error = asyncio.run(go())
     names = [tag] if tag else sorted(values)
     for name in names:
         tv = values.get(name)
@@ -91,6 +91,8 @@ def read_cmd(
             continue
         typer.echo(f"{name:<40} {tv.quality:<10} {tv.value!r}")
     bad = sum(1 for tv in values.values() if tv.quality != "good")
+    if bad and last_error:
+        typer.echo(f"{device_id}: {last_error}", err=True)
     raise typer.Exit(0 if bad == 0 else 3)
 
 
@@ -131,7 +133,7 @@ def run_cmd(
     import asyncio
 
     from opencap.config.loader import load_config
-    from opencap.core.runtime import Poller
+    from opencap.core.runtime import Poller, event_loop_factory
     from opencap.logsetup import configure_logging
 
     loaded = load_config(config_dir)
@@ -141,7 +143,13 @@ def run_cmd(
         typer.echo(f"unknown site(s): {', '.join(unknown)}", err=True)
         raise typer.Exit(1)
     configure_logging(loaded.poller.log_level)
-    asyncio.run(Poller(config_dir, loaded=loaded, only_channels=site or None).run_forever())
+    try:
+        asyncio.run(Poller(config_dir, loaded=loaded, only_channels=site or None).run_forever(),
+                    loop_factory=event_loop_factory())
+    except KeyboardInterrupt:
+        # Ctrl+C where the loop has no signal handlers (Windows, e.g. a WinSW service stop):
+        # asyncio cancelled run_forever(), which has already stopped the poller cleanly.
+        pass
 
 
 def main() -> None:

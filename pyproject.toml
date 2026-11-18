@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]   # PEP 639 license expression + license-files
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,7 @@ name = "opencap"
 version = "0.1.0"
 description = "Open-source industrial connectivity server: polls PLCs (Modbus, Allen-Bradley, ...) and publishes to MQTT"
 license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]   # NOTICE lists the vendored files (ADR-0007)
 authors = [{ name = "opencap contributors" }]
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,16 +23,20 @@ modbus = ["pymodbus>=3.7"]
 ab = ["pycomm3>=1.2"]
 s7 = ["python-snap7>=1.3"]
 melsec = ["pymcprotocol>=0.3"]
-opcua = ["asyncua>=2.1"]   # client state machine, subscription keep-alive tracking (D-045)
-north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "prometheus-client>=0.20"]
-all = ["opencap[modbus,ab,s7,melsec,opcua,north]"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "amqtt>=0.11"]  # amqtt: in-process test broker
+opcua = ["asyncua>=2.1,<2.2"]   # client state machine and subscription keep-alive tracking touch asyncua internals (D-045)
+serial = ["pyserial>=3.5"]          # local serial ports and RFC 2217 (modbus_rtu, ab_df1); TCP gateways need nothing
+north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "prometheus-client>=0.20", "ruamel.yaml>=0.19"]  # ruamel.yaml: config API keeps YAML comments
+all = ["opencap[modbus,ab,s7,melsec,opcua,north,serial]"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "amqtt>=0.11", "jsonschema>=4.18"]  # amqtt: in-process test broker
 
 [project.scripts]
 opencap = "opencap.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"opencap.api" = ["ui/*.html", "ui/*.js", "ui/*.css", "ui/vendor/*"]   # the web UI bundle (ADR-0010)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

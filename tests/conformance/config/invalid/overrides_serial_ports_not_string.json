@@ -1,0 +1,10 @@
+{
+  "document": "overrides",
+  "expected_error": "serial_ports",
+  "semantic": false,
+  "data": {
+    "serial_ports": {
+      "COM1": 5
+    }
+  }
+}

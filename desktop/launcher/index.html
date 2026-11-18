@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opencap</title>
+<link rel="stylesheet" href="launcher.css">
+<script src="launcher.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <span class="brand">opencap</span>
+  <span class="muted">engines</span>
+  <button id="add" class="primary">Add engine</button>
+</header>
+<main>
+  <p id="error" class="error" role="alert" hidden></p>
+  <p id="notice" class="notice" role="status" hidden></p>
+  <ul id="profiles" class="profiles" aria-live="polite"></ul>
+
+  <dialog id="editor">
+    <form id="profile-form" method="dialog">
+      <h2 id="editor-title">Add engine</h2>
+      <label>Name <input name="name" required placeholder="Plant A" autocomplete="off"></label>
+      <label>Address <input name="base_url" required placeholder="http://127.0.0.1:8080" autocomplete="off"></label>
+      <label>API token <input name="token" type="password" autocomplete="off" placeholder="leave empty to keep the stored token"></label>
+      <label class="check"><input type="checkbox" name="clear_token"> Remove the stored token (engine without tokens)</label>
+      <p class="muted small">The token is kept in the system keychain, never in a file.</p>
+      <p id="form-error" class="error" role="alert" hidden></p>
+      <div class="buttons">
+        <button type="submit" class="primary" value="save">Save</button>
+        <button type="button" id="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+</main>
+<footer class="foot muted small" id="foot"></footer>
+
+<template id="profile-tpl">
+  <li class="profile">
+    <div class="row">
+      <div>
+        <div class="name"></div>
+        <div class="url muted small"></div>
+        <div class="warn small" hidden></div>
+      </div>
+      <div class="actions">
+        <button class="open primary">Open</button>
+        <button class="check">Check</button>
+        <button class="edit">Edit</button>
+        <button class="delete danger">Delete</button>
+      </div>
+    </div>
+    <div class="status muted small">not checked yet</div>
+  </li>
+</template>
+</body>
+</html>

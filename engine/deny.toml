@@ -1,0 +1,78 @@
+# Licence and supply-chain gate for the Rust engine (ADR-0007, docs/adr/0007-oss-licence-policy.md).
+# CI runs `cargo deny check licenses bans sources` (blocking) and `cargo deny check advisories`.
+
+[graph]
+all-features = true
+
+[licenses]
+# Permissive licences are allowed. MPL-2.0 is file-level copyleft: allowed for unmodified
+# crates (ADR-0007). LGPL, GPL, AGPL, non-commercial and unknown licences are NOT listed and
+# therefore rejected: LGPL only as a dynamically loaded, replaceable library, GPL only as a
+# separately shipped out-of-process plugin with owner approval, never in this build.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    # Add MPL-2.0 (unmodified crates only) in the PR that first needs it, e.g. async-opcua.
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[advisories]
+# Known vulnerabilities fail the build. "Unmaintained" notices do not (`none`): chrono and
+# chrono-tz (RUSTSEC-2026-0543/0555, no fix available) are direct dependencies, and blocking
+# every PR on them would stall unrelated work. The migration (jiff or time) is a follow-up;
+# until then unmaintained status is reviewed by hand when the dependency table in RFC 0001
+# changes. Yanked releases warn. Decision: docs/decisions.md D-061 (#66).
+unmaintained = "none"
+yanked = "warn"
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0382"
+reason = """rustls-webpki 0.102.8 is pinned (^0.102.8) by rumqttc 0.25.1 (the latest rumqttc) and used there only
+as an error type (`webpki::Error` in rumqttc/src/tls.rs). Certificate verification runs in rustls 0.23,
+which uses the patched rustls-webpki 0.103.17 in Cargo.lock. Not reachable through 0.102.8.
+Remove when rumqttc moves to rustls-webpki >= 0.103.16."""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0049"
+reason = """rustls-webpki 0.102.8 is pinned (^0.102.8) by rumqttc 0.25.1 (the latest rumqttc) and used there only
+as an error type (`webpki::Error` in rumqttc/src/tls.rs). Certificate verification runs in rustls 0.23,
+which uses the patched rustls-webpki 0.103.17 in Cargo.lock. Not reachable through 0.102.8.
+Remove when rumqttc moves to rustls-webpki >= 0.103.16."""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0098"
+reason = """rustls-webpki 0.102.8 is pinned (^0.102.8) by rumqttc 0.25.1 (the latest rumqttc) and used there only
+as an error type (`webpki::Error` in rumqttc/src/tls.rs). Certificate verification runs in rustls 0.23,
+which uses the patched rustls-webpki 0.103.17 in Cargo.lock. Not reachable through 0.102.8.
+Remove when rumqttc moves to rustls-webpki >= 0.103.16."""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0099"
+reason = """rustls-webpki 0.102.8 is pinned (^0.102.8) by rumqttc 0.25.1 (the latest rumqttc) and used there only
+as an error type (`webpki::Error` in rumqttc/src/tls.rs). Certificate verification runs in rustls 0.23,
+which uses the patched rustls-webpki 0.103.17 in Cargo.lock. Not reachable through 0.102.8.
+Remove when rumqttc moves to rustls-webpki >= 0.103.16."""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0104"
+reason = """rustls-webpki 0.102.8 is pinned (^0.102.8) by rumqttc 0.25.1 (the latest rumqttc) and used there only
+as an error type (`webpki::Error` in rumqttc/src/tls.rs). Certificate verification runs in rustls 0.23,
+which uses the patched rustls-webpki 0.103.17 in Cargo.lock. Not reachable through 0.102.8.
+Remove when rumqttc moves to rustls-webpki >= 0.103.16."""
+

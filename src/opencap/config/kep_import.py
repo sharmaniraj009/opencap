@@ -20,6 +20,9 @@ Mapping notes (also in docs/decisions.md):
   reported); BCD / LBCD / Date -> imported with `enabled: false` (no decoder yet).
 - Same-address pairs are counted like the old kep2poller.py: per (device, address)
   shared by n tags, n - 1 pairs (each later tag paired with the first one).
+- "Allen-Bradley DF1" devices -> `ab_df1` with the channel's serial settings, the device's
+  station and error check, and `transport: unmapped` (host = the COM port name): they are
+  skipped until `overrides.yaml` `serial_ports` maps the COM port (docs/driver_params.md).
 """
 
 from __future__ import annotations
@@ -91,7 +94,6 @@ CLX_MODEL_PCCC = 23      # data-table addresses (F34:3, N54:17, B3:17/14) -> ab_
 
 # --- exclusion reasons (stable strings: tests and import_summary.json use them) ----
 
-REASON_DF1 = "DF1 serial: Phase 7"
 REASON_SIMULATOR = "Simulator driver: no real device"
 REASON_MQTT = "MQTT Client driver: not a PLC"
 REASON_UCON = "U-CON user-configurable driver: not supported"
@@ -99,7 +101,6 @@ REASON_DISABLED = "data collection disabled in KEPServer"
 REASON_NO_HOST = "no usable host in DEVICE_ID_STRING"
 
 EXCLUDED_DRIVERS = {
-    KEP_DF1: REASON_DF1,
     KEP_SIMULATOR: REASON_SIMULATOR,
     KEP_MQTT: REASON_MQTT,
     KEP_UCON: REASON_UCON,
@@ -159,6 +160,13 @@ channels: {}
 #       FLOW_1: {scan_ms: 10000, address: "400047", dtype: float32}
 #       LEVEL_1: {scale: {raw_lo: 0, raw_hi: 4095, eng_lo: 0, eng_hi: 10}}
 devices: {}
+
+# Serial devices (ab_df1, modbus_rtu) imported from a KEPServer COM port start with
+# `transport: unmapped` and are skipped until their COM port is mapped here:
+#   COM112: 192.0.2.50:4001            # serial-over-TCP gateway, raw TCP (also tcp://host:port)
+#   COM7: rfc2217://192.0.2.51:4002    # RFC 2217 COM-port server (ab_df1 only)
+#   COM3: /dev/ttyUSB0                 # local serial port (baud/parity from the device params)
+serial_ports: {}
 """
 
 DEVICES_MAP_HEADER = """\
@@ -167,7 +175,8 @@ DEVICES_MAP_HEADER = """\
 # Entries with `stub: true` were guessed by `opencap import-kep`: confirm the SubDeviceId
 # with the backend, then delete the `stub` line. `opencap import-kep` never overwrites
 # this file; it only appends stubs for device ids that are not in it yet.
-# `topic` and `env` are optional; topic defaults to opencap/<channel>/<device>/data (slugged).
+# `topic` and `env` are optional; topic defaults to <mqtt.topic_prefix>/<channel>/<device>/data
+# (slugged; poller.yaml mqtt.topic_prefix, default "opencap").
 # `defaults` is merged into the publish settings of every device (e.g. env, interval_ms).
 """
 
@@ -621,6 +630,124 @@ def _map_opcua(ch: dict, dev: dict, dev_id: str) -> _Mapped:
     return _Mapped("opcua_client", host, port, params, source=source, problems=problems)
 
 
+# --- DF1 (serial) ---------------------------------------------------------------
+
+K_SERIAL = "servermain.CHANNEL_SERIAL_COMMUNICATIONS_"
+SERIAL_SETTINGS = ("COM_ID", "BAUD_RATE", "DATA_BITS", "PARITY", "STOP_BITS", "FLOW_CONTROL")
+# Kepware writes parity as the ASCII code of N/E/O/M/S (unverified on a real export; names accepted too).
+PARITY_CODES = {78: "N", 69: "E", 79: "O", 77: "M", 83: "S"}
+PARITY_NAMES = {"N": "N", "NONE": "N", "E": "E", "EVEN": "E", "O": "O", "ODD": "O",
+                "M": "M", "MARK": "M", "S": "S", "SPACE": "S"}
+DF1_DEFAULTS = {"baudrate": 19200, "bytesize": 8, "parity": "N", "stopbits": 1}
+_DF1_KEY = re.compile(r"(?i)^(allen_?bradley_?df1|ab_?df1|df1)\.")
+_ERROR_CHECK_KEY = re.compile(r"(?i)(ERROR_CHECK|CHECKSUM|_CRC$|_BCC$)")
+_LINK_KEY = re.compile(r"(?i)(DUPLEX|LINK_PROTOCOL|PROTOCOL_MODE|_PROTOCOL$)")
+
+
+def _serial_setting(ch: dict[str, Any], name: str) -> Any:
+    """Channel serial setting: the servermain key, else any key ending in SERIAL_COMMUNICATIONS_<name>."""
+    if K_SERIAL + name in ch:
+        return ch[K_SERIAL + name]
+    for key in sorted(ch):
+        if key.upper().endswith("SERIAL_COMMUNICATIONS_" + name):
+            return ch[key]
+    return None
+
+
+def _df1_keys(ch: dict[str, Any], dev: dict[str, Any]) -> dict[str, Any]:
+    """Driver-specific DF1 properties (device first, then channel), kept in `source`."""
+    out = {k: v for k, v in ch.items() if _DF1_KEY.match(k)}
+    out.update({k: v for k, v in dev.items() if _DF1_KEY.match(k)})
+    return dict(sorted(out.items()))
+
+
+def _df1_error_check(df1: dict[str, Any], dev_id: str, problems: list[str]) -> str:
+    found = [(k, v) for k, v in df1.items() if _ERROR_CHECK_KEY.search(k.split(".", 1)[-1])]
+    if not found:
+        problems.append(f"{dev_id}: DF1 error checking not found in the export; using CRC "
+                        "(SLC/MicroLogix default); confirm against the PLC channel setting")
+        return "crc"
+    key, value = found[0]
+    if isinstance(value, str):
+        text = value.upper()
+        if "CRC" in text:
+            return "crc"
+        if "BCC" in text:
+            return "bcc"
+    elif isinstance(value, bool):
+        name = key.upper()
+        if name.endswith("CRC"):
+            return "crc" if value else "bcc"
+        if name.endswith("BCC"):
+            return "bcc" if value else "crc"
+    elif isinstance(value, int) and value in (0, 1):
+        check = "crc" if value == 1 else "bcc"
+        problems.append(f"{dev_id}: DF1 error checking {key}={value} read as {check.upper()} "
+                        "(0 = BCC, 1 = CRC, unverified); confirm against the PLC channel setting")
+        return check
+    problems.append(f"{dev_id}: DF1 error checking {key}={value!r} not understood; using CRC; confirm")
+    return "crc"
+
+
+def _df1_parity(raw: Any, dev_id: str, problems: list[str]) -> str:
+    if raw is None:
+        return DF1_DEFAULTS["parity"]
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw in PARITY_CODES:
+        return PARITY_CODES[raw]
+    if isinstance(raw, str) and raw.strip().upper() in PARITY_NAMES:
+        return PARITY_NAMES[raw.strip().upper()]
+    problems.append(f"{dev_id}: unknown serial parity code {raw!r}; using N (none); confirm")
+    return "N"
+
+
+def _map_df1(ch: dict, dev: dict, dev_id: str) -> _Mapped:
+    problems: list[str] = []
+    raw_id = str(dev.get(K_ID) or "").strip()
+    if not raw_id.isdigit() or not 0 <= int(raw_id) <= 254:
+        raise _Exclude(f"no usable DF1 station id in DEVICE_ID_STRING ({raw_id!r}, expected 0-254)")
+    station = int(raw_id)
+    if station >= 8:
+        problems.append(f"{dev_id}: DF1 station {raw_id!r} read as decimal (KEPServer DEVICE_ID_FORMAT="
+                        f"{dev.get('servermain.DEVICE_ID_FORMAT')!r}; octal/hex coding not verified); confirm")
+    kep_serial = {name: v for name in SERIAL_SETTINGS if (v := _serial_setting(ch, name)) is not None}
+    com_id = _int(kep_serial.get("COM_ID"))
+    com = f"COM{com_id}" if com_id is not None and com_id > 0 else None
+    if com is None:
+        problems.append(f"{dev_id}: no COM port in the KEPServer channel; set the device's transport by hand")
+    settings = {
+        "baudrate": _int(kep_serial.get("BAUD_RATE"), DF1_DEFAULTS["baudrate"]),
+        "bytesize": _int(kep_serial.get("DATA_BITS"), DF1_DEFAULTS["bytesize"]),
+        "parity": _df1_parity(kep_serial.get("PARITY"), dev_id, problems),
+        "stopbits": _int(kep_serial.get("STOP_BITS"), DF1_DEFAULTS["stopbits"]),
+    }
+    if "BAUD_RATE" not in kep_serial:
+        problems.append(f"{dev_id}: no serial baud rate in the export; using {DF1_DEFAULTS['baudrate']} 8N1 "
+                        "(only used for a local serial port)")
+    df1 = _df1_keys(ch, dev)
+    for key, value in df1.items():
+        if _LINK_KEY.search(key.split(".", 1)[-1]) and "HALF" in str(value).upper():
+            problems.append(f"{dev_id}: KEPServer uses DF1 half-duplex ({key}={value!r}); ab_df1 speaks "
+                            "full duplex only: the device will not answer until the link is full duplex")
+    params = {
+        "station": station,
+        "src_station": 0,
+        "error_check": _df1_error_check(df1, dev_id, problems),
+        "transport": "unmapped",
+        "com_port": com,
+        **settings,
+        "max_elements": 100,
+        "max_gap": 4,
+        "request_size": 232,
+    }
+    where = com or "its serial port"
+    problems.append(f"{dev_id}: DF1 on {where} is not mapped to a transport yet; the device is skipped until "
+                    f"overrides.yaml serial_ports maps {where} (docs/driver_params.md)")
+    source = {"kep_serial": kep_serial}
+    if df1:
+        source["kep_df1"] = df1
+    return _Mapped("ab_df1", com or "", 0, params, source=source, problems=problems)
+
+
 DRIVER_MAPPERS = {
     KEP_MODBUS: _map_modbus,
     KEP_MICRO800: _map_micro800,
@@ -628,6 +755,7 @@ DRIVER_MAPPERS = {
     KEP_S7: _map_s7,
     KEP_MELSEC: _map_melsec,
     KEP_OPCUA: _map_opcua,
+    KEP_DF1: _map_df1,
 }
 
 

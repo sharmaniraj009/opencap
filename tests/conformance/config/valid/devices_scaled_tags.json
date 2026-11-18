@@ -1,0 +1,49 @@
+{
+  "document": "devices",
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "SITE_A",
+        "devices": [
+          {
+            "id": "SITE_A/PLC1",
+            "channel": "SITE_A",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "PV",
+                "address": "400010",
+                "dtype": "int16",
+                "scale": {
+                  "type": "linear",
+                  "raw_lo": 0,
+                  "raw_hi": 32767,
+                  "eng_lo": 0,
+                  "eng_hi": 100,
+                  "units": "bar"
+                }
+              },
+              {
+                "name": "SQ",
+                "address": "400011",
+                "dtype": "uint16",
+                "scale": {
+                  "type": "sqrt",
+                  "clamp_lo": true,
+                  "clamp_hi": true,
+                  "negate": true
+                },
+                "scan_ms": 250,
+                "enabled": false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

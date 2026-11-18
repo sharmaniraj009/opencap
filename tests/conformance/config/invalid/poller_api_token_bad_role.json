@@ -1,0 +1,12 @@
+{
+  "document": "poller",
+  "expected_error": "role",
+  "semantic": false,
+  "data": {
+    "api": {
+      "tokens": [
+        {"name": "ops", "role": "root", "token_env": "OPENCAP_TOKEN_A"}
+      ]
+    }
+  }
+}

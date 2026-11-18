@@ -1,0 +1,56 @@
+{
+  "document": "devices",
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "SITE_A",
+        "devices": [
+          {
+            "id": "SITE_A/PLC1",
+            "channel": "SITE_A",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "uint16"
+              }
+            ],
+            "publish": {
+              "mode": "on_change",
+              "deadband": 0.5,
+              "heartbeat_ms": 60000,
+              "env": "test",
+              "topic": "demo/site_a/plc1/data"
+            },
+            "scan_ms": 500,
+            "min_scan_ms": 500,
+            "timeout_ms": 1500,
+            "retries": 1,
+            "demote_after": 5,
+            "demote_for_ms": 10000,
+            "source": {
+              "driver": "Modbus Ethernet",
+              "model": "generic"
+            }
+          }
+        ]
+      }
+    ],
+    "generated_from": "synthetic",
+    "generated_at": "2026-01-01T00:00:00Z",
+    "excluded": [
+      {
+        "channel": "SITE_C",
+        "device": "PLC9",
+        "kep_driver": "Simulator",
+        "tags": 3,
+        "reason": "not supported"
+      }
+    ]
+  }
+}

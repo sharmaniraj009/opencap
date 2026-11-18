@@ -917,14 +917,59 @@ def _is_request_error(exc: BaseException) -> bool:
 
 # --- driver -------------------------------------------------------------------------------
 
-def _param(params: dict[str, Any], key: str, default: int, minimum: int) -> int:
+def _param(params: Mapping[str, Any], key: str, default: int, minimum: int, who: str = "ab_pccc") -> int:
     value = params.get(key)
     if value is None:
         return default
     value = int(value)
     if value < minimum:
-        raise ValueError(f"ab_pccc param {key}={value} must be >= {minimum}")
+        raise ValueError(f"{who} param {key}={value} must be >= {minimum}")
     return value
+
+
+def plan_pccc(tags: list[Tag], params: Mapping[str, Any], *, who: str = "ab_pccc") -> Plan:
+    """Parse PCCC addresses and merge them into file blocks (one PCCC read each). Pure.
+
+    Shared by `ab_pccc` (EtherNet/IP) and `ab_df1` (DF1 serial), which carry the same reads.
+    Params: `max_elements` (100), `max_gap` (4), `request_size` (232, clamped to 255 bytes).
+    """
+    max_elements = _param(params, "max_elements", 100, 1, who)
+    max_gap = _param(params, "max_gap", 4, 0, who)
+    max_bytes = min(_param(params, "request_size", 232, 1, who), PCCC_MAX_BYTES)
+
+    invalid: dict[str, str] = {}
+    groups: dict[tuple, list[tuple[PcccAddress, Tag]]] = defaultdict(list)
+    for tag in tags:
+        if not tag.enabled:
+            continue
+        try:
+            addr = parse_pccc_address(tag.address)
+            check_dtype(addr, tag.dtype)
+        except ValueError as exc:
+            invalid[tag.name] = str(exc)
+            continue
+        groups[_group_key(addr)].append((addr, tag))
+
+    blocks: list[Block] = []
+    for key in sorted(groups):
+        ft = key[0]
+        entries = sorted(groups[key], key=lambda e: (_index(e[0]), _sort_bit(e[0]), e[1].name))
+        cap = _max_count(ft, max_elements, max_bytes)
+        run: list[tuple[PcccAddress, Tag]] = []
+        start = last = 0
+        for addr, tag in entries:
+            idx = _index(addr)
+            if run and idx - last - 1 <= max_gap and idx - start + 1 <= cap:
+                run.append((addr, tag))
+                last = idx
+                continue
+            if run:
+                blocks.append(_make_block(key, start, last, run))
+            run, start, last = [(addr, tag)], idx, idx
+        if run:
+            blocks.append(_make_block(key, start, last, run))
+
+    return Plan(blocks=blocks, invalid=dict(sorted(invalid.items())))
 
 
 class AbPcccDriver(Driver):
@@ -948,44 +993,7 @@ class AbPcccDriver(Driver):
         self._rejected: set[str] = set()              # block addresses already logged as rejected
 
     def plan(self, tags: list[Tag]) -> Plan:
-        params = self.device.params
-        max_elements = _param(params, "max_elements", 100, 1)
-        max_gap = _param(params, "max_gap", 4, 0)
-        max_bytes = min(_param(params, "request_size", 232, 1), PCCC_MAX_BYTES)
-
-        invalid: dict[str, str] = {}
-        groups: dict[tuple, list[tuple[PcccAddress, Tag]]] = defaultdict(list)
-        for tag in tags:
-            if not tag.enabled:
-                continue
-            try:
-                addr = parse_pccc_address(tag.address)
-                check_dtype(addr, tag.dtype)
-            except ValueError as exc:
-                invalid[tag.name] = str(exc)
-                continue
-            groups[_group_key(addr)].append((addr, tag))
-
-        blocks: list[Block] = []
-        for key in sorted(groups):
-            ft = key[0]
-            entries = sorted(groups[key], key=lambda e: (_index(e[0]), _sort_bit(e[0]), e[1].name))
-            cap = _max_count(ft, max_elements, max_bytes)
-            run: list[tuple[PcccAddress, Tag]] = []
-            start = last = 0
-            for addr, tag in entries:
-                idx = _index(addr)
-                if run and idx - last - 1 <= max_gap and idx - start + 1 <= cap:
-                    run.append((addr, tag))
-                    last = idx
-                    continue
-                if run:
-                    blocks.append(_make_block(key, start, last, run))
-                run, start, last = [(addr, tag)], idx, idx
-            if run:
-                blocks.append(_make_block(key, start, last, run))
-
-        return Plan(blocks=blocks, invalid=dict(sorted(invalid.items())))
+        return plan_pccc(tags, self.device.params)
 
     # --- I/O ---
 

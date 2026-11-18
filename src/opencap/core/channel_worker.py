@@ -681,6 +681,17 @@ class ChannelWorker:
                 raise RuntimeError("channel worker stopped") from None
             raise
 
+    async def identity(self, device_id: str) -> dict[str, Any] | None:
+        """The device's `driver.identity()` over its current connection, or None when it is
+        not connected. Never connects (a Micro800 has few CIP connections to spare); takes
+        the wire lock, bounded by the device's safety timeout."""
+        r = self._runner(device_id)
+        drv = r.driver
+        if self._stopped or drv is None or not r.connected or not drv.connected:
+            return None
+        async with self.wire:
+            return await asyncio.wait_for(drv.identity(), r.safety_s)
+
     def health(self, device_id: str) -> DeviceHealth:
         return self._runner(device_id).health
 

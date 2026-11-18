@@ -46,8 +46,26 @@ cargo install tauri-cli --version "^2" --locked
 cargo tauri build               # bundles: AppImage/deb on Linux, MSI on Windows
 ```
 
+The Linux bundle is `opencap-desktop_<version>_amd64.deb` (about 2 MB). It installs
+`/usr/bin/opencap-desktop`, icons and a menu entry, and depends on `libwebkit2gtk-4.1-0` and
+`libgtk-3-0`. The package is named `opencap-desktop` so it cannot clash with an engine package.
+
 Point a profile at a running engine (`opencap run`), or start one for the UI:
 `OPENCAP_TOKEN_ALICE=… opencap run` with `api.tokens` in `poller.yaml`.
+
+## Licences (ADR-0007)
+
+Direct dependencies: `tauri` 2 and `tauri-build` 2 (Apache-2.0 OR MIT), `keyring` 3, `ureq` 2,
+`url` 2, `serde`, `serde_json`, `thiserror` and, for tests only, `tempfile` (all MIT OR
+Apache-2.0). The whole tree (`cargo metadata`, all targets) is MIT, Apache-2.0, BSD, ISC, Zlib,
+Unicode-3.0 or Unlicense, except:
+
+- **MPL-2.0**, unmodified, pulled in by Tauri's HTML handling: `cssparser`, `cssparser-macros`,
+  `selectors`, `dtoa-short`, `option-ext`. MPL-2.0 is file-level copyleft: fine to ship
+  unmodified, and changes to those files would have to be published. `engine/deny.toml` does not
+  allow MPL-2.0 yet; the desktop workspace has no `cargo deny` gate of its own yet.
+- **CDLA-Permissive-2.0**: `webpki-roots` (Mozilla's root certificates, via `ureq`).
+- `r-efi` is MIT OR Apache-2.0 OR LGPL-2.1-or-later; MIT applies.
 
 ## Not yet
 

@@ -292,6 +292,7 @@ oss-reuse.md.
 | Start jitter | rand 0.9.5 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/rand/0.9.5/source/LICENSE-MIT)) | ubiquitous | Adopt |
 | Address and slug parsing | regex 1.13.1 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/regex/1.13.1/source/LICENSE-MIT)) | ubiquitous | Adopt |
 | axum service utilities | tower 0.5.3 | MIT ([LICENSE](https://docs.rs/crate/tower/0.5.3/source/LICENSE)) | ubiquitous | Adopt |
+| Body cap in the API guard (tells a body over the cap from a broken connection) | http-body-util 0.1.5 | MIT ([LICENSE](https://docs.rs/crate/http-body-util/0.1.5/source/LICENSE)) | hyper project; already in the lock through axum (D-062) | Adopt |
 | Licence gate | cargo-deny 0.21 | MIT OR Apache-2.0 (manifest) | standard | Test-only (CI) |
 
 `cargo deny check licenses` over the whole dependency graph passes with the allow-list

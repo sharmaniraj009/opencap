@@ -176,20 +176,33 @@ async def test_auth_before_the_body_and_the_body_cap(engine, tmp_path, no_token_
         # unauthenticated with a malformed body: 401, never 400/422 (the body is not read)
         r = await http.post("/reload", content=b"{not json", headers={"Content-Type": "application/json"})
         assert r.status_code == 401
-        r = await http.post("/reload", content=b"x" * (1024 * 1024 + 1), headers=OPS)
-        assert r.status_code == 413 and r.json() == {"detail": "request body larger than 1048576 bytes"}
+        # over the cap by length: a clean 413, not a connection reset (Rust drains the refused body,
+        # D-062), repeated because a reset is a race
+        for size in (1024 * 1024 + 1, 4 * 1024 * 1024) * 3:
+            r = await http.post("/reload", content=b"x" * size, headers=OPS)
+            assert r.status_code == 413 and r.json() == {"detail": "request body larger than 1048576 bytes"}, size
 
 
-async def test_rust_counts_a_chunked_body_against_the_cap(tmp_path, no_token_env):
+async def test_rust_refuses_chunked_and_huge_bodies_with_a_clean_413(tmp_path, no_token_env):
     # Rust reads every body up front, so a chunked overflow is 413 on any route; Python counts
     # only the bodies a route reads (D-062)
-    async def chunks():
-        for _ in range(17):
+    async def chunks(n):
+        for _ in range(n):
             yield b"x" * 65536
 
     async with _api("rust", tmp_path, tokens=True) as http:
-        r = await http.post("/reload", content=chunks(), headers=OPS)
-        assert r.status_code == 413 and r.json() == {"detail": "request body larger than 1048576 bytes"}
+        for n in (17, 64, 17):
+            r = await http.post("/reload", content=chunks(n), headers=OPS)
+            assert r.status_code == 413 and r.json() == {"detail": "request body larger than 1048576 bytes"}, n
+        # declared larger than the drain limit (8 MiB): refused at once, before a body byte is sent
+        host, port = http.base_url.host, http.base_url.port
+        reader, writer = await asyncio.open_connection(host, port)
+        writer.write(f"POST /reload HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: {OPS['Authorization']}\r\n"
+                     f"Content-Length: {64 * 1024 * 1024}\r\n\r\n".encode())
+        await writer.drain()
+        status = await asyncio.wait_for(reader.readline(), 5)
+        writer.close()
+        assert status.startswith(b"HTTP/1.1 413"), status
 
 
 async def test_a_listed_token_without_its_env_var_stops_the_start(tmp_path, no_token_env, monkeypatch):

@@ -760,14 +760,21 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   bind (D-019) and is now read-only (the viewer "anonymous") and answers only loopback `Host` names (DNS
   rebinding). 403 and 401 texts are Python's; 401 carries `WWW-Authenticate: Bearer`.
 - **Guard:** an axum middleware in front of every route and the fallback, with `guard.py`'s open paths. It
-  authenticates from the headers before any body byte is read, refuses a `Content-Length` over 1 MiB with 413 at
-  once, and then reads the body with the 1 MiB cap. Unknown paths need a token (401 before 404), as in Python.
+  authenticates from the headers before any body byte is read, then caps the body at 1 MiB: a `Content-Length`
+  over the cap, or a chunked body passing it, gets 413 with `Connection: close`. Unknown paths need a token (401
+  before 404), as in Python.
+- **Refused bodies are drained (lingering close):** before the 413 the guard reads and drops the rest of the
+  body, up to 8 MiB or 5 s; a body declared larger than 8 MiB is refused without reading it. Without this the
+  server closed the socket with unread request bytes, the kernel sent a reset, and the client saw "connection
+  reset" instead of the 413: CI caught it, and over real TCP it happened in 2 of 5 tries at 1 MiB + 1 and in every
+  try from 4 MiB. Nothing is kept, and only an authenticated caller gets this far. The ASGI-level Python tests
+  cannot show the effect (no socket).
 - **Deliberate difference:** Rust reads every request body up front (at most 1 MiB, after auth), so a chunked
   body over the cap gets 413 on any route. Python counts only the bodies a route reads, and its legacy routes
   read none, so there such a body is ignored. Both refuse an oversized `Content-Length`. None of the Rust routes
   takes a body, so buffering costs nothing and keeps the cap in one place.
-- **Dependency:** `http-body-util` 0.1 (MIT) becomes a direct dependency of `opencap-api` to tell a body over the
-  cap from a broken connection. It was already in the lock file through axum; `tower-http` was not added.
+- **Dependency:** `http-body-util` 0.1 (MIT) becomes a direct dependency of `opencap-api` to read the body frame by
+  frame under the cap and to drain it. It was already in the lock file through axum; `tower-http` was not added.
 - **Tests:** `opencap-api` unit tests (roles, open mode, rebinding, 401 before the body, 413 by length and by
   chunks, start-up errors); `tests/integration/test_rust_engine_api.py` runs the open-mode, rebinding, role,
   401-before-body and 413 checks against both engines: Python through ASGI with `tests/helpers/fake_poller.py`,

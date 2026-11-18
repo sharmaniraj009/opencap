@@ -12,13 +12,16 @@ import pytest
 
 from tests.helpers.broker import TestBroker
 from tests.helpers.configdir import write_config
+from tests.helpers import engine as harness
 from tests.helpers.engine import (
     NOT_AGNOSTIC,
+    NOT_COMPILED,
     NOT_PORTED,
     implemented_drivers,
     make_engine_factory,
     port_gap_markdown,
     rust_binary,
+    unsupported_reason,
 )
 from tests.helpers.modbus_sim import free_port, make_sim_devices, start_sims, stop_sims
 
@@ -83,6 +86,16 @@ def test_implemented_drivers():
 
     known = set(typing.get_args(DriverName))
     assert rust <= known, rust - known
+
+
+def test_unsupported_reason(monkeypatch):
+    report = {"implemented": ["modbus_tcp"], "not_compiled_in": ["s7"], "not_implemented": ["ab_logix", "ab_df1"]}
+    monkeypatch.setattr(harness, "_rust_report", lambda: report)
+    assert unsupported_reason("python", ("ab_logix",)) is None
+    assert unsupported_reason("rust", ("modbus_tcp",)) is None
+    assert unsupported_reason("rust", ()) is None
+    assert unsupported_reason("rust", ("modbus_tcp", "ab_logix", "ab_df1")) == f"{NOT_PORTED}: ab_df1, ab_logix"
+    assert unsupported_reason("rust", ("s7", "ab_logix")).startswith(f"{NOT_COMPILED}: s7 ")
 
 
 def test_port_gap_markdown():

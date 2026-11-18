@@ -52,6 +52,7 @@ from opencap.config.loader import load_config
 ROOT = Path(__file__).resolve().parents[2]
 ENGINES = ("python", "rust")
 NOT_PORTED = "driver not ported"           # skip reasons with --engine=rust (tests/conftest.py)
+NOT_COMPILED = "driver not compiled in"    # its crate exists, the binary was built without its feature
 NOT_AGNOSTIC = "not engine-agnostic"
 
 
@@ -83,17 +84,36 @@ def _rust_drivers(binary: str, mtime_ns: int) -> dict[str, list[str]]:
     return json.loads(out.stdout)
 
 
-def implemented_drivers(kind: str) -> frozenset[str] | None:
-    """Drivers the engine implements, or None for "all of them" (the Python reference: a driver
-    whose optional library is missing is the test's own importorskip, not a port gap)."""
-    if kind == "python":
-        return None
+def _rust_report() -> dict[str, list[str]]:
     binary = rust_binary()
     if binary is None or not binary.exists():
         raise FileNotFoundError(
             "Rust engine binary not found: build it with `cd engine && cargo build --release` "
             "or point OPENCAP_ENGINE_BIN at it")
-    return frozenset(_rust_drivers(str(binary), binary.stat().st_mtime_ns)["implemented"])
+    return _rust_drivers(str(binary), binary.stat().st_mtime_ns)
+
+
+def implemented_drivers(kind: str) -> frozenset[str] | None:
+    """Drivers the engine implements, or None for "all of them" (the Python reference: a driver
+    whose optional library is missing is the test's own importorskip, not a port gap)."""
+    if kind == "python":
+        return None
+    return frozenset(_rust_report()["implemented"])
+
+
+def unsupported_reason(kind: str, drivers: tuple[str, ...]) -> str | None:
+    """Why the engine cannot run a suite that polls `drivers`, or None if it can."""
+    implemented = implemented_drivers(kind)
+    if implemented is None:
+        return None
+    missing = sorted(set(drivers) - implemented)
+    if not missing:
+        return None
+    compiled_out = set(_rust_report().get("not_compiled_in", ()))
+    off = [d for d in missing if d in compiled_out]
+    if off:
+        return f"{NOT_COMPILED}: {', '.join(off)} (rebuild with its driver-* Cargo feature)"
+    return f"{NOT_PORTED}: {', '.join(missing)}"
 
 
 async def _run_cli(argv: list[str], cwd: Path | None, timeout: float) -> tuple[int, str]:

@@ -1,0 +1,33 @@
+[package]
+name = "opencap-desktop"
+version = "0.1.0"
+description = "opencap desktop: connection profiles and the engine's web UI in a native window (ADR-0010)"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/sharmaniraj009/opencap"
+authors = ["opencap contributors"]
+publish = false
+
+[lib]
+name = "opencap_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "opencap-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }   # pinned to the reviewed minor; Cargo.lock has 2.7.5
+
+[dependencies]
+tauri = { version = "2.12", features = [] }   # reviewed: remote origins get no IPC without an ACL entry (2.12.6)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+url = "2"
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3"

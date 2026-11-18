@@ -5,6 +5,7 @@
 //! opencap-engine read "Site 008/Device1" [--tag FLOW_1]    # one read, print values, no MQTT
 //! opencap-engine identity "Site 008/Device1"               # vendor/model if the device reports it
 //! opencap-engine run [--config DIR] [--site NAME ...]      # poll, publish, serve the API
+//! opencap-engine drivers                                   # drivers this build implements (JSON)
 //! ```
 //!
 //! Reads the same config directory as the Python `opencap` CLI.
@@ -69,6 +70,9 @@ enum Cmd {
         #[arg(long)]
         site: Vec<String>,
     },
+    /// Print, as JSON, which of the drivers the config schema knows this build implements.
+    /// The acceptance harness (tests/helpers/engine.py) skips suites for drivers not ported yet.
+    Drivers,
 }
 
 fn configure_logging(level: &str) {
@@ -147,6 +151,13 @@ async fn cmd_identity(config_dir: &Path, device_id: &str) -> Result<i32> {
     driver.close().await;
     println!("{}", serde_json::to_string_pretty(&identity)?);
     Ok(0)
+}
+
+/// `{"implemented": [...], "not_implemented": [...]}`, both in the schema's order.
+fn drivers_json() -> serde_json::Value {
+    let (implemented, missing): (Vec<&str>, Vec<&str>) =
+        opencap_core::config::KNOWN_DRIVERS.iter().partition(|d| opencap_drivers::IMPLEMENTED.contains(d));
+    serde_json::json!({ "implemented": implemented, "not_implemented": missing })
 }
 
 async fn shutdown_signal() -> &'static str {
@@ -250,6 +261,10 @@ fn main() {
             Cmd::Read { device_id, tag, config } => cmd_read(&config, &device_id, tag.as_deref()).await,
             Cmd::Identity { device_id, config } => cmd_identity(&config, &device_id).await,
             Cmd::Run { config, site } => cmd_run(&config, site).await,
+            Cmd::Drivers => {
+                println!("{}", drivers_json());
+                Ok(0)
+            }
         }
     });
     let code = match code {
@@ -261,4 +276,28 @@ fn main() {
     };
     rt.shutdown_timeout(std::time::Duration::from_secs(2));
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drivers_json_partitions_the_known_drivers() {
+        let v = drivers_json();
+        let names = |k: &str| -> Vec<String> {
+            v[k].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+        };
+        let (implemented, missing) = (names("implemented"), names("not_implemented"));
+        assert!(implemented.contains(&"modbus_tcp".to_string()), "{v}");
+        let mut all: Vec<String> = implemented.iter().chain(&missing).cloned().collect();
+        all.sort();
+        let mut known: Vec<String> = opencap_core::config::KNOWN_DRIVERS.iter().map(|s| s.to_string()).collect();
+        known.sort();
+        assert_eq!(all, known);
+        // A driver the build implements but the schema does not know would vanish from the list.
+        for d in opencap_drivers::IMPLEMENTED {
+            assert!(opencap_core::config::KNOWN_DRIVERS.contains(&d), "{d} is not in KNOWN_DRIVERS");
+        }
+    }
 }

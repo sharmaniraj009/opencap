@@ -36,7 +36,8 @@ from tests.helpers.configdir import write_config  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.helpers.opcua_sim import OpcUaSim  # noqa: E402
 
-pytestmark = pytest.mark.acceptance
+# --engine=rust: skipped as "driver not ported" until the binary implements opcua_client
+pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("opcua_client")]
 
 INTERVAL_MS = 1000
 USER_ENV, PASS_ENV = "OPENCAP_OPCUA_UA_SITE_2_USER", "OPENCAP_OPCUA_UA_SITE_2_PASSWORD"

@@ -19,6 +19,75 @@ def pytest_addoption(parser):
     )
 
 
+# --- the Rust port gap: suites the chosen engine cannot run yet ---------------------------------
+# `@pytest.mark.drivers("ab_logix", ...)` names the PLC drivers a suite polls. With --engine=rust
+# a suite is skipped when the binary does not implement one of them, and an acceptance suite
+# that does not drive the engine through `engine_factory` (it reaches into the Python Poller) is
+# skipped too. Both are listed at the end of the run and, on CI, in the job summary.
+_PORT_GAP = pytest.StashKey[dict]()
+
+
+def pytest_configure(config):
+    config.stash[_PORT_GAP] = {}
+
+
+def _suite_drivers(item) -> tuple[str, ...]:
+    return tuple(d for m in item.iter_markers("drivers") for d in m.args)
+
+
+def pytest_runtest_setup(item):
+    if item.config.getoption("--engine") != "rust":
+        return
+    acceptance = item.get_closest_marker("acceptance") is not None
+    drivers = _suite_drivers(item)
+    if not acceptance and not drivers:
+        return
+    from tests.helpers.engine import NOT_AGNOSTIC, NOT_PORTED, implemented_drivers
+
+    gap = item.config.stash[_PORT_GAP]
+    gap[item.nodeid] = {"drivers": drivers, "outcome": None, "reason": ""}
+    implemented = implemented_drivers("rust") or frozenset()     # raises when there is no binary
+    missing = sorted(set(drivers) - implemented)
+    if missing:
+        reason = f"{NOT_PORTED}: {', '.join(missing)}"
+    elif "engine_factory" not in getattr(item, "fixturenames", ()):
+        reason = f"{NOT_AGNOSTIC}: drives the Python engine directly, not through engine_factory"
+    else:
+        return
+    gap[item.nodeid].update(outcome="skipped", reason=reason)
+    pytest.skip(reason)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = (yield).get_result()
+    entry = item.config.stash.get(_PORT_GAP, {}).get(item.nodeid)
+    if entry is None or entry["outcome"] in ("skipped", "failed"):
+        return                                     # first verdict wins: our skip, or a failure
+    if report.failed:
+        entry["outcome"] = "failed"
+    elif report.skipped:
+        entry["outcome"] = "skipped"
+        entry["reason"] = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+    elif report.when == "call":
+        entry["outcome"] = "passed"
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    gap = config.stash.get(_PORT_GAP, {})
+    if config.getoption("--engine") != "rust" or not gap:
+        return
+    terminalreporter.section("Rust port gap")
+    for nodeid, e in sorted(gap.items()):
+        terminalreporter.write_line(f"{(e['outcome'] or '?'):8} {nodeid}  {e['reason']}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        from tests.helpers.engine import port_gap_markdown
+
+        with open(summary, "a", encoding="utf-8") as f:
+            f.write(port_gap_markdown(gap))
+
+
 @pytest.fixture
 def no_gc():
     """For tests with wall-clock bounds: collect first, then no automatic collection while the

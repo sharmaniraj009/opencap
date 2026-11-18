@@ -233,9 +233,10 @@ device's map entry) → default topic with `mqtt.topic_prefix` (D-028). Models a
 serde types with `deny_unknown_fields` (= pydantic `extra="forbid"`) and the same defaults
 and validators (unique tag names, unique device ids, topic prefix rules). Warnings
 (unknown ids, stubs, unmapped devices, shared topics/SubDeviceIds) have the **same text**,
-which the `check` parity test compares. When the JSON Schema of
-[ADR-0003](../adr/0003-shared-config-schema.md) lands (#2), #39 replaces the hand-written types
-(or adds a drift test) and runs the shared config fixtures.
+which the `check` parity test compares. The types stay hand-written (D-063): every fixture of
+[ADR-0003](../adr/0003-shared-config-schema.md) in `tests/conformance/config/` is loaded by both
+engines, and `tests/conformance/config/compare.py` checks in CI that the Rust and Python models
+make the same documents of them (every default filled in) and resolve the same devices.
 
 ### 2.9 Where Rust differs from Python on purpose
 
@@ -293,6 +294,7 @@ oss-reuse.md.
 | Address and slug parsing | regex 1.13.1 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/regex/1.13.1/source/LICENSE-MIT)) | ubiquitous | Adopt |
 | axum service utilities | tower 0.5.3 | MIT ([LICENSE](https://docs.rs/crate/tower/0.5.3/source/LICENSE)) | ubiquitous | Adopt |
 | Body cap in the API guard (reads and drains the body frame by frame) | http-body-util 0.1.5 | MIT ([LICENSE](https://docs.rs/crate/http-body-util/0.1.5/source/LICENSE)) | hyper project; already in the lock through axum (D-062) | Adopt |
+| Field paths in config errors (pydantic-style `loc`) | serde_path_to_error 0.1.20 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/serde_path_to_error/0.1.20/source/LICENSE-MIT)) | dtolnay; already in the lock through axum (D-063) | Adopt |
 | Licence gate | cargo-deny 0.21 | MIT OR Apache-2.0 (manifest) | standard | Test-only (CI) |
 
 `cargo deny check licenses` over the whole dependency graph passes with the allow-list

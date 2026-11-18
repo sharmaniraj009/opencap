@@ -125,12 +125,21 @@ impl ModbusTcpDriver {
         let ctx = self.ctx.as_mut().ok_or_else(|| DriverError::ConnectionLost(format!("{where_}: not connected")))?;
         let started = Instant::now();
         let (addr, cnt) = (block.start as u16, block.count as u16);
+        // The planner emits FC01-04 only; an unknown code must never silently become a read of
+        // another table (ADR-0004 section 5).
+        if !(1..=4).contains(&block.fc) {
+            return Err(DriverError::BlockConfig(format!(
+                "{where_} {what}: unsupported Modbus function code {}",
+                block.fc
+            )));
+        }
         let fut = async {
             match block.fc {
                 1 => ctx.read_coils(addr, cnt).await.map(|r| r.map(Data::Bits)),
                 2 => ctx.read_discrete_inputs(addr, cnt).await.map(|r| r.map(Data::Bits)),
                 3 => ctx.read_holding_registers(addr, cnt).await.map(|r| r.map(Data::Registers)),
-                _ => ctx.read_input_registers(addr, cnt).await.map(|r| r.map(Data::Registers)),
+                4 => ctx.read_input_registers(addr, cnt).await.map(|r| r.map(Data::Registers)),
+                _ => unreachable!("function code checked above"),
             }
         };
         let res = tokio::time::timeout(timeout, fut).await;

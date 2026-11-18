@@ -3,9 +3,9 @@
 //! `poller.yaml` are interchangeable between the Python and the Rust engine.
 //!
 //! Differences that are deliberate (see docs/rfc/0001-rust-engine.md, "Config"):
-//! - `Device.driver` is a string, not a closed enum: a driver the Rust engine does not
-//!   implement yet loads fine and is reported as "not implemented" instead of failing
-//!   the whole file (the Python side keeps adding drivers in parallel).
+//! - `Device.driver` is a string checked against `KNOWN_DRIVERS` (Python's `DriverName`
+//!   literal): an unknown name is a config error, as in Python. A known driver this build
+//!   does not implement yet loads fine and is reported as "not implemented".
 //! - Typing is serde's: no pydantic "lax mode" coercion such as `"5"` -> `5`.
 
 use indexmap::IndexMap;
@@ -225,8 +225,17 @@ fn d_30000() -> i64 {
     30_000
 }
 
-/// Drivers the Python reference engine knows (its `DriverName` literal).
-pub const KNOWN_DRIVERS: [&str; 6] = ["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client"];
+/// Drivers the Python reference engine knows (its `DriverName` literal, same order).
+pub const KNOWN_DRIVERS: [&str; 8] =
+    ["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client", "modbus_rtu", "ab_df1"];
+
+/// pydantic's message shape for the `DriverName` literal.
+pub fn driver_name_error(value: &str) -> String {
+    use crate::pyfmt::py_repr_str as q;
+    let quoted: Vec<String> = KNOWN_DRIVERS.iter().map(|d| q(d)).collect();
+    let (last, head) = quoted.split_last().expect("non-empty");
+    format!("driver: Input should be {} or {} (got {})", head.join(", "), last, q(value))
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -286,6 +295,9 @@ impl Device {
 
     /// pydantic's `_unique_tag_names` validator.
     pub fn validate(&self) -> Result<(), String> {
+        if !KNOWN_DRIVERS.contains(&self.driver.as_str()) {
+            return Err(format!("{}: {}", self.id, driver_name_error(&self.driver)));
+        }
         let mut seen = std::collections::HashSet::new();
         let mut dupes: Vec<String> =
             self.tags.iter().filter(|t| !seen.insert(t.name.as_str())).map(|t| t.name.clone()).collect();

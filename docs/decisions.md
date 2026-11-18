@@ -570,3 +570,30 @@ endpoint). A drift test regenerates and compares. Conformance fixtures in `tests
 `{"document", "data"}` envelopes (invalid ones add `expected_error` and `semantic`, true when only Pydantic's
 validators, not the schema, can reject it) so the Rust engine can load them without knowing the file naming.
 `jsonschema` (MIT) is a dev dependency only. The CLI is not wired into `opencap.__main__` yet (issue scope).
+
+### D-061 Rust engine follow-ups from the #64 review (#66)
+- **Unknown `driver` is a config error** in Rust as in Python (`DriverName` literal). `KNOWN_DRIVERS` now lists all eight
+  names (adds `modbus_rtu`, `ab_df1`); the message is `<device id>: driver: Input should be 'a', 'b' ... or 'h' (got 'x')`.
+  A known driver the Rust build does not implement still loads and is reported "not implemented". This supersedes the
+  earlier "driver is an open string" note in `models.rs`.
+- **YAML 1.1 booleans** (`yes`/`no`/`on`/`off`, also `y`/`n`) are strings under YAML 1.2 (serde_yaml_ng). Where a bool is
+  expected, the error now names the spelling and says to use `true`/`false`. They are not silently accepted: files must mean
+  the same thing to both engines, and PyYAML-only spellings are a footgun.
+- **`driver_panics_total{device}`** (counter) is incremented each time a device loop restarts after `device.loop_error`.
+- **Read-only guard:** the Modbus function-code match is exhaustive; a block with FC outside 1-4 is `BlockConfig`, never
+  FC04. `tests/modbus_read_only.rs` scans the driver sources for write APIs and checks planned FCs.
+- **Advisories:** `cargo deny check advisories` runs in CI. Vulnerabilities fail; yanked releases warn; "unmaintained"
+  notices do not fail (`unmaintained = "none"`). First CI run showed why: `chrono` and `chrono-tz`, both direct dependencies,
+  are flagged unmaintained (RUSTSEC-2026-0543/0555, no fix). Follow-up: evaluate `jiff` or `time` for time zones.
+- **rusqlite 0.37 -> 0.41** (libsqlite3-sys 0.35 -> 0.39.1, bundled SQLite 3.54): the new advisories check flagged the
+  bundled SQLite of 0.35 (CVE-2026-119375, fixed in libsqlite3-sys 0.39). No code changes were needed. It adds two
+  wasm-only crates (`rsqlite-vfs`, `sqlite-wasm-rs`) to the lock file; the licence gate covers them in CI.
+- **RUSTSEC-2026-0382, -0049, -0098, -0099, -0104 ignored (temporary):** all are `rustls-webpki` 0.102.8, which
+  comes only through `rumqttc` 0.25.1 (latest; pins `^0.102.8`). rumqttc uses it only for the `webpki::Error` type;
+  verification runs in rustls 0.23 on the patched webpki 0.103.17 in the lock file. Ignored in `engine/deny.toml`,
+  each with the reason; remove when rumqttc moves to webpki >= 0.103.16. The lead should confirm these ignores.
+- **Not done:** pinning third-party actions in `rust-engine.yml` by commit SHA. The session could not read those
+  repositories to resolve tags to SHAs, and a SHA written from memory would be unsafe. Left on the issue as a follow-up.
+- **RFC 0001:** direct-dependency table completed with licence links at the lock-file versions (checked against the
+  crate sources); OPC DA bridge order made consistent with §8 (R5); "0600 token file" marked planned.
+- **Harness:** `rust_binary()` prefers `OPENCAP_ENGINE_BIN` and warns when it falls back to `target/{release,debug}`.

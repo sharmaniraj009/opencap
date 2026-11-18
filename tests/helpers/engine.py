@@ -27,6 +27,7 @@ import contextlib
 import json
 import os
 import signal
+import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
@@ -41,13 +42,20 @@ ENGINES = ("python", "rust")
 
 
 def rust_binary() -> Path | None:
-    """The Rust engine binary: $OPENCAP_ENGINE_BIN, else engine/target/release, else debug."""
+    """The Rust engine binary: $OPENCAP_ENGINE_BIN (preferred), else engine/target/release,
+    else debug. The fallbacks can be stale (a `cargo build` of the other profile, or an old
+    build), so using one emits a warning; set OPENCAP_ENGINE_BIN in CI."""
     env = os.environ.get("OPENCAP_ENGINE_BIN")
     if env:
         return Path(env).resolve()          # the engine runs in its own working directory
     for profile in ("release", "debug"):
         exe = ROOT / "engine" / "target" / profile / ("opencap-engine.exe" if os.name == "nt" else "opencap-engine")
         if exe.exists():
+            warnings.warn(
+                f"OPENCAP_ENGINE_BIN is not set; using {exe}, which may be stale. "
+                "Set OPENCAP_ENGINE_BIN to the binary you mean to test.",
+                stacklevel=2,
+            )
             return exe
     return None
 

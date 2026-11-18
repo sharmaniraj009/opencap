@@ -276,7 +276,7 @@ oss-reuse.md.
 | Modbus TCP client (and server, later) | tokio-modbus 0.17 | MIT OR Apache-2.0 (lock) | maintained by slowtec, used in production; client and `tcp-server` feature | Adopt |
 | MQTT 3.1.1/5 client | rumqttc 0.25 | Apache-2.0 (lock) | widely used (bytebeam); explicit event loop gives the packet ids we need | Adopt |
 | TLS for MQTT | rustls 0.23 + ring 0.17 | Apache-2.0 / ISC (lock) | standard Rust TLS; ring avoids a cmake/NASM toolchain | Adopt |
-| SQLite outbox | rusqlite 0.37, bundled SQLite | MIT; SQLite public domain (lock) | mature | Adopt |
+| SQLite outbox | rusqlite 0.41, bundled SQLite | MIT; SQLite public domain (lock) | mature | Adopt |
 | HTTP API | axum 0.8 (hyper, tower) | MIT (lock) | tokio project | Adopt |
 | Metrics | prometheus 0.14 | Apache-2.0 (lock) | mature (TiKV); classic 0.0.4 text format, same exposition as Python | Adopt (oss-reuse lists prometheus-client; either works, this one matches Python's format) |
 | Config | serde, serde_json, serde_yaml_ng 0.10 | MIT OR Apache-2.0; MIT (lock) | serde_yaml_ng is the maintained fork of the archived serde_yaml | Adopt |
@@ -284,11 +284,21 @@ oss-reuse.md.
 | CLI | clap 4 | MIT OR Apache-2.0 (lock) | standard | Adopt |
 | Logging | tracing, tracing-subscriber (JSON) | MIT (lock) | standard | Adopt |
 | Slug (topic levels) | unicode-normalization | MIT OR Apache-2.0 (lock) | standard | Adopt |
+| Error context in the binary | anyhow 1.0.104 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/anyhow/1.0.104/source/LICENSE-MIT)) | ubiquitous | Adopt |
+| Typed errors in libraries | thiserror 2.0.21 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/thiserror/2.0.21/source/LICENSE-MIT)) | ubiquitous | Adopt |
+| Publish-tap and payload encoding | base64 0.22.1 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/base64/0.22.1/source/LICENSE-MIT)) | ubiquitous | Adopt |
+| Stream and future combinators (`catch_unwind`) | futures-util 0.3.34 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/futures-util/0.3.34/source/LICENSE-MIT)) | ubiquitous | Adopt |
+| Ordered maps (config key order) | indexmap 2.14.2 | Apache-2.0 OR MIT ([LICENSE-MIT](https://docs.rs/crate/indexmap/2.14.2/source/LICENSE-MIT)) | ubiquitous | Adopt |
+| Start jitter | rand 0.9.5 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/rand/0.9.5/source/LICENSE-MIT)) | ubiquitous | Adopt |
+| Address and slug parsing | regex 1.13.1 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/regex/1.13.1/source/LICENSE-MIT)) | ubiquitous | Adopt |
+| axum service utilities | tower 0.5.3 | MIT ([LICENSE](https://docs.rs/crate/tower/0.5.3/source/LICENSE)) | ubiquitous | Adopt |
 | Licence gate | cargo-deny 0.21 | MIT OR Apache-2.0 (manifest) | standard | Test-only (CI) |
 
 `cargo deny check licenses` over the whole dependency graph passes with the allow-list
 MIT, Apache-2.0 (incl. LLVM exception), BSD-2/3, ISC, Zlib, Unicode-3.0 (`engine/deny.toml`);
-dual-licensed crates resolve to their permissive option.
+dual-licensed crates resolve to their permissive option. Every direct dependency of the
+workspace is listed in the table above; each licence link points at the licence file inside the
+published crate at the version pinned in `engine/Cargo.lock` (checked against the crate sources).
 
 ### 3.2 Southbound drivers (FR-1)
 
@@ -418,8 +428,8 @@ confirmed by the SCADA research issue (#17) before they are documented to users.
 | AWS IoT SiteWise, Azure IoT | ✓ | — | ○ | — | — | ○ | |
 | Node-RED, Grafana, IT systems | ○ | — | ○ | ○ | — | ✓ | |
 
-Order of work follows the number of rows a server unlocks: OPC UA → OPC DA bridge →
-Sparkplug B → Modbus TCP server → DNP3 / IEC 104 ([scada-compatibility.md](../architecture/scada-compatibility.md)).
+Order of work follows the number of rows a server unlocks: OPC UA → Sparkplug B →
+Modbus TCP server → DNP3 / IEC 104 → OPC DA bridge (Windows-only, R5 in §8) ([scada-compatibility.md](../architecture/scada-compatibility.md)).
 
 ## 5. Desktop apps (Linux, Windows)
 
@@ -432,7 +442,7 @@ Sparkplug B → Modbus TCP server → DNP3 / IEC 104 ([scada-compatibility.md](.
  │   systemd unit / Windows service (SCM, #57)           │◄─────┤ (Tauri 2: web UI +    │
  │   config: /etc/opencap or %ProgramData%\opencap       │ HTTPS│  connection profiles, │
  │   data:   /var/lib/opencap or %ProgramData%\…\data    │  or  │  tokens in the OS     │
- │   API on 127.0.0.1:8080 (token from a 0600 file)       │ VPN  │  keychain)            │
+ │   API on 127.0.0.1:8080 (token from a 0600 file, *planned*; today an env var, D-019)       │ VPN  │  keychain)            │
  │ opencap desktop app (same machine) ── loopback ──────►│      └───────────────────────┘
  └───────────────────────────────────────────────────────┘
 ```

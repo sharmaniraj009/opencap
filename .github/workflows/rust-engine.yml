@@ -58,6 +58,11 @@ jobs:
         with:
           manifest-path: engine/Cargo.toml
           command: check licenses bans sources
+      - name: Advisories (RustSec)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: engine/Cargo.toml
+          command: check advisories
 
   conformance:
     name: conformance vs the Python reference

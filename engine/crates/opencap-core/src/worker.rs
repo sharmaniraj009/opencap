@@ -696,6 +696,7 @@ impl Runner {
                         st.last_error = Some(format!("internal error: {text}"));
                         self.refresh_status(&st, &w);
                     }
+                    crate::metrics::METRICS.driver_panics.with_label_values(&[&self.id]).inc();
                     tracing::error!(channel = %w.channel, device = %self.id, error = %text, "device.loop_error");
                     tokio::time::sleep(Duration::from_secs_f64(LOOP_ERROR_PAUSE_S)).await;
                 }

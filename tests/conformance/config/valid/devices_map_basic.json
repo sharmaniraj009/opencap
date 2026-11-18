@@ -1,0 +1,18 @@
+{
+  "document": "devices_map",
+  "data": {
+    "defaults": {
+      "env": "prod"
+    },
+    "devices": {
+      "SITE_A/PLC1": {
+        "sub_device_id": "plc1",
+        "topic": "demo/plc1/data"
+      },
+      "SITE_A/PLC2": {
+        "sub_device_id": "plc2",
+        "stub": true
+      }
+    }
+  }
+}

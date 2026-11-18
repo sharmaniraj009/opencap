@@ -562,3 +562,11 @@ The pip classifier "BSD License" is ambiguous (2- or 3-clause) and is treated as
 (LGPL-3.0, imported unmodified, ADR-0007). MPL-2.0 is allowed (certifi, unmodified). A root `deny.toml` is the
 project-wide Rust floor (adds MPL-2.0 and Unicode-DFS-2016); `engine/deny.toml` stays the engine owner's file.
 **Not verified here:** the cargo-deny job has not run locally (no network for installing it); it runs in CI.
+
+### D-060 Config JSON Schema exported from the Pydantic models (#2)
+`python -m opencap.config.schema --out schema/` writes `schema/{devices,poller,devices_map,overrides}.schema.json`
+(JSON Schema 2020-12, sorted keys, `$id`, top-level `version`; the `$id` base is the repo URL, not a hosted
+endpoint). A drift test regenerates and compares. Conformance fixtures in `tests/conformance/config/` are
+`{"document", "data"}` envelopes (invalid ones add `expected_error` and `semantic`, true when only Pydantic's
+validators, not the schema, can reject it) so the Rust engine can load them without knowing the file naming.
+`jsonschema` (MIT) is a dev dependency only. The CLI is not wired into `opencap.__main__` yet (issue scope).

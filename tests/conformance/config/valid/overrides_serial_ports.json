@@ -1,0 +1,10 @@
+{
+  "document": "overrides",
+  "data": {
+    "serial_ports": {
+      "COM1": "192.0.2.50:4001",
+      "COM2": "rfc2217://192.0.2.51:2217",
+      "COM3": "/dev/ttyUSB0"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "document": "devices",
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "SITE_A",
+        "devices": [
+          {
+            "id": "SITE_A/PLC1",
+            "channel": "SITE_A",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "uint16"
+              }
+            ]
+          },
+          {
+            "id": "SITE_A/LOGIX",
+            "channel": "SITE_A",
+            "name": "LOGIX",
+            "driver": "ab_logix",
+            "host": "192.0.2.10",
+            "port": 44818,
+            "tags": [
+              {
+                "name": "Tank.Level",
+                "address": "Tank_Level",
+                "dtype": "float32"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SITE_B",
+        "devices": [
+          {
+            "id": "SITE_B/PLC1",
+            "channel": "SITE_B",
+            "name": "PLC1",
+            "driver": "s7",
+            "host": "192.0.2.10",
+            "port": 102,
+            "tags": [
+              {
+                "name": "DB1",
+                "address": "DB1.DBD0",
+                "dtype": "float32"
+              }
+            ],
+            "params": {
+              "rack": 0,
+              "slot": 1
+            }
+          }
+        ],
+        "enabled": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "document": "poller",
+  "expected_error": "port",
+  "semantic": false,
+  "data": {
+    "api": {
+      "port": "http"
+    }
+  }
+}

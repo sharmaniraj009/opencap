@@ -1,0 +1,32 @@
+{
+  "document": "overrides",
+  "data": {
+    "channels": {
+      "SITE_A": {
+        "enabled": false
+      }
+    },
+    "devices": {
+      "SITE_A/PLC1": {
+        "host": "192.0.2.11",
+        "port": 1502,
+        "scan_ms": 2000,
+        "params": {
+          "unit_id": 3
+        },
+        "publish": {
+          "mode": "on_change"
+        },
+        "tags": {
+          "T1": {
+            "enabled": false,
+            "scan_ms": 5000,
+            "scale": {
+              "eng_hi": 10
+            }
+          }
+        }
+      }
+    }
+  }
+}

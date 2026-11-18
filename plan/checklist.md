@@ -10,7 +10,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 | Area | Features | Done | In review | Planned | Not started | Out of scope |
 |---|---:|---:|---:|---:|---:|---:|
 | [01 Runtime and process modes](features/01-runtime-and-process-modes.md) | 13 | 9 | 0 | 3 | 1 | 0 |
-| [02 Client interfaces](features/02-client-interfaces.md) | 20 | 1 | 2 | 6 | 5 | 6 |
+| [02 Client interfaces](features/02-client-interfaces.md) | 20 | 3 | 0 | 6 | 5 | 6 |
 | [03 Projects and configuration files](features/03-projects-and-configuration-files.md) | 20 | 10 | 0 | 2 | 6 | 2 |
 | [04 Channels](features/04-channels.md) | 16 | 5 | 0 | 1 | 8 | 2 |
 | [05 Devices](features/05-devices.md) | 18 | 8 | 0 | 2 | 7 | 1 |
@@ -24,7 +24,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 | [13 iFIX](features/13-ifix.md) | 12 | 2 | 0 | 3 | 5 | 2 |
 | [14 UI and tools](features/14-ui-and-tools.md) | 20 | 7 | 0 | 7 | 4 | 2 |
 | [15 Event log messages](features/15-event-log-messages.md) | 54 | 10 | 0 | 13 | 22 | 9 |
-| **Total** | **297** | **96** | **2** | **63** | **102** | **34** |
+| **Total** | **297** | **98** | **0** | **63** | **102** | **34** |
 
 ## [01 Runtime and process modes](features/01-runtime-and-process-modes.md)
 
@@ -49,8 +49,8 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - [ ] **IF-03** OPC DA settings: versions, browsing, timeouts, limits (Defer · Planned (#18) · #18 · M5)
 - [ ] **IF-04** OPC DA compliance options (Defer · Planned (#18) · #18 · M5)
 - [ ] **IF-05** OPC AE server and its settings (Defer · Not started · M5)
-- [ ] **IF-06** OPC UA server: transport, profiles, address space (Adapt · In review (#61) · PR #61, #74, #50 · M1/M3)
-- [ ] **IF-07** OPC UA security policies and user authentication (Adapt · In review (#61) · PR #61, #74, #21 · M1/M3)
+- [x] **IF-06** OPC UA server: transport, profiles, address space (Adapt · Done (Python; Rust Planned #50) · #61, #74, #50 · M1/M3)
+- [x] **IF-07** OPC UA security policies and user authentication (Adapt · Done (Python; users Planned #21) · #61, #74, #21 · M1/M3)
 - [ ] **IF-08** OPC UA session, subscription and queue limits (Adapt · Planned (#50) · #50 · M3)
 - [ ] **IF-09** OPC UA browse options: properties and hints (Adapt · Not started · M3)
 - ~~IF-10 OPC .NET (Xi)~~ (Out of scope · Out of scope)
@@ -190,7 +190,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - [x] **ADM-16** User import and export (Adapt · Done (users Planned) · #21 · M5)
 - ~~ADM-17 ThingWorx interface users~~ (Out of scope · Out of scope)
 - [x] **ADM-18** Login before configuring (Adapt · Done · #63, #84 · M1)
-- [x] **ADM-19** Configuration API service settings (Adapt · Done (OpenAPI In review) · #63, PR #88 · M1/M3)
+- [x] **ADM-19** Configuration API service settings (Adapt · Done · #63, #88 · M1/M3)
 - [ ] **ADM-20** HTTPS for the API (Adapt · Planned (#21) · #21 · M4)
 - [x] **ADM-21** Audit log (transaction log) (Adapt · Done · #63 · M1)
 - [ ] **ADM-22** Certificate store and API certificates (Adapt · Not started · PR #61 · M3)

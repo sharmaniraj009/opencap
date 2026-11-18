@@ -1,0 +1,17 @@
+{
+  "document": "poller",
+  "data": {
+    "opcua_server": {
+      "enabled": true,
+      "endpoint": "opc.tcp://192.0.2.30:4840/opencap",
+      "namespace_uri": "KEPServerEX",
+      "security_policies": ["Basic256Sha256_SignAndEncrypt", "Aes256_Sha256_RsaPss_SignAndEncrypt"],
+      "certificate": "pki/server.der",
+      "private_key": "pki/server.pem",
+      "trusted_certs_dir": "pki/trusted",
+      "username_env": "OPENCAP_UA_USER",
+      "password_env": "OPENCAP_UA_PASSWORD",
+      "update_ms": 500
+    }
+  }
+}

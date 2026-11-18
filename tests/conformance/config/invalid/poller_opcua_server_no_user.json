@@ -1,0 +1,8 @@
+{
+  "document": "poller",
+  "expected_error": "anonymous is off and no user is configured",
+  "semantic": true,
+  "data": {
+    "opcua_server": {"enabled": true}
+  }
+}

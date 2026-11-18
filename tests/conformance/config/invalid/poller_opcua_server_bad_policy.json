@@ -1,0 +1,8 @@
+{
+  "document": "poller",
+  "expected_error": "Input should be",
+  "semantic": false,
+  "data": {
+    "opcua_server": {"security_policies": ["Rot13_Sign"]}
+  }
+}

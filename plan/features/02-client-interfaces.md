@@ -19,8 +19,8 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
   (`src/opencap/north/`, `engine/crates/opencap-north`; ADR-0011), byte-identical payloads.
 - **REST reads:** `GET /devices/{id}/values` on both engines, `GET /api/v1/devices/{id}/values`
   on the Python engine (#63). Read-only by design (ADR-0008).
-- **OPC UA server (Python):** in stalled PR #61, takeover issue #74.
-  `src/opencap/north/opcua_server.py` on that branch: `poller.yaml` `opcua_server` section (off
+- **OPC UA server (Python):** done (#61, finished by the takeover for #74).
+  `src/opencap/north/opcua_server.py`: `poller.yaml` `opcua_server` section (off
   by default, endpoint `opc.tcp://127.0.0.1:4840/opencap`, `namespace_uri` registered as ns=2,
   security policies None / Basic256Sha256 / Aes128_Sha256_RsaOaep / Aes256_Sha256_RsaPss in Sign
   and SignAndEncrypt, certificate paths, `trusted_certs_dir`, `anonymous`, one username/password
@@ -137,7 +137,7 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
   `ns=2;s=Channel.Device.Group.Tag` (namespace URI configurable); read-only access levels
   (ADR-0008); status codes per ADR-0006; aim at the current specification rather than 1.02.
   HTTPS/SOAP and complex types are not planned.
-- **Status:** In review (PR #61, stalled; takeover #74) for Python; Rust Planned (#50, evaluate
+- **Status:** Done for Python (#61 via #74); Rust Planned (#50, evaluate
   async-opcua and open62541, RFC 0001 §3.3).
 - **Requirements:**
   - `opcua_server.enabled` is false by default; the default endpoint is
@@ -164,8 +164,9 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
   anonymous are refused on a non-loopback endpoint unless explicitly allowed. Username tokens come
   from opencap users (ADM-13, #21); X.509 user tokens later. Certificates from the certificate
   store (ADM-22).
-- **Status:** In review (PR #61; stalled, takeover #74): policy list, certificate/key paths,
-  `trusted_certs_dir`, `anonymous`, one username/password from env vars. Users Planned (#21).
+- **Status:** Done for Python (#74): policy list, certificate/key paths, `trusted_certs_dir`,
+  `anonymous` (default off), `allow_insecure_remote`, one username/password from env vars.
+  Users Planned (#21).
 - **Requirements:**
   - With a non-loopback endpoint the start fails if `None` is the only policy or `anonymous` is
     true, unless `opcua_server.allow_insecure: true` (proposed) is set, which logs a warning.
@@ -343,8 +344,8 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
 - **Acceptance:** schema conformance fixtures (#71, #39); reload API test on both engines.
 
 ## Open questions
-- PR #61 defaults `anonymous: true` and `security_policies: ["None"]` (safe only on its loopback
-  default endpoint). Should #74 add the IF-07 rule that refuses both beyond loopback?
+- Answered in #74: `anonymous` now defaults to off, and policy `None` on an endpoint that is not
+  loopback is a config error unless `allow_insecure_remote: true` (D-046).
 - Deprecated OPC UA policies (Basic128Rsa15, Basic256): never offer, or offer behind an explicit
   flag for old SCADA clients? Do any target sites need them?
 - OPC DA 1.0a: does any site client still use it, or is 2.05a/3.0 enough for the bridge?
@@ -363,8 +364,8 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
 | IF-03 | OPC DA settings: versions, browsing, timeouts, limits | Defer | Planned (#18) | #18 | M5 |
 | IF-04 | OPC DA compliance options | Defer | Planned (#18) | #18 | M5 |
 | IF-05 | OPC AE server and its settings | Defer | Not started | — | M5 |
-| IF-06 | OPC UA server: transport, profiles, address space | Adapt | In review (#61) | PR #61, #74, #50 | M1/M3 |
-| IF-07 | OPC UA security policies and user authentication | Adapt | In review (#61) | PR #61, #74, #21 | M1/M3 |
+| IF-06 | OPC UA server: transport, profiles, address space | Adapt | Done (Python; Rust Planned #50) | #61, #74, #50 | M1/M3 |
+| IF-07 | OPC UA security policies and user authentication | Adapt | Done (Python; users Planned #21) | #61, #74, #21 | M1/M3 |
 | IF-08 | OPC UA session, subscription and queue limits | Adapt | Planned (#50) | #50 | M3 |
 | IF-09 | OPC UA browse options: properties and hints | Adapt | Not started | — | M3 |
 | IF-10 | OPC .NET (Xi) | Out of scope | Out of scope | — | — |

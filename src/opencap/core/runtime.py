@@ -255,6 +255,18 @@ class Poller:
         values = await self._worker_for(device_id).read_once(device_id)
         return {name: tag_value_json(tv) for name, tv in values.items()}
 
+    def device_plan(self, device_id: str) -> dict[str, Any]:
+        """Block plan of the running config (`GET /devices/{id}/plan`)."""
+        from opencap.core.plan_report import device_plan_json
+
+        self._worker_for(device_id)
+        return device_plan_json(self.registry.plans[device_id], self.loaded.poller.check.est_rtt_ms)
+
+    async def device_identity(self, device_id: str) -> dict[str, Any]:
+        """`{"connected": bool, "identity": {...}}` over the device's existing connection."""
+        identity = await self._worker_for(device_id).identity(device_id)
+        return {"connected": identity is not None, "identity": identity or {}}
+
     def channels_summary(self) -> list[dict[str, Any]]:
         out = []
         for ch in self._active_channels():

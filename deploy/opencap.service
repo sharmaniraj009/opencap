@@ -37,6 +37,13 @@ SyslogIdentifier=opencap
 StateDirectory=opencap
 StateDirectoryMode=0750
 
+# The config API and the web UI rewrite the config files (keeping .bak copies) in /etc/opencap,
+# which ProtectSystem=strict would otherwise make read-only. The directory should be sticky
+# (mode 1775, root:opencap) with the config files owned by opencap, so opencap can replace them
+# but not opencap.env (docs/deployment.md). For a read-only configuration, remove this line and
+# keep /etc/opencap root-owned: the UI then shows editing as off and config writes answer 503.
+ReadWritePaths=/etc/opencap
+
 # Hardening: opencap needs outbound TCP to PLCs/broker and one listening port for the API.
 NoNewPrivileges=yes
 ProtectSystem=strict

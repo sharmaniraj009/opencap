@@ -183,12 +183,20 @@ pub struct NorthContext {
 - Every write is validated against the same JSON Schema and the same semantic checks as the
   loader, persisted atomically, appended to the audit log (user, time, JSON diff), and then
   applied with the diff-based reload (only changed channels restart, done).
-- Live data: `GET /api/v1/devices/{id}/values` (done, unversioned today) and a WebSocket
+- Live data: `GET /api/v1/devices/{id}/values` (done; the unversioned `/devices/{id}/values` stays for existing clients) and a WebSocket
   `/api/v1/ws` subscription (device or tag list → change events), the Quick Client feed.
 - Auth: bearer token today (D-019); users/roles per the security RFC. `/health` and
   `/metrics` stay open for monitoring.
 - The OpenAPI document is generated, committed and drift-tested so both engines can be
   tested against it.
+- **Python engine, as implemented** (`src/opencap/api/config_api.py`, decisions D-039 to D-044):
+  the resources above except `/north` and `/plugins`, plus `/map…` and `/overrides…` for the v1
+  file layout, `/project/status|pending|schema`, `/whoami`, `/status`, the open `/auth-info`, and
+  `/devices/{id}/status|values|plan|identity`, `POST /devices/{id}/read-once`, `POST /reload`.
+  List reads return `{items…, revision}` with an `ETag` too. Writes without `If-Match` get `428`. A write changes the files only; `POST /api/v1/reload`
+  applies it, or `?apply=true` on the write reloads right after it (deviation, D-039). Roles are
+  `viewer` (GET) and `admin` until the security RFC. The WebSocket feed (#31) and the committed
+  OpenAPI document (#32) are still to do. The web UI (`/ui/`, ADR-0010) uses only these routes.
 
 ## 3.7 Security
 

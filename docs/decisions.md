@@ -112,8 +112,11 @@ SEWAGE_LAST_DAY vs SEWAGE_PREVIOUS_DAY_TOTALIZER) come out as suspect.
 Publish settings, lowest priority first: devices.json → `devices_map.yaml` `defaults` →
 `overrides.yaml` `publish` → the device's `devices_map.yaml` entry. Default topic:
 `opencap/<slug(channel)>/<slug(device)>/data`, lowercase, MQTT-safe (e.g.
-`opencap/site_001/8_pump/data`); the `opencap` level is `mqtt.topic_prefix` (D-028). `devices_map.yaml` is never rewritten. New devices are
+`opencap/site_001/8_pump/data`); the `opencap` level is `mqtt.topic_prefix` (D-028). `devices_map.yaml` is never rewritten by an import. New devices are
 appended as `stub: true`, or written to `devices_map.stubs.yaml` when appending is not safe.
+**Amended by D-041:** the config API and the web UI edit entries of `devices_map.yaml` in
+place when an operator changes them, keeping comments and key order (falling back to a
+rewrite that keeps the header and is reported); an import through the API still only appends.
 
 ## Phase 1
 
@@ -597,3 +600,148 @@ validators, not the schema, can reject it) so the Rust engine can load them with
 - **RFC 0001:** direct-dependency table completed with licence links at the lock-file versions (checked against the
   crate sources); OPC DA bridge order made consistent with §8 (R5); "0600 token file" marked planned.
 - **Harness:** `rust_binary()` prefers `OPENCAP_ENGINE_BIN` and warns when it falls back to `target/{release,debug}`.
+
+## Configuration API and web UI
+
+### D-039 Configuration API: the 03 §3.6 contract, and where it differs
+- **Paths** follow [03 §3.6](architecture/03-deep-dive.md): `/api/v1/channels`, `/channels/{ch}/devices`,
+  `/devices/{id}`, `/devices/{id}/tags[/{tag}]`, `/project` (the four files), `/project/import`,
+  `/project/validate` (= `opencap check`), `/project/revisions`. Added because the v1 file layout has
+  them: `/map[/defaults|/devices/{id}]` (`devices_map.yaml`) and `/overrides/devices/{id}`,
+  `/overrides/channels/{ch}` (`overrides.yaml`); `/project/status`, `/project/pending`,
+  `/project/schema`, `/whoami`, `/status` (dashboard in one call), `/auth-info` (open: does the API
+  need a token?), and `/devices/{id}/status|values|plan|identity`, `POST …/read-once`, `POST /reload`
+  under `/api/v1` (the unversioned runtime routes stay for existing clients). `/north` and `/plugins`
+  wait for north plugins; the WebSocket feed and the committed OpenAPI document are #31 and #32.
+- **Reads return `revision` and `ETag`**, list reads included (`{"channels": […], "revision": …}`).
+  **Writes need `If-Match`** with the config revision: 428 without it, 412 when it is stale (409 stays
+  for name clashes). The revision is a hash of the four files' bytes, not a counter, so it also
+  changes on hand edits.
+- **Deviation: a write does not apply itself.** §3.6 reads "persisted, audited, and then applied";
+  the task for this PR says `POST /reload` applies, and an engineer editing twenty tags wants one
+  restart of the channel, not twenty. Writes change the files; `POST /api/v1/reload` applies, or
+  `?apply=true` on any write reloads right after it. `GET /api/v1/project/pending` says what a
+  reload would restart (per channel, and poller.yaml settings that need a process restart:
+  instance, log_level, mqtt, saf, api).
+- `PUT` replaces, `PATCH` is a JSON merge patch (RFC 7386). Device ids are `<channel>/<device>`, so
+  new or renamed channel/device names may not contain `/`, and a device may not be named `tags`,
+  `values`, `plan`, `identity`, `status` or `read-once` (they would collide with the
+  `/devices/{id}/<suffix>` routes).
+- **Every change** is validated by its pydantic model (errors keep a location relative to the
+  object, for inline UI errors), then the new texts are loaded by the real loader in a staging
+  directory, then the affected devices are planned: a driver that rejects the params, or an
+  enabled tag whose address/dtype/enabled changed and does not plan, is a 422. Plan-invalid tags the
+  change did not touch are warnings, so an imported `bad_config` tag does not block other edits.
+  A device whose driver is not implemented is a warning. Empty names, addresses and hosts are refused
+  (the models accept empty strings).
+- **Renames carry references** (a channel or device rename renames its keys in `devices_map.yaml`
+  and `overrides.yaml`, a tag rename its tag override); **deletes cascade** to the map entry and the
+  overrides. The audit entry holds everything removed.
+- `ConfigStore` (`config/store.py`) is the `ProjectStore` of [ADR-0013](adr/0013-project-file-v2.md)
+  over today's v1 layout: when project file v2 lands, the store changes and the API does not.
+  Channels, devices and tags are in `devices.json`, which a KEPServerEX re-import replaces; the
+  import dry run shows what would be lost, and fixes that must survive belong in `overrides.yaml`.
+- `GET /api/v1/devices/{id}/identity` asks the driver over the device's existing connection only
+  and never opens one (Micro800s have few CIP connections). Asking can cost a request on the wire
+  (Modbus FC43), so the answer is cached for 5 minutes and `?refresh=true` is admin-only: `ChannelWorker.identity()` and
+  `Poller.device_plan()/device_identity()` are new, additive. `core/plan_report.py` is the JSON form
+  of `opencap check`; `check.py` is unchanged.
+
+### D-040 Named tokens and roles (extends D-019)
+- `poller.yaml` `api.tokens: [{name, role, token_env}]`; the secret stays in the env var. A listed
+  token whose env var is unset, or two tokens with the same secret, stop the start. The legacy
+  `api.token_env` token is the admin named `default` (the name is reserved).
+- **viewer** = safe methods (GET/HEAD) only. **admin** = also every unsafe method: config changes,
+  import, reload and read-once. Read-once is a PLC *read*, but it puts a full extra cycle on the wire
+  on demand (≈23 s of requests on a non-batching Micro800), so it is not a viewer action. This is the
+  two-role subset of the viewer/operator/engineer/admin set the security RFC will define (03 §3.7).
+- Tokens are read at start; a change needs a restart, like the other `api` settings.
+- **Open mode** (no token at all, loopback bind only, D-019) is now **read-only**: everyone is the
+  viewer `anonymous`, every unsafe method gets 403, and only requests whose `Host` is `127.0.0.1`,
+  `localhost` or `[::1]` are answered. A page using DNS rebinding sends its own host name, so it
+  can neither read nor change anything. (Before, open mode allowed `POST /reload`; comparing
+  `Origin` with `Host` did not stop rebinding, review of #63.)
+- **Authentication happens before the body is read**: a pure ASGI guard (`api/guard.py`) in front of
+  the app authenticates every non-open route from its headers, so an unauthenticated caller gets
+  401 without a body byte read or parsed. It also caps bodies at 1 MiB (64 MiB for
+  `POST /api/v1/project/import`): a larger `Content-Length` gets 413 at once, and a chunked body
+  is counted while it is read.
+- `api.cors_origins` (default empty) lets the desktop app or another UI origin call the API
+  (ADR-0010); the API uses bearer tokens only, never cookies, so there is no CSRF surface.
+
+### D-041 Atomic writes and comments in the hand-owned YAML files
+- Each file is written to a temp file in the same directory, fsynced, renamed over the original;
+  the previous version is kept as `<file>.bak` (one generation, a hard link to the old inode).
+  Permissions are copied. `config/*.bak` and the temp files are git-ignored.
+- **A change touching several files** (e.g. a device rename) is committed in two phases: every temp
+  file is written and fsynced first, the `.bak` links are made, then the renames. If any step fails,
+  the files already renamed get their previous bytes back and nothing changed (503); only if that
+  restore also fails is the result a partial write (500, naming the files left new, audited as
+  `<action>.partial`). A fault-injection test makes the second rename of a device rename fail.
+  `POST /reload` takes the store's lock, so a reload never sees a change in progress; `SIGHUP` does
+  not.
+- **The audit entry is written inside the lock**, right after the files. If it cannot be written,
+  the change is rolled back (503): there are no unaudited changes.
+- **Read-only or full storage** gives 503 (507 for a full disk) with the path, never a bare 500.
+  `GET /api/v1/project/status` and `/whoami` report `writable` (`access()` plus the read-only mount
+  flag), and the UI turns editing off when it is false. `deploy/opencap.service` sets
+  `ReadWritePaths=/etc/opencap`; `docs/deployment.md` makes the directory sticky (1775,
+  root:opencap) with opencap owning only the config files, so opencap can replace them but not
+  `opencap.env`, and explains how to keep the config read-only (and the Docker mount for editing).
+  The sticky-bit layout follows POSIX semantics; it was not exercised on a real systemd host.
+- **Comments are kept** with ruamel.yaml's round-trip mode: the change is made on the plain data the
+  loader reads and synced into the existing document (new keys appended, renamed keys keep their
+  place). The result is parsed again with PyYAML (the loader's parser); if it differs from the
+  intended data, the file is rewritten from the data instead, keeping the leading comment block, and
+  the response lists it under `comments_lost`. Known effects: a renamed key's trailing comment is
+  re-aligned; a touched YAML 1.1 bare scalar (`off`, `yes`) is written as `false`/`true`; strings
+  PyYAML would misread are quoted. Without ruamel.yaml every YAML change takes the fallback.
+
+### D-042 Import through the API
+- `POST /api/v1/project/import` takes the file as the raw JSON body (no multipart parser): a
+  KEPServerEX `project.json` (top-level `project`), run through the existing importer, or an opencap
+  export (`GET /api/v1/project`). **Dry run is the default**; `?dry_run=false` writes and needs
+  `If-Match` (the UI sends the dry run's revision, so the diff seen is the change applied). The body
+  must be `application/json`, at most 64 MiB.
+- KEPServerEX import = `opencap import-kep` minus the reports: `devices.json` replaced, stub entries
+  appended below the existing `devices_map.yaml` text with the CLI's own helpers (never a rewrite),
+  or written to `devices_map.stubs.yaml` when appending is not safe; `overrides.yaml` template
+  written if missing. The summary and problems are in the response instead of `reports/`. **Deviation:** the API passes
+  poller.yaml `defaults` to the importer (as poller.yaml documents); the CLI passes the built-in
+  defaults. They differ only when poller.yaml changes `defaults`.
+- An export restores files byte-for-byte, also over files that no longer parse. It can replace
+  `poller.yaml` (including `api`), so it is admin-only like every import, and its audit entry holds
+  a unified diff of each YAML file and a device-level summary for `devices.json`.
+
+### D-043 Audit log
+JSON lines at `api.audit_log` (default `data/audit.jsonl`): time, token name, role, `via` (`ui` when
+the web UI sent it, else `api`), action, target, new revision, files and field-level changes
+(old → new, at most 200 per entry). Logged: every accepted change, import and reload. Not logged:
+rejected changes (nothing changed), reads, read-once. Logins are not logged because the UI has no
+server-side login (it sends the token with each request). Rotates to `.1` at 16 MiB;
+`GET /api/v1/audit` reads both, and `/project/revisions` lists the revisions it recorded.
+
+### D-044 Web UI: a static bundle on the public API, Alpine.js CSP build
+- Per [ADR-0010](adr/0010-one-ui-web-and-tauri.md): `src/opencap/api/ui/` (`index.html`, `app.js`,
+  `app.css`) is served as static files under `/ui/` and calls only `/api/v1` (a unit test checks
+  every call site). No build step. Hash routes (`#/device/<id>`, `#/edit/<id>`, …) so the same files
+  work from any origin and inside the Tauri shell; `window.OPENCAP_API_BASE` points it at a remote node.
+- **Alpine.js 3.17.5, CSP build** (`@alpinejs/csp`, MIT), vendored as
+  `ui/vendor/alpine-csp-3.17.5.min.js` with `alpine-LICENSE.md` (from the alpinejs/alpine repo at
+  tag v3.17.5; the npm package ships none) and listed in `NOTICE`; sha256
+  `48c170c92032e527cbae71b8ce75cf1f96ca06fa869a6120ef0fe438d8e92c36`. The CSP build evaluates
+  expressions without `eval`, so the UI runs under `script-src 'self'; style-src 'self'` with no
+  inline script or style. Its expressions cannot use template literals or globals, so formatting
+  lives in component methods. htmx was the other candidate; it swaps server-rendered HTML, which
+  ADR-0010 rules out.
+- **Login:** the token is checked with `GET /api/v1/whoami`, kept in the tab's `sessionStorage`
+  (gone when the tab closes; nothing is stored server-side) and sent as `Authorization: Bearer` with
+  `X-Opencap-Client: ui`. A 401 sends the UI back to the login page. Writes send `If-Match` with the
+  revision of the data on screen; a 412 tells the operator to load the page again.
+- Textareas for params, overrides and publish defaults take JSON (the API's format), not YAML.
+- Editing controls need the admin role **and** a writable config directory (`whoami` reports
+  `config_writable`); otherwise the UI says why editing is off. Open mode is read-only (D-040).
+- **Read-only towards PLCs:** the UI offers read-once and identity, never a value write.
+- A browser smoke test (`tests/ui/browser_smoke.js`, run by `tests/integration/test_ui_browser.py`,
+  marker `acceptance`) drives Chromium through every page at desktop and phone width and fails on any
+  script error or CSP violation; it is skipped where Node.js and Playwright are not installed.

@@ -21,3 +21,7 @@ reports/*
 # Build output (`pip wheel .`, `python -m build`)
 build/
 dist/
+
+# Written by the config API next to the config files (previous versions, temp files)
+config/*.bak
+config/.*.tmp

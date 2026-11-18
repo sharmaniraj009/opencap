@@ -27,6 +27,8 @@ policy-level summary, reconciled with it after #64.
 | MQTT | aiomqtt + paho-mqtt | BSD-3-Clause; EPL-2.0 or EDL-1.0 | no | Adopt (EDL-1.0 = BSD-3) |
 | API | FastAPI, uvicorn | MIT; BSD-3-Clause | no | Adopt (in use) |
 | Serial ports (modbus_rtu, ab_df1) | pyserial 3.5 | BSD-3-Clause (SPDX header in `serial/__init__.py`; LICENSE.txt at tag v3.5) | yes | Adopt (optional `serial` extra, #62) |
+| YAML edits that keep comments (config API) | ruamel.yaml | MIT ([PyPI 0.19.1](https://pypi.org/project/ruamel.yaml/0.19.1/), `LICENSE` in the wheel) | yes (0.19.1) | Adopt (`north` extra; D-041) |
+| Web UI framework, vendored in `src/opencap/api/ui/vendor/` | Alpine.js 3.17.5, CSP build | MIT ([LICENSE.md](https://github.com/alpinejs/alpine/blob/v3.17.5/LICENSE.md)) | yes (3.17.5) | Adopt (vendored, listed in `NOTICE`; D-044) |
 | Metrics | prometheus-client | Apache-2.0 | no | Adopt (in use) |
 | Test broker | amqtt | MIT | no | Test-only |
 

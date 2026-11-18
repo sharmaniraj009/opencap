@@ -31,7 +31,7 @@ Volumes:
 
 | Path in the container | Content | Mount |
 |---|---|---|
-| `/opencap/config` | config files | read-only bind mount (`:ro`) |
+| `/opencap/config` | config files | read-only bind mount (`:ro`); read-write and owned by uid 10001 if you edit the config in the web UI or the config API |
 | `/opencap/data` | `saf.sqlite` outbox | named volume or a directory owned by uid 10001 |
 
 ```bash
@@ -47,6 +47,10 @@ docker run -d --name opencap --restart unless-stopped \
   from inside the container. To publish the port, set `api.bind: 0.0.0.0` in `poller.yaml`
   **and** set `OPENCAP_API_TOKEN`. opencap refuses to bind a non-loopback address without a
   token. Publish the port only on the host's loopback or VPN address, as above.
+- **Editing the config in the web UI or the config API** needs a writable config mount owned
+  by the container user: `sudo chown -R 10001:10001 config` and `-v "$PWD/config:/opencap/config"`
+  (no `:ro`). With `:ro` the UI shows editing as off and config writes answer 503 with the path.
+  The audit log of config changes goes to `data/audit.jsonl`, in the data volume.
 - **Health check:** the image probes `http://127.0.0.1:8080/health`. If you change
   `api.port`, set `OPENCAP_HEALTH_URL`.
 - **Other commands** run the same way:
@@ -71,8 +75,9 @@ docker run -d --name opencap --restart unless-stopped \
 sudo useradd --system --home-dir /var/lib/opencap --shell /usr/sbin/nologin opencap
 sudo python3.12 -m venv /opt/opencap/venv
 sudo /opt/opencap/venv/bin/pip install "opencap[modbus,ab,north] @ git+https://github.com/sharmaniraj009/opencap"
-sudo install -d -m 0755 /etc/opencap
-sudo cp config/*.yaml config/devices.json /etc/opencap/
+# sticky directory: opencap may replace its config files, never root's opencap.env
+sudo install -d -m 1775 -o root -g opencap /etc/opencap
+sudo install -m 0640 -o opencap -g opencap config/*.yaml config/devices.json /etc/opencap/
 sudo install -m 0640 -o root -g opencap deploy/opencap.env.example /etc/opencap/opencap.env
 sudoedit /etc/opencap/opencap.env
 sudo cp deploy/opencap.service /etc/systemd/system/
@@ -86,6 +91,13 @@ sudo systemctl enable --now opencap
   channels that changed (`POST /reload` does the same).
 - The unit is hardened (`ProtectSystem=strict`, no capabilities, `PrivateDevices=yes`). The
   serial drivers need the port: the comment at the end of the unit shows what to change.
+- **Config editing (web UI, config API):** the unit sets `ReadWritePaths=/etc/opencap`, and the
+  commands above make the directory sticky (`1775`, `root:opencap`) with the config files owned
+  by `opencap`. opencap can then replace its config files atomically and keep `.bak` copies,
+  but cannot replace or delete `opencap.env`, which stays root's. The audit log goes to
+  `/var/lib/opencap/data/audit.jsonl`. For a read-only configuration, remove `ReadWritePaths=`
+  from the unit and keep `/etc/opencap` and its files root-owned (`0755`/`0644`): the UI then
+  shows editing as off, and config writes answer 503 with the path.
 
 ## Logs and log rotation
 

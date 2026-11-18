@@ -34,6 +34,7 @@ RTU) are done. Siemens S7, Mitsubishi MC and OPC UA are in progress. See [ROADMA
 - [MQTT topics and payload](#mqtt-topics-and-payload)
 - [Secrets and environment variables](#secrets-and-environment-variables)
 - [Admin API and metrics](#admin-api-and-metrics)
+- [Web UI and configuration API](#web-ui-and-configuration-api)
 - [Deployment](#deployment)
 - [Testing](#testing)
 - [Contributing, security, license](#contributing-security-license)
@@ -286,6 +287,9 @@ Every key is optional; a missing file means all defaults. The annotated template
 | `saf.max_bytes` | 2 GiB | cap on queued topic + payload bytes; the oldest messages are dropped first |
 | `api.bind` / `port` | `127.0.0.1` / `8080` | admin API; bind to localhost or a VPN address only |
 | `api.token_env` | `OPENCAP_API_TOKEN` | **name** of the env var holding the bearer token |
+| `api.tokens` | `[]` | named tokens `{name, role: viewer\|admin, token_env}` ([Web UI and configuration API](#web-ui-and-configuration-api)) |
+| `api.audit_log` | `data/audit.jsonl` | audit log of config changes (JSON lines) |
+| `api.cors_origins` | `[]` | other web origins allowed to call the API (desktop app) |
 | `payload.float_decimals` | `4` | floats rounded to this many decimal places |
 | `payload.bad_tags_field` | `true` | add `BadTags` for tags without good quality |
 | `payload.timezone` | `Asia/Kolkata` | zone of the payload's `DateTime`; set your own (any IANA name, e.g. `UTC`) |
@@ -409,6 +413,7 @@ credentials out of a KEPServerEX project.
 |---|---|
 | `OPENCAP_MQTT_PASSWORD` | broker password (the name is `mqtt.password_env`) |
 | `OPENCAP_API_TOKEN` | admin API bearer token (the name is `api.token_env`); required when `api.bind` is not loopback |
+| any name in `api.tokens[].token_env` | one named API/UI token each (e.g. `OPENCAP_TOKEN_ALICE`) |
 | `OPENCAP_OPCUA_<CHANNEL>_USER`, `OPENCAP_OPCUA_<CHANNEL>_PASSWORD` | OPC UA client credentials, written by the importer as `params.username_env` / `password_env` |
 | `OPENCAP_HEALTH_URL` | Docker health check URL (default `http://127.0.0.1:8080/health`) |
 
@@ -419,8 +424,9 @@ file, a systemd unit and a Windows service are in [`deploy/`](deploy/).
 ## Admin API and metrics
 
 Bind the API to localhost or a VPN address only. `/health` and `/metrics` are open, for
-monitoring. Every other route needs `Authorization: Bearer $OPENCAP_API_TOKEN`. With no
-token set, the API starts only on a loopback address.
+monitoring. Every other route needs `Authorization: Bearer <token>` (named tokens and roles:
+[Web UI and configuration API](#web-ui-and-configuration-api)). With no token set, the API
+starts only on a loopback address.
 
 | Method and path | Returns |
 |---|---|
@@ -443,6 +449,84 @@ Device ids contain `/` and spaces: `curl -H "Authorization: Bearer $T" 'http://1
 | `mqtt_published_total` | counter | messages acknowledged by the broker |
 | `saf_queue_messages` | gauge | messages waiting in the outbox |
 | `saf_dropped_total` | counter | messages dropped by the `saf.max_bytes` cap |
+
+## Web UI and configuration API
+
+The same server serves an operator UI at **`http://127.0.0.1:8080/ui/`** and a configuration
+REST API under `/api/v1`, the open equivalent of KEPServerEX's Configuration API. The UI is a
+static page (plain HTML, CSS and a vendored copy of the Alpine.js CSP build, no build step) that
+uses only the public `/api/v1` API, so the desktop app can load the same files
+([ADR-0010](docs/adr/0010-one-ui-web-and-tauri.md)). It works at phone width.
+
+**Tokens and roles.** Name your tokens in `poller.yaml`; each secret lives in an env var:
+
+```yaml
+api:
+  tokens:
+    - {name: alice, role: admin, token_env: OPENCAP_TOKEN_ALICE}      # may change the config
+    - {name: grafana, role: viewer, token_env: OPENCAP_TOKEN_GRAFANA} # read-only (GET)
+  audit_log: data/audit.jsonl
+  cors_origins: []          # other web origins allowed to call the API (e.g. the desktop app)
+```
+
+`viewer` may read everything (status, values, config, validation, export, audit); `admin` may
+also change the config, import, reload and read-once. `api.token_env` still works: it is the
+admin named `default`. Log in to the UI with a token; it is kept in that browser tab only
+(`sessionStorage`) and sent as a bearer token. With no token configured at all, the API and the
+UI are read-only and answer only requests addressed to localhost.
+
+**UI pages.** Dashboard (sites and devices: ok/offline/demoted, last good, errors, cycle time,
+MQTT link, outbox size) · device page (live values and quality every 2 s, block plan,
+`bad_config` tags, identity, read once) · config editor (channels, devices, tags, publish map,
+overrides; validation errors next to the field; Reload) · check (block plan and cycle estimates)
+· import (KEPServerEX `project.json` or an opencap export, with a dry-run diff) · audit log.
+The UI never writes a PLC value.
+
+**Configuration API** (contract: [03 §3.6](docs/architecture/03-deep-dive.md)). Reads, lists
+included, return the config `revision` (also as `ETag`). **Every write needs `If-Match: <revision>`**: 428
+without it, 412 when someone changed the config since you read it. `PUT` replaces, `PATCH` is a
+JSON merge patch (`null` removes a key).
+
+| Method and path | What |
+|---|---|
+| `GET /api/v1/whoami` · `GET /api/v1/auth-info` (open) | your token name and role · whether a token is needed |
+| `GET /api/v1/status` | health, every polled device, pending reload (the dashboard in one call) |
+| `GET/POST /api/v1/channels` · `GET/PATCH/DELETE /api/v1/channels/{channel}` | channels |
+| `GET/POST /api/v1/channels/{channel}/devices` · `GET /api/v1/devices` | devices of a channel · all devices |
+| `GET/PUT/PATCH/DELETE /api/v1/devices/{id}` | one device (`devices.json`) |
+| `GET/POST /api/v1/devices/{id}/tags` · `GET/PUT/PATCH/DELETE …/tags/{tag}` | tags (POST takes one or a list) |
+| `GET /api/v1/devices/{id}/status`, `/values`, `/plan`, `/identity` · `POST …/read-once` | the running device (identity is cached 5 min; `?refresh=true` needs admin) |
+| `GET /api/v1/map` · `PUT /api/v1/map/defaults` · `GET/PUT/PATCH/DELETE /api/v1/map/devices/{id}` | `devices_map.yaml` |
+| `GET /api/v1/overrides` · `GET/PUT/PATCH/DELETE /api/v1/overrides/devices/{id}` · `GET/PUT/DELETE /api/v1/overrides/channels/{channel}` | `overrides.yaml` |
+| `GET /api/v1/project[?download=true]` | the whole config (the four files), a backup |
+| `POST /api/v1/project/import[?dry_run=false]` | a KEPServerEX `project.json` or an export; **dry run by default** |
+| `GET /api/v1/project/validate[?site=…&verbose=true]` | `opencap check` as JSON |
+| `GET /api/v1/project/status` · `/pending` · `/revisions` · `/schema` | summary and warnings · pending reload · revisions written · JSON schemas |
+| `GET /api/v1/audit[?action=…&who=…&target=…]` · `POST /api/v1/reload` | audit log · apply the config |
+
+```bash
+H="Authorization: Bearer $OPENCAP_TOKEN_ALICE"; API=http://127.0.0.1:8080/api/v1
+REV=$(curl -s -H "$H" $API/project/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')
+curl -s -H "$H" -H "If-Match: $REV" -H 'Content-Type: application/json' -X PATCH \
+  -d '{"timeout_ms": 1500}' "$API/devices/Plant%20A/PLC1"
+curl -s -H "$H" -H 'Content-Type: application/json' --data-binary @project.json \
+  "$API/project/import?filename=project.json"            # dry run: what would change
+curl -s -H "$H" -X POST $API/reload                       # apply (or add ?apply=true to a write)
+```
+
+Every change is checked by its model, by the loader and by the device's driver (a tag address the
+driver cannot read is refused) before anything is written; a 422 lists each error with its field.
+A change to several files is written all or nothing (temp files first, then renames, rolled back
+on failure), the previous version is kept as `<file>.bak`, and comments in the hand-owned
+`devices_map.yaml` and `overrides.yaml` are kept. If the config directory is read-only (see
+[Deployment](#deployment)), the UI turns editing off and writes answer 503 with the path. The
+token is checked before a request body is read, and bodies are limited to 1 MiB (64 MiB for
+imports). A write changes the files only:
+`POST /api/v1/reload` applies them (only changed channels restart), or add `?apply=true` to the
+write. Renaming a device or channel moves its map entry and override along; deleting one deletes
+them. Channels, devices and tags live in `devices.json`, which a KEPServerEX re-import replaces:
+put fixes that must survive a re-import in the device's override. Every accepted change, import
+and reload is in the audit log (who, when, what). Details: `docs/decisions.md` D-039 to D-044.
 
 ## Deployment
 

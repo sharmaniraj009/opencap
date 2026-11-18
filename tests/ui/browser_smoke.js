@@ -68,6 +68,34 @@ async function shot(page, name) {
     check(true, "read once");
     await shot(page, "device");
 
+    // --- Quick Client: live values over the WebSocket, demand read
+    await page.click("#view-device >> text=Quick Client");
+    await page.waitForSelector("#view-quick #quick-mode >> text=live");
+    await page.waitForSelector('#quick-values tr[data-tag="FLOW_1"]');
+    check((await page.textContent('#view-quick nav a[aria-current="true"]')).includes("Device1"), "quick client selects the device in the tree");
+    const flow = async () => page.textContent('#quick-values tr[data-tag="FLOW_1"] td:nth-child(4)');
+    const first = await flow();
+    await page.waitForFunction((v) => {
+      const td = document.querySelector('#quick-values tr[data-tag="FLOW_1"] td:nth-child(4)');
+      return td && td.textContent !== v;
+    }, first, { timeout: 5000 });
+    check(true, "quick client value changes without a reload (" + first + " → " + (await flow()) + ")");
+    check(/\d+ s/.test(await page.textContent('#quick-values tr[data-tag="FLOW_1"] td:nth-child(7)')), "quick client shows the value's age");
+    check(Number(await page.textContent('#quick-values tr[data-tag="FLOW_1"] td:nth-child(8)')) >= 1, "quick client counts updates");
+    check((await page.textContent('#quick-values tr[data-tag="FLOW_1"] td:nth-child(2)')).trim() !== "", "quick client shows the address from the config");
+    await page.fill("#view-quick input[aria-label='Filter tags']", "flow_1");
+    check(await page.locator("#quick-values tbody tr").count() === 1, "quick client tag filter");
+    await page.fill("#view-quick input[aria-label='Filter tags']", "");
+    await page.click("#view-quick >> text=Read now");
+    await page.waitForSelector("#view-quick >> text=Read now at");
+    check(true, "quick client demand read");
+    await page.goto(base + "/ui/#/quick/NOPE/X");
+    await page.waitForSelector("#view-quick .banner >> text=Not polled");
+    check(true, "quick client reports a device that is not polled");
+    await page.goto(base + "/ui/#/quick/" + encodeURIComponent("SITE MODBUS") + "/Device1");
+    await page.waitForSelector('#quick-values tr[data-tag="FLOW_1"]');
+    await shot(page, "quick_client");
+
     // --- device editor: inline validation error, then a good save
     await page.goto(base + "/ui/" + editHash);
     await page.waitForSelector("#device-form input[name=timeout_ms]");
@@ -160,6 +188,12 @@ async function shot(page, name) {
     await phone.waitForSelector("#view-device >> text=FLOW_1");
     check(!(await phone.isVisible("#view-device >> text=Read once")), "viewer has no read once");
     check(await width() <= 375, "phone device page fits the width");
+    await phone.goto(base + "/ui/#/quick/SITE%20MODBUS/Device1");
+    await phone.waitForSelector("#view-quick #quick-mode >> text=live");
+    await phone.waitForSelector('#quick-values tr[data-tag="FLOW_1"]');
+    check(!(await phone.isVisible("#view-quick >> text=Read now")), "viewer has no read now");
+    check(await width() <= 375, "phone quick client fits the width");
+    await shot(phone, "phone_quick_client");
     await phone.goto(base + "/ui/" + editHash);
     await phone.waitForSelector("#device-form input[name=name]");
     check(await phone.isDisabled("#device-form input[name=name]"), "viewer sees the editor read-only");

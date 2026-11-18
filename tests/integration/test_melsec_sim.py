@@ -323,9 +323,14 @@ async def test_udp(executor) -> None:
         await drv.connect()
         assert_values(sim, TAGS, await read_all(drv))
 
-        await sim.stop()                                             # port closed: ICMP port unreachable
-        with pytest.raises(ConnectionLost, match="connection lost"):
+        await sim.stop()           # port closed: the kernel may answer with ICMP port unreachable
+        with pytest.raises(CommError) as stopped:
             await drv.read(blocks(drv)[0])
+        # ConnectionLost when the ICMP error reaches the socket; a timeout when the kernel does
+        # not send or deliver it (seen on CI runners). Both mean "no PLC there"; the mapping of a
+        # refused socket to ConnectionLost is pinned in tests/unit/test_melsec_io.py.
+        assert isinstance(stopped.value, ConnectionLost) or "no reply within" in str(stopped.value)
+        assert not drv.connected
         await sim.restart()
         await drv.connect()
         assert_values(sim, TAGS, await read_all(drv))

@@ -8,6 +8,10 @@ poller (ChannelWorker, cache, publisher, MQTT), against the CIP simulator.
 - powering off one PLC demotes only that device, and it resumes after power-on;
 - `opencap identity` reports the batching outcome; `device.stats` logs cycle times.
 
+Engine-agnostic (ADR-0014 §3): the engine is driven only through its config directory, its
+API, its CLI, its log and the wire, so `--engine=rust` runs the same scenario against the Rust
+binary once it implements `ab_logix` (until then: skipped, "driver not ported").
+
 The real-site parts of Phase 2 (values match KEPServer on one real Micro800 and one real
 Logix site, no CIP connection errors over 24 h) need site access.
 """
@@ -17,20 +21,18 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import sys
 
 import pytest
-from structlog.testing import capture_logs
 
 from opencap.config.models import Device, Tag
-from opencap.core.runtime import Poller
 from opencap.logsetup import configure_logging
 from tests.helpers.broker import TestBroker
 from tests.helpers.cip_sim import CipSim, make_logix_tags
 from tests.helpers.configdir import write_config
+from tests.helpers.modbus_sim import free_port
 from tests.integration.test_ab_logix_sim import expected, oo_tags
 
-pytestmark = pytest.mark.acceptance
+pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("ab_logix")]
 
 N_MICRO = 10
 N_LOGIX = 3
@@ -63,14 +65,7 @@ def _matches(got, want) -> bool:
     return got == want
 
 
-async def _opencap(*args: str, cwd) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(sys.executable, "-m", "opencap", *args, cwd=cwd,
-                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-    out, _ = await asyncio.wait_for(proc.communicate(), 60)
-    return proc.returncode, out.decode()
-
-
-async def test_phase2_acceptance(tmp_path):
+async def test_phase2_acceptance(tmp_path, engine_factory):
     configure_logging("INFO")            # device.stats is an INFO line; the filter must let it through
     specs = [("micro800", i % 2 == 0) for i in range(N_MICRO)] + [("logix", True)] * N_LOGIX
     sims: list[CipSim] = []
@@ -81,16 +76,16 @@ async def test_phase2_acceptance(tmp_path):
                    for i, (sim, (kind, _b)) in enumerate(zip(sims, specs))]
         async with asyncio.timeout(240), TestBroker() as broker, broker.collector("opencap/#") as col:
             await col.wait_ready()
-            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port,
-                                      poller={"stats_interval_s": 3}, publish={"interval_ms": INTERVAL_MS})
-            poller = Poller(config_dir, serve_api=False)
-            with capture_logs() as logs:
-                await poller.start()
-                try:
-                    await _scenario(tmp_path, config_dir, poller, col, sims, specs, devices)
-                finally:
-                    await poller.stop()
-            stats = [e for e in logs if e.get("event") == "device.stats"]
+            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=free_port(),
+                                      poller={"stats_interval_s": 3, "log_level": "INFO"},
+                                      publish={"interval_ms": INTERVAL_MS})
+            poller = engine_factory(config_dir)     # the Python Poller, or the Rust engine (--engine=rust)
+            await poller.start()
+            try:
+                await _scenario(tmp_path, config_dir, poller, col, sims, specs, devices)
+            finally:
+                await poller.stop()
+            stats = poller.log_events("device.stats")
             assert {e["device"] for e in stats} >= {d.id for d in devices}, "every device logged its cycle time"
             assert all(e["mean_cycle_ms"] > 0 for e in stats)
     finally:
@@ -98,7 +93,8 @@ async def test_phase2_acceptance(tmp_path):
 
 
 async def _scenario(tmp_path, config_dir, poller, col, sims, specs, devices) -> None:
-    topics = {d.id: poller.registry.plans[d.id].device.publish.topic for d in devices}
+    loaded = {d.id: d for c in poller.loaded.channels for d in c.devices}
+    topics = {d.id: loaded[d.id].publish.topic for d in devices}
 
     # 1. Every device publishes correct values; the missing tag is reported, nothing else.
     await _wait(lambda: all(len(col.topic(t)) >= 2 for t in topics.values()), 40, "2 messages per device")
@@ -142,7 +138,7 @@ async def _scenario(tmp_path, config_dir, poller, col, sims, specs, devices) -> 
 
     # 5. `opencap identity` reports the batching outcome per device.
     for idx, want in ((0, True), (1, False), (N_MICRO, None)):
-        code, out = await _opencap("identity", devices[idx].id, "--config", str(config_dir), cwd=tmp_path)
+        code, out = await poller.cli("identity", devices[idx].id, "--config", str(config_dir), cwd=tmp_path)
         assert code == 0, out
         ident = json.loads(out[out.index("{"):])
         assert ident.get("micro800") is (idx < N_MICRO), ident

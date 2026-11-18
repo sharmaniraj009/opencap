@@ -577,7 +577,7 @@ pip install -e '.[dev,modbus,ab,north,serial]'
 pytest -m "not acceptance"                  # fast suite, ~30 s; runs in CI on every push and PR
 pytest -m acceptance                        # simulated devices + broker outage; nightly in CI
 OPENCAP_OUTAGE_S=600 pytest -m acceptance   # the full 10-minute broker outage
-OPENCAP_ENGINE=rust pytest -m acceptance tests/integration/test_phase1_acceptance.py   # same suite, Rust engine
+OPENCAP_ENGINE=rust pytest -m acceptance   # same suites, Rust engine (unported drivers: skipped, listed)
 ```
 
 - Protocol tests run against simulators in `tests/helpers/` (Modbus, CIP/EtherNet-IP and

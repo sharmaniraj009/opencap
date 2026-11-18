@@ -88,16 +88,19 @@ mechanism for the same rule, §2.9 lists it.
 | Crate | Python counterpart | Contents |
 |---|---|---|
 | `opencap-core` | `config/`, `core/`, `drivers/base.py`, `metrics.py` | serde config models and loader, `Value`/`Quality`/`TagValue`, `ValueCache`, `DeviceHealth`/`Backoff`, `DeviceSchedule`, `Driver`/`Block`/`Plan`/`DriverError`, `Registry`/`DevicePlan`, `ChannelWorker`, Prometheus metrics, Python-compatible formatting (`pyfmt`) |
-| `opencap-drivers` | `drivers/modbus_tcp.py`, `drivers/__init__.py` | `modbus_tcp` (params, address, plan, decode, tokio-modbus I/O) and the driver factory; every other Python driver name is "not implemented yet in the Rust engine" |
+| `opencap-drivers` | `drivers/__init__.py` | the driver registry: one static `DRIVERS` table, one Cargo feature per driver crate, the driver factory; a driver whose feature is off is "not compiled in", a Python driver name with no crate is "not implemented yet in the Rust engine" (#67) |
+| `drivers/modbus_tcp` (`opencap-driver-modbus-tcp`) | `drivers/modbus_tcp.py` | params, address, plan, decode, tokio-modbus I/O |
 | `opencap-north` | `north/` | `payload` (SubDevice JSON), `saf` (outbox), `mqtt` (link), `publisher` |
 | `opencap-api` | `api/server.py` | axum router, bearer auth, the `EngineView` trait the engine implements |
 | `opencap-engine` | `__main__.py`, `core/runtime.py`, `core/check.py` | the binary, the runtime (`Poller`), `check` |
 
 [ADR-0004](../adr/0004-driver-contract-and-plugin-model.md) §2 says drivers are crates in
-`engine/drivers/<name>` behind Cargo features. This slice keeps one `opencap-drivers` crate
-(the crate list this work was given) with one module per driver; it splits into per-driver
-crates when the second driver lands (#43), so heavy dependencies (OPC UA, TLS stacks) stay
-optional. The lead reconciles the two layouts.
+`engine/drivers/<name>` behind Cargo features. The first slice kept one `opencap-drivers` crate
+with one module per driver. **As built (#67, PR #100):** every driver is its own crate in
+`engine/drivers/<name>` behind the feature `driver-<name>` (`default` = every crate), and
+`opencap-drivers` is the registry only, so heavy dependencies (OPC UA, TLS stacks) stay
+optional and parallel ports never edit the same crate. `engine/README.md` → "How to add a
+driver crate".
 
 ### 2.3 Runtime and concurrency
 
@@ -552,7 +555,7 @@ Status: ✅ done, 🚧 in progress, 📋 planned. Python = reference engine, Rus
 ## 10. Open questions for the lead
 
 1. Crate layout: keep `opencap-drivers` with one module per driver until #43, or split now
-   into `engine/drivers/<name>` (ADR-0004 §2)?
+   into `engine/drivers/<name>` (ADR-0004 §2)? **Answered:** split now (#67, PR #100); see §2.2.
 2. Metrics crate: `prometheus` (this PR, Python-identical exposition) or `prometheus-client`
    (oss-reuse.md)?
 3. The engine-local golden payload file stays until #3/#40 provide `tests/conformance/payload/`;

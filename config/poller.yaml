@@ -60,7 +60,8 @@ opcua_server:                    # northbound OPC UA server for SCADA/HMI client
   certificate: null              # server certificate + key, needed by secure policies;
   private_key: null              #   a self-signed pair is generated there when both are missing
   trusted_certs_dir: null        # when set, only client certificates in this folder are accepted
-  anonymous: true
+  anonymous: false               # anonymous clients only when true; otherwise set the user below
   username_env: null             # env var NAMES holding the one user name/password (never the values)
   password_env: null
   update_ms: 250                 # cache -> address space copy interval (also woken by every device cycle)
+  allow_insecure_remote: false   # policy None is refused on a non-loopback endpoint unless true (plaintext)

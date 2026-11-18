@@ -53,7 +53,7 @@ async def test_serves_cache_values_and_follows_reload(tmp_path):
         sims = await start_sims(make_sim_devices(2, 6, seed=21, scan_ms=200, timeout_ms=500))
         try:
             devices = [s.device for s in sims]
-            ua_cfg = {"enabled": True, "endpoint": endpoint, "update_ms": 50}
+            ua_cfg = {"enabled": True, "endpoint": endpoint, "update_ms": 50, "anonymous": True}
             config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, poller={"opcua_server": ua_cfg})
             poller = Poller(config_dir, serve_api=False)
             await poller.start()

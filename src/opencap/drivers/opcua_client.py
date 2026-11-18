@@ -41,7 +41,7 @@ import math
 import os
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
@@ -210,6 +210,26 @@ _ENV_KEYS = ("username_env", "password_env", "private_key_password_env")
 _PATH_KEYS = ("certificate", "private_key", "server_certificate")
 
 
+# OPC UA services that change something on the server (CONTRIBUTING rule 1, ADR-0008). The driver
+# never calls them; these stubs make sure nothing else in the process can through this session.
+WRITE_SERVICES = ("write", "write_attributes", "call", "history_update", "add_nodes", "delete_nodes",
+                  "add_references", "delete_references")
+
+
+def _guard_read_only(client: Any) -> None:
+    """Replace asyncua's write-capable services with raising stubs on both objects that send them:
+    the client's `UaClient` and its `UaSession` (asyncua 2.1 `Node` objects call the session
+    directly; it is created once per `UaClient`, and every connect builds a new `Client`)."""
+    def refuse(name: str) -> Callable[..., Any]:
+        async def refused(*args: Any, **kwargs: Any) -> Any:
+            raise PermissionError(f"opencap is read-only: OPC UA service {name} refused")
+        return refused
+
+    for target in (client.uaclient, client.uaclient.session):
+        for name in WRITE_SERVICES:
+            setattr(target, name, refuse(name))
+
+
 @dataclass(frozen=True)
 class OpcUaParams:
     """Typed view of `Device.params` for opcua_client (docs/driver_params.md). Unknown keys are
@@ -229,6 +249,7 @@ class OpcUaParams:
     application_uri: str = "urn:opencap:client"
     max_items: int = 100                      # monitored items per request (and per block); nodes per Read
     session_timeout_ms: int = 60_000
+    allow_insecure_password: bool = False     # send a user name/password over security policy None
 
     @classmethod
     def from_device(cls, device: Device) -> OpcUaParams:
@@ -267,6 +288,8 @@ class OpcUaParams:
             if not self.certificate or not self.private_key:
                 raise ValueError(f"opcua_client security_policy {self.security_policy} needs params certificate "
                                  f"and private_key (paths; a self-signed pair is generated there if both are missing)")
+        if not isinstance(self.allow_insecure_password, bool):
+            raise ValueError("opcua_client param allow_insecure_password: expected true or false")
         for key in (*_ENV_KEYS, *_PATH_KEYS, "application_uri"):
             value = getattr(self, key)
             if value is not None and (not isinstance(value, str) or not value):
@@ -659,6 +682,7 @@ class OpcUaClientDriver(Driver):
         started = time.monotonic()
         client = Client(p.endpoint, timeout=self.timeout_s, watchdog_intervall=max(1.0, self.timeout_s),
                         auto_reconnect=False)
+        _guard_read_only(client)
         client.application_uri = p.application_uri
         client.name = client.description = f"opencap {self.device.id}"
         client.product_uri = "urn:opencap"
@@ -767,6 +791,11 @@ class OpcUaClientDriver(Driver):
         """User name and password from the environment variables named in params. The error
         names the variable, never a value."""
         p = self.params
+        if p.password_env and not p.secure and not p.allow_insecure_password:
+            # refused before any connection is opened, so the password never leaves this computer
+            raise ConnectionLost(f"{self._where}: refusing to send a password over security_policy None (it may "
+                                 f"travel unencrypted): use Basic256Sha256 with Sign or SignAndEncrypt, or set "
+                                 f"params.allow_insecure_password: true")
         user = password = None
         if p.username_env:
             user = os.environ.get(p.username_env)

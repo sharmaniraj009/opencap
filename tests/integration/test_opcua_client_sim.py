@@ -325,7 +325,14 @@ async def test_user_and_password_come_from_the_environment(monkeypatch, driver_f
     sim = await OpcUaSim.start({"PV": ("Double", 1.0)}, users={"operator": "pw-from-env"}, anonymous=False)
     try:
         tags = [Tag(name="PV", address=sim.node_id("PV"), dtype="float64")]
-        dev = make_device(sim, tags, username_env=USER_ENV, password_env=PASS_ENV)
+        # a password over security policy None is refused before any connection is opened
+        plain = make_device(sim, tags, username_env=USER_ENV, password_env=PASS_ENV)
+        monkeypatch.setenv(USER_ENV, "operator")
+        monkeypatch.setenv(PASS_ENV, "pw-from-env")
+        with pytest.raises(ConnectionLost, match="refusing to send a password over security_policy None") as exc:
+            await driver_for(plain).connect()
+        assert "pw-from-env" not in str(exc.value) and sim.sessions == 0
+        dev = make_device(sim, tags, username_env=USER_ENV, password_env=PASS_ENV, allow_insecure_password=True)
 
         monkeypatch.delenv(USER_ENV, raising=False)
         monkeypatch.delenv(PASS_ENV, raising=False)
@@ -344,6 +351,35 @@ async def test_user_and_password_come_from_the_environment(monkeypatch, driver_f
         assert (await read_all(drv, dev))["PV"].value == 1.0
         assert sim.user_manager.logins == ["operator"]
         assert sim.write_attempts == 0
+    finally:
+        await sim.close()
+
+
+async def test_write_services_are_refused_before_they_reach_the_server(driver_for):
+    """CONTRIBUTING rule 1 / ADR-0008: even code that gets hold of the driver's asyncua session
+    cannot write, call a method or change the address space through it."""
+    from asyncua import ua
+
+    sim = await OpcUaSim.start({"PV": ("Double", 1.0)})
+    try:
+        tags = [Tag(name="PV", address=sim.node_id("PV"), dtype="float64")]
+        dev = make_device(sim, tags)
+        drv = driver_for(dev)
+        await drv.connect()
+        client = drv._session.client
+        node = client.get_node(sim.node_id("PV"))
+        with pytest.raises(PermissionError, match="read-only"):
+            await node.write_value(ua.DataValue(ua.Variant(2.0, ua.VariantType.Double)))
+        with pytest.raises(PermissionError, match="read-only"):
+            await client.get_objects_node().call_method(ua.NodeId("Anything", sim.namespace))
+        for target in (client.uaclient, client.uaclient.session):
+            for name in ("write", "write_attributes", "call", "history_update", "add_nodes", "delete_nodes",
+                         "add_references", "delete_references"):
+                with pytest.raises(PermissionError, match=name):
+                    await getattr(target, name)(None)
+        assert sim.write_attempts == 0
+        assert (await read_all(drv, dev))["PV"].value == 1.0      # reading still works
+        await drv.close()
     finally:
         await sim.close()
 

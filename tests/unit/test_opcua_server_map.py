@@ -99,7 +99,8 @@ def test_system_vars_from_a_device_status():
 
 def test_config_is_off_by_default_and_validated():
     cfg = PollerConfig().opcua_server
-    assert cfg.enabled is False and cfg.security_policies == ["None"] and cfg.anonymous is True
+    assert cfg.enabled is False and cfg.security_policies == ["None"] and cfg.anonymous is False
+    assert cfg.allow_insecure_remote is False
     assert cfg.endpoint.startswith("opc.tcp://127.0.0.1:")
     with pytest.raises(ValidationError, match="certificate"):
         OpcUaServerCfg(security_policies=["Basic256Sha256_SignAndEncrypt"])
@@ -109,3 +110,42 @@ def test_config_is_off_by_default_and_validated():
         OpcUaServerCfg(security_policies=["Rot13_Sign"])
     with pytest.raises(ValidationError, match="opc.tcp"):
         OpcUaServerCfg(endpoint="http://127.0.0.1/ua")
+
+
+@pytest.mark.parametrize("endpoint", ["opc.tcp://0.0.0.0:4840/opencap", "opc.tcp://192.0.2.10:4840",
+                                      "opc.tcp://opencap.example:4840/ua", "opc.tcp://[2001:db8::1]:4840"])
+def test_plaintext_beyond_this_computer_is_refused_unless_allowed(endpoint):
+    with pytest.raises(ValidationError, match="allow_insecure_remote"):
+        OpcUaServerCfg(endpoint=endpoint)
+    with pytest.raises(ValidationError, match="allow_insecure_remote"):
+        OpcUaServerCfg(endpoint=endpoint, security_policies=["None", "Basic256Sha256_SignAndEncrypt"],
+                       certificate="c.der", private_key="k.pem")
+    assert OpcUaServerCfg(endpoint=endpoint, allow_insecure_remote=True).security_policies == ["None"]
+    secure = OpcUaServerCfg(endpoint=endpoint, security_policies=["Basic256Sha256_SignAndEncrypt"],
+                            certificate="c.der", private_key="k.pem")
+    assert secure.security_policies == ["Basic256Sha256_SignAndEncrypt"]
+
+
+@pytest.mark.parametrize("endpoint", ["opc.tcp://127.0.0.1:4840/opencap", "opc.tcp://localhost:4840",
+                                      "opc.tcp://[::1]:4840/opencap", "opc.tcp://127.0.0.5:4840"])
+def test_plaintext_on_loopback_is_allowed(endpoint):
+    assert OpcUaServerCfg(endpoint=endpoint).security_policies == ["None"]
+
+
+def test_an_enabled_server_needs_a_user_or_anonymous():
+    with pytest.raises(ValidationError, match="anonymous is off and no user"):
+        OpcUaServerCfg(enabled=True)
+    assert OpcUaServerCfg(enabled=True, anonymous=True).anonymous is True
+    assert OpcUaServerCfg(enabled=True, username_env="U", password_env="P").username_env == "U"
+
+
+@pytest.mark.parametrize("name", ["_System", "_system._Error", "_SYSTEM.X"])
+def test_system_is_a_reserved_tag_group(name):
+    from opencap.config.models import Device
+
+    with pytest.raises(ValidationError, match="reserved group name '_System'"):
+        Device(id="S/P", channel="S", name="P", driver="modbus_tcp", host="192.0.2.5", port=502,
+               tags=[{"name": name, "address": "400001", "dtype": "int16"}])
+    # a name that only starts with the same letters is fine
+    Device(id="S/P", channel="S", name="P", driver="modbus_tcp", host="192.0.2.5", port=502,
+           tags=[{"name": "_SystemTime", "address": "400001", "dtype": "int16"}])

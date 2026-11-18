@@ -206,6 +206,130 @@
       "title": "MqttCfg",
       "type": "object"
     },
+    "OpcUaServerCfg": {
+      "additionalProperties": false,
+      "description": "Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046): the cache as a\nread-only, KEPServer-style address space. Off by default.",
+      "properties": {
+        "allow_insecure_remote": {
+          "default": false,
+          "title": "Allow Insecure Remote",
+          "type": "boolean"
+        },
+        "anonymous": {
+          "default": false,
+          "title": "Anonymous",
+          "type": "boolean"
+        },
+        "application_uri": {
+          "default": "urn:opencap:server",
+          "title": "Application Uri",
+          "type": "string"
+        },
+        "certificate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Certificate"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "endpoint": {
+          "default": "opc.tcp://127.0.0.1:4840/opencap",
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "namespace_uri": {
+          "default": "urn:opencap",
+          "title": "Namespace Uri",
+          "type": "string"
+        },
+        "password_env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Env"
+        },
+        "private_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Key"
+        },
+        "security_policies": {
+          "items": {
+            "enum": [
+              "None",
+              "Basic256Sha256_Sign",
+              "Basic256Sha256_SignAndEncrypt",
+              "Aes128_Sha256_RsaOaep_Sign",
+              "Aes128_Sha256_RsaOaep_SignAndEncrypt",
+              "Aes256_Sha256_RsaPss_Sign",
+              "Aes256_Sha256_RsaPss_SignAndEncrypt"
+            ],
+            "type": "string"
+          },
+          "title": "Security Policies",
+          "type": "array"
+        },
+        "server_name": {
+          "default": "opencap",
+          "title": "Server Name",
+          "type": "string"
+        },
+        "trusted_certs_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trusted Certs Dir"
+        },
+        "update_ms": {
+          "default": 250,
+          "title": "Update Ms",
+          "type": "integer"
+        },
+        "username_env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Username Env"
+        }
+      },
+      "title": "OpcUaServerCfg",
+      "type": "object"
+    },
     "PayloadCfg": {
       "additionalProperties": false,
       "properties": {
@@ -271,6 +395,9 @@
     },
     "mqtt": {
       "$ref": "#/$defs/MqttCfg"
+    },
+    "opcua_server": {
+      "$ref": "#/$defs/OpcUaServerCfg"
     },
     "payload": {
       "$ref": "#/$defs/PayloadCfg"

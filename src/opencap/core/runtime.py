@@ -79,6 +79,7 @@ class Poller:
         self._api_task: asyncio.Task | None = None
         self.opcua: OpcUaNorth | None = None       # northbound OPC UA server (poller.yaml opcua_server)
         self._opcua_cfg: str | None = None
+        self._opcua_error: str | None = None      # why the enabled server is not running (start failed)
         self._stop_event = asyncio.Event()
         self._reload_lock = asyncio.Lock()
 
@@ -92,7 +93,11 @@ class Poller:
         self._link_task = asyncio.create_task(self.link.run(), name="mqtt-link")
         self._apply_channels(self.loaded.channels)
         self._restart_publisher()
-        await self._start_opcua()
+        try:
+            await self._start_opcua()
+        except Exception as exc:     # as on reload: keep polling and publishing without it
+            self._opcua_error = str(exc)
+            log.error("opcua_server_start_failed", error=str(exc))
         if self._serve_api:
             await self._start_api()
         log.info("poller_started", version=FIRM_VERSION, channels=len(self.workers),
@@ -240,6 +245,7 @@ class Poller:
     async def _start_opcua(self) -> None:
         cfg = self.loaded.poller.opcua_server
         self._opcua_cfg = cfg.model_dump_json()
+        self._opcua_error = None
         if not cfg.enabled:
             return
         north = OpcUaNorth(cfg, self._served_devices(), self.cache, self.device_status)
@@ -258,6 +264,7 @@ class Poller:
             try:
                 await self._start_opcua()
             except Exception as exc:     # keep polling and publishing without it
+                self._opcua_error = str(exc)
                 log.error("opcua_server_start_failed", error=str(exc))
             return
         if self.opcua is not None:
@@ -340,7 +347,14 @@ class Poller:
             "saf_queue": self.saf.count() if self.saf else 0,
             "channels": len(self.workers),
             "devices": states,
+            **self._opcua_health(),
         }
+
+    def _opcua_health(self) -> dict[str, Any]:
+        """`opcua_server` in /health, only when it is enabled (so the default answer is unchanged)."""
+        if not self.loaded.poller.opcua_server.enabled:
+            return {}
+        return {"opcua_server": {"running": self.opcua is not None, "error": self._opcua_error}}
 
     # ------------------------------------------------------------------ API
     async def _start_api(self) -> None:

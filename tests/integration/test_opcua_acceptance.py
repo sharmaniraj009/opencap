@@ -64,6 +64,7 @@ def _device(site: str, sim: OpcUaSim, *, missing: bool, auth: bool) -> Device:
         "endpoint": sim.endpoint, "security_policy": "None", "message_mode": "None",
         "username_env": USER_ENV if auth else None, "password_env": PASS_ENV if auth else None,
         "publishing_interval_ms": 500, "sampling_interval_ms": 250,
+        "allow_insecure_password": auth,  # the simulator offers policy None only
     }
     return Device(id=f"{site}/E+H", channel=site, name="E+H", driver="opcua_client", host="127.0.0.1",
                   port=sim.port, params=params, scan_ms=500, min_scan_ms=500, timeout_ms=1000, retries=1,
@@ -104,7 +105,7 @@ async def test_opcua_end_to_end(tmp_path, monkeypatch):
             await col.wait_ready()
             config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, publish={"interval_ms": INTERVAL_MS},
                                       poller={"opcua_server": {"enabled": True, "endpoint": endpoint,
-                                                               "update_ms": 100}})
+                                                               "update_ms": 100, "anonymous": True}})
             poller = Poller(config_dir, serve_api=False)
             await poller.start()
             try:

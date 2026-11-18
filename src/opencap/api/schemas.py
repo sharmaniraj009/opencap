@@ -45,6 +45,11 @@ class DeviceStates(_Open):
     demoted: int = 0
 
 
+class OpcUaServerHealth(_Open):
+    running: bool
+    error: str | None = None
+
+
 class Health(_Open):
     status: str
     version: str
@@ -53,6 +58,7 @@ class Health(_Open):
     saf_queue: int
     channels: int
     devices: DeviceStates
+    opcua_server: OpcUaServerHealth | None = None   # only when poller.yaml enables the OPC UA server
 
 
 class ChannelDevice(_Open):

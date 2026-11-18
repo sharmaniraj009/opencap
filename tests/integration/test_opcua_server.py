@@ -61,6 +61,7 @@ class Status:
 
 async def make_north(devices: list[Device], cache: ValueCache, status: Status, **cfg: Any) -> OpcUaNorth:
     cfg.setdefault("endpoint", f"opc.tcp://127.0.0.1:{free_port()}/opencap")
+    cfg.setdefault("anonymous", True)          # the tests' clients connect anonymously (default: off)
     north = OpcUaNorth(OpcUaServerCfg(enabled=True, update_ms=50, **cfg), devices, cache, status,
                        shelf_file=await shelf_file())
     await north.start()

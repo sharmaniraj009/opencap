@@ -1,6 +1,6 @@
 # 0010. One web UI, served by the engine and wrapped by Tauri
 
-- Status: Accepted
+- Status: Accepted (as-built notes after #63 at the end)
 - Date: 2026-11-17
 - Deciders: technical lead
 
@@ -32,3 +32,14 @@ Native GUI (Qt, egui): two codebases with the web UI; Electron: much larger foot
 ## Revisit when
 Users need offline-only features the browser sandbox cannot offer (they move into the Tauri
 side as commands, still sharing the UI).
+
+## As built (#63, 2026-11-18)
+- The UI is plain HTML, CSS and JS plus a vendored **Alpine.js 3.17.5 CSP build** (MIT, listed
+  in `NOTICE`), with no build step. It is served under `/ui/` with a strict Content-Security-Policy
+  (`script-src 'self'`, no inline script, no eval) and calls only `/api/v1`. A unit test checks
+  every call site.
+- The token is kept in the tab's `sessionStorage` and sent as `Authorization: Bearer`. There are
+  no cookies and no server sessions, so no CSRF surface.
+- `api.cors_origins` exists for the desktop shell (#27), which loads the engine's `/ui/`. The
+  engine runs as a system service by default (amendment above). The desktop app keeps the
+  token in the OS keychain.

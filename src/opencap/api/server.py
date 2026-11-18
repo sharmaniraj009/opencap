@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from opencap import metrics
+from opencap.api import schemas as S
 from opencap.api.audit import AuditLog
 from opencap.api.auth import Auth, AuthError, Principal
 from opencap.api.config_api import Unavailable, build_router
@@ -38,6 +39,7 @@ from opencap.config.store import ConfigError, ConfigStore
 if TYPE_CHECKING:
     from opencap.core.runtime import Poller
 
+API_VERSION = "1.0.0"     # the contract in api/openapi.json; additive changes bump the minor
 UI_DIR = Path(__file__).parent / "ui"
 # The UI has no inline script or style; Alpine.js runs as its CSP build (no eval).
 UI_HEADERS = {
@@ -89,7 +91,8 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
         request.state.principal = principal
         return principal
 
-    app = FastAPI(title="opencap", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="opencap", version=API_VERSION, docs_url=None, redoc_url=None, openapi_url=None,
+                  description="Admin and configuration API of opencap (contract: api/README.md).")
     app.state.ctx = ctx
     # Authenticate before any body is read, and cap body sizes (guard.py). Added before CORS, so
     # the CORS middleware sits outside it and answers preflight requests.
@@ -123,40 +126,47 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown device {device_id!r}") from None
 
-    @app.get("/health")
+    @app.get("/health", response_model=S.Health, response_model_exclude_unset=True, tags=["open"])
     def health() -> dict:
         return poller.health()
 
-    @app.get("/api/v1/auth-info")
+    @app.get("/api/v1/auth-info", response_model=S.AuthInfo, tags=["open"])
     def auth_info() -> dict:
         """Open: does this API need a token? (lets the UI skip its login page in open mode)"""
         return {"open": auth.open}
 
-    @app.get("/metrics")
+    @app.get("/metrics", tags=["open"], response_class=Response,
+             responses={200: {"content": {"text/plain": {"schema": {"type": "string"}}},
+                              "description": "Prometheus text exposition format"}})
     def prometheus() -> Response:
         return Response(metrics.render(), media_type="text/plain; version=0.0.4")
 
-    @app.get("/channels", dependencies=auth_dep)
+    @app.get("/channels", dependencies=auth_dep, deprecated=True, response_model=list[S.ChannelStatus],
+             response_model_exclude_unset=True, responses=S.ERR_AUTH, tags=["legacy"])
     def channels() -> list:
         return poller.channels_summary()
 
     # Device ids contain "/" ("<channel>/<device>"), so the specific routes come first.
-    @app.get("/devices/{device_id:path}/values", dependencies=auth_dep)
+    @app.get("/devices/{device_id:path}/values", dependencies=auth_dep, deprecated=True, response_model=S.TagValues,
+             responses=S.ERR_READ, tags=["legacy"])
     def device_values(device_id: str) -> dict:
         return _lookup(poller.device_values, device_id)
 
-    @app.post("/devices/{device_id:path}/read-once", dependencies=auth_dep)
+    @app.post("/devices/{device_id:path}/read-once", dependencies=auth_dep, deprecated=True, response_model=S.TagValues,
+              responses=S.ERR_RUN, tags=["legacy"])
     async def read_once(device_id: str) -> dict:
         try:
             return await poller.read_once(device_id)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown device {device_id!r}") from None
 
-    @app.get("/devices/{device_id:path}", dependencies=auth_dep)
+    @app.get("/devices/{device_id:path}", dependencies=auth_dep, deprecated=True, response_model=S.DeviceDetail,
+             response_model_exclude_unset=True, responses=S.ERR_READ, tags=["legacy"])
     def device(device_id: str) -> dict:
         return _lookup(poller.device_detail, device_id)
 
-    @app.post("/reload", dependencies=auth_dep)
+    @app.post("/reload", dependencies=auth_dep, deprecated=True, response_model=S.ReloadResult,
+              responses=S.ERR_RUN, tags=["legacy"])
     async def reload(request: Request) -> dict:
         try:
             return await ctx.reload(request.state.principal)

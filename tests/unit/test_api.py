@@ -14,10 +14,11 @@ class FakePoller:
         self.reloads = 0
 
     def health(self):
-        return {"status": "ok", "mqtt_connected": True}
+        return {"status": "ok", "version": "0", "instance": "test", "mqtt_connected": True, "saf_queue": 0,
+                "channels": 1, "devices": {"ok": 1, "offline": 0, "demoted": 0}}
 
     def channels_summary(self):
-        return [{"name": "Site 001", "devices": [{"id": DEV, "state": "ok"}]}]
+        return [{"name": "Site 001", "devices": [{"id": DEV, "driver": "modbus_tcp", "state": "ok"}]}]
 
     def _check(self, device_id):
         if device_id != DEV:
@@ -25,7 +26,8 @@ class FakePoller:
 
     def device_detail(self, device_id):
         self._check(device_id)
-        return {"id": device_id, "state": "ok"}
+        return {"id": device_id, "channel": "Site 001", "driver": "modbus_tcp", "enabled": True, "tags": 1,
+                "blocks": [], "bad_config": [], "state": "ok"}
 
     def device_values(self, device_id):
         self._check(device_id)

@@ -779,3 +779,23 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   chunks, start-up errors); `tests/integration/test_rust_engine_api.py` runs the open-mode, rebinding, role,
   401-before-body and 413 checks against both engines: Python through ASGI with `tests/helpers/fake_poller.py`,
   Rust as the binary. The reload test now gives the engine a token.
+
+### D-063 OpenAPI contract of the admin + config API (#32)
+
+- **Committed and generated:** `api/openapi.json` comes from `scripts/gen_openapi.py` (FastAPI's `app.openapi()`
+  on an app built with no poller, no sockets, `sort_keys` JSON). The running server still has `openapi_url=None`
+  (D-019). `tests/unit/test_openapi_contract.py` fails with the regeneration command when the file drifts.
+- **Response models** live in `src/opencap/api/schemas.py` and are attached with `response_model=` plus
+  `response_model_exclude_unset=True`, so what the handlers return is unchanged. Handlers that return
+  `JSONResponse` (to set `ETag`) bypass validation, so the models only describe them; the contract test is what
+  checks them. Models allow extra keys (additive v1).
+- **Deviation: request bodies are not typed.** Configuration writes validate through `ConfigStore` and answer
+  422 with `loc`s relative to the resource, which a pydantic body model would change. The bodies stay free-form
+  JSON in the contract and point to `GET /api/v1/project/schema`. Typing them is a follow-up if the Rust engine
+  wants generated clients.
+- **Resource payloads** (device, tag, map entry, override) are open objects for the same reason; the envelope
+  (`revision`, lists, counts, `WriteResult`) is typed field by field.
+- **Versioning:** `/api/v1` was already applied by #63; the unversioned runtime routes stay as aliases and are
+  marked `deprecated` (rules in `api/README.md`). `info.version` is `1.0.0`.
+- **Licences:** no new dependency; `jsonschema` (MIT) was already a dev dependency and validates the contract.
+

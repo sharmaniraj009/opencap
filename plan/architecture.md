@@ -133,7 +133,7 @@ Follows the milestones in [06 §6.1](../docs/architecture/06-roadmap-and-migrati
 | Milestone | Plan areas it closes |
 |---|---|
 | **M1** Python parity for the reference project | remaining drivers (#73, #74); OPC UA server v1 (plan 02); config API + web UI v1 (plan 10, 14, done in #63) |
-| **M2** Rust engine core | runtime and config parity (plan 01, 03, 04–06 in Rust; #39 in review); store-and-forward (plan 11); API parity (plan 10 runtime routes, #82 done) |
+| **M2** Rust engine core | runtime and config parity (plan 01, 03, 04–06 in Rust; config conformance #39 done in #86); store-and-forward (plan 11); API parity (plan 10 runtime routes, #82 done) |
 | **M3** Rust driver and SCADA parity | client interfaces in Rust (plan 02: OPC UA, Sparkplug, Modbus server); diagnostics (plan 12) |
 | **M4** Cut-over, desktop, installers | runtime modes and services (plan 01); desktop app (plan 14, #27 in review); project files v2 (plan 03, #37) |
 | **M5** KEPServerEX plug-in parity | users/roles and permissions (plan 09, #21); system/statistics tags (plan 07, #22); event log view (plan 12, 15); OPC DA bridge (plan 02, #18); redundancy (plan 05, #20) |

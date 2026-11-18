@@ -29,7 +29,7 @@ it confirms and whether it backs up project files (pp. 33–35).
   one `.bak` generation (D-041), import with dry-run diff (D-042), audit log (D-043), UI at `/ui/`
   with delete/import confirmations and a pending-reload indicator.
 - **Rust engine** (`engine/`): `opencap-engine run|check|read|identity`, same config files and
-  admin API with the same roles (#84); config conformance In review (PR #86, #39). Native
+  admin API with the same roles (#84); config conformance with the shared fixtures (#86, #39). Native
   Windows service for Rust is planned (#57); Windows CI is planned (#35).
 - **Desktop:** Tauri shell with connection profiles In review (PR #87, issue #27); sidecar mode
   is part of the M4 desktop work (RFC 0001 §5, ADR-0010).

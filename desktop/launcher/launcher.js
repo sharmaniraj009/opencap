@@ -9,7 +9,42 @@
   var form = document.getElementById("profile-form");
   var editing = null;
 
+  var BUNDLED = "bundled";                       // sidecar::PROFILE_ID
+
   function showError(el, text) { el.textContent = text || ""; el.hidden = !text; }
+
+  // --- the engine bundled with the installers (#58) ---------------------------------------------
+  function showLocal(st) {
+    var box = document.getElementById("local");
+    box.hidden = !st.available;
+    if (!st.available) return;
+    var state = document.getElementById("local-state");
+    if (st.running) {
+      state.className = "small status ok";
+      state.textContent = "running on " + st.base_url + " (pid " + st.pid + ") · open it from \"Engine on this computer\" below";
+    } else {
+      state.className = "small " + (st.last_exit ? "status bad" : "muted");
+      state.textContent = st.last_exit || "stopped";
+    }
+    document.getElementById("local-paths").textContent = "config: " + st.config_dir + " · log: " + st.log_file;
+    document.getElementById("local-start").disabled = st.running;
+    document.getElementById("local-stop").disabled = !st.running;
+  }
+
+  function localAction(cmd, busyText) {
+    var state = document.getElementById("local-state");
+    state.className = "small muted";
+    state.textContent = busyText;
+    document.getElementById("local-start").disabled = true;
+    document.getElementById("local-stop").disabled = true;
+    return invoke(cmd).then(function (st) {
+      showLocal(st);
+      return load().then(function () { showError(document.getElementById("notice"), st.notice); });
+    }).catch(function (e) {
+      showError(document.getElementById("error"), String(e));
+      return invoke("local_engine_status").then(showLocal);
+    });
+  }
 
   function statusText(st) {
     var parts = [];
@@ -61,6 +96,10 @@
         invoke("open_engine", { id: p.id }).catch(function (e) { showError(document.getElementById("error"), String(e)); });
       });
       li.querySelector(".check").addEventListener("click", function () { check(p, li); });
+      if (p.id === BUNDLED) {                    // follows the bundled engine by itself
+        li.querySelector(".edit").hidden = true;
+        li.querySelector(".delete").hidden = true;
+      }
       li.querySelector(".edit").addEventListener("click", function () { openEditor(p); });
       li.querySelector(".delete").addEventListener("click", function () {
         if (!window.confirm("Delete " + p.name + " and its stored token?")) return;
@@ -111,6 +150,9 @@
     showError(document.getElementById("error"), "This page runs inside the opencap desktop app.");
     return;
   }
+  document.getElementById("local-start").addEventListener("click", function () { localAction("start_local_engine", "starting…"); });
+  document.getElementById("local-stop").addEventListener("click", function () { localAction("stop_local_engine", "stopping…"); });
+  invoke("local_engine_status").then(showLocal);
   invoke("app_info").then(function (info) {
     document.getElementById("foot").textContent = "opencap desktop " + info.version + " · profiles: " + info.profiles_path +
       " (tokens: system keychain) · read-only towards PLCs";

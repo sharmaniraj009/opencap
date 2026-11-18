@@ -820,6 +820,25 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   422 with `loc`s relative to the resource, which a pydantic body model would change. The bodies stay free-form
   JSON in the contract and point to `GET /api/v1/project/schema`. Typing them is a follow-up if the Rust engine
   wants generated clients.
+- **Amended by #89 (contract 1.2.0): request bodies are described, validation is unchanged.** The handlers still
+  take the raw JSON body (`Body()` of type `Any`), so `ConfigStore` validates exactly as before and 422 `loc`s keep
+  their shape (`test_validation_errors_are_422_with_locations` asserts no `("body", ...)` prefix). The OpenAPI hook
+  in `server.py` replaces FastAPI's untyped `Body` with `schemas.request_body_components()`. The six config models
+  (channel, device, tag, map entry, map defaults, device override) go in as `Config*` components, generated the same
+  way as `GET /api/v1/project/schema`; a test checks they are identical. Per-route variants:
+  - `ConfigChannelCreate`, `ConfigDeviceCreate`: `id`, `channel`, `devices` and `tags` are not required, because the
+    server derives them.
+  - `ConfigDevicePut`, `ConfigTagPut`: `name` and `channel` default to the current ones.
+  - `Config*Patch`: every property, no `required`, `null` allowed. That is JSON merge-patch semantics, a step beyond
+    the issue's "the same schema with no `required`".
+  - `ConfigChannelPatch`: only `name`/`enabled`.
+  - `ConfigChannelOverride`: `{enabled}`.
+  - `ConfigProjectImport`: any object (a KEPServerEX project or an opencap export).
+  - `POST …/tags`: one tag or a list.
+
+  The contract test validates every body it sends that the server accepts against the documented schema, and
+  fails when a documented body is never exercised or a write route has none. The schemas are descriptive: the
+  server stays lenient where pydantic coerces (`"502"` for an integer port).
 - **Resource payloads** (device, tag, map entry, override) are open objects for the same reason; the envelope
   (`revision`, lists, counts, `WriteResult`) is typed field by field.
 - **Versioning:** `/api/v1` was already applied by #63; the unversioned runtime routes stay as aliases and are

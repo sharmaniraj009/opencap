@@ -3,19 +3,15 @@
 > Source: KEPServerEX V6 server manual (© PTC), pages 139–143, summarised in our own words for planning. Status as of 2026-11-18.
 
 ## What the manual describes
-The communications-management chapter first recaps three features covered elsewhere: auto-demotion
-(plan 05, DEV-10), network interface selection (plan 04, CH-06) and Ethernet encapsulation (plan 04,
-CH-11). The rest is about reaching remote serial devices over telephone modems. A serial channel can
-use a modem as its physical medium; the server talks to modems installed in Windows through TAPI.
-The manual explains that a normal modem carries at most 10 bits per character (start, data, parity
-and stop bits together), so some line settings need a special modem; how to cable the remote
-modem to the device with null-modem parts; and how to select and configure the initiating modem.
-Clients control the modem through channel-level modem tags (dial, hang up, mode, number, status).
-A per-channel phonebook holds named numbers that clients can dial by writing a phonebook tag. With
-auto-dial, the server itself dials phonebook entries in priority order when a client needs data,
-reuses the last number that worked, hangs up when no client references the channel any more, and
-restricts client writes to the modem tags; the chapter also lists how runtime changes to auto-dial
-take effect (manual p. 139–143).
+The chapter recaps auto-demotion (plan 05, DEV-10), network interface selection (plan 04, CH-06) and
+Ethernet encapsulation (plan 04, CH-11), then covers telephone modems. A serial channel can use a
+Windows (TAPI) modem as its medium; a standard modem carries at most 10 bits per character, so some
+line settings need a special modem; the remote modem is cabled to the device with null-modem parts.
+Clients drive the modem through channel-level modem tags (dial, hang up, mode, number, status). A
+per-channel phonebook holds named numbers that a client can dial by writing the entry's tag. With
+auto-dial the server dials the entries in priority order when data is needed, reuses the last number
+that worked, hangs up when no client needs the channel, restricts client writes to the modem tags, and
+applies setting changes at the next disconnect (manual p. 139–143).
 
 ## opencap today
 - Nothing for modems: no `modem` transport in `src/opencap/drivers/_serial.py` (transports are `tcp`,

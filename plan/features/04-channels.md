@@ -63,7 +63,8 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
   - `Channel.description: str | null` (additive schema change, ADR-0003); `schema/devices.schema.json`
     regenerated and the Rust serde model updated.
   - `opencap import-kep` copies the channel's description property.
-  - `GET /api/v1/channels` returns `description` and `drivers` (sorted distinct driver names).
+  - `PATCH /api/v1/channels/{channel}` accepts `description` (today only `name` and `enabled`);
+    `GET /api/v1/channels` returns `description` and `drivers` (sorted distinct driver names).
 - **Acceptance:** importer unit test with a synthetic project; config conformance fixture in
   `tests/conformance/config/valid/`; UI smoke test shows the field in the config editor.
 
@@ -97,7 +98,7 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 
 ### CH-05 Inter-device delay (manual p. 78)
 - **What:** After a reply from one device, the channel waits a set time before sending to the
-  next device on the same channel; zero turns it off.
+  next device sharing the channel; a value of 0 means no delay.
 - **Decision:** Adopt — implemented in the channel's wire lock, which already orders devices.
 - **Status:** Not started
 - **Requirements:**
@@ -122,7 +123,7 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
   - `opencap check` reports a `bind_address` that is not assigned on the host as an error.
   - The importer does not copy adapter names (they are host-specific); it reports them in
     `reports/import_summary.json`.
-- **Acceptance:** simulator test on a second loopback address (e.g. 127.0.0.2) asserting the
+- **Acceptance:** simulator test bound to a second loopback address, asserting the
   peer address seen by `tests/helpers/modbus_sim.py`; both engines.
 
 ### CH-07 Serial line settings and COM-port mapping (manual p. 76, 79–80)
@@ -135,7 +136,7 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 - **Requirements:**
   - `params.transport` is one of `tcp`, `serial`, `rfc2217` (DF1 only), `unmapped`; line params
     `baudrate`, `bytesize`, `parity`, `stopbits` are validated; a bad mapping is a config error.
-  - The importer copies COM id and line settings from the channel; an unmapped COM port keeps the
+  - For DF1 devices the importer copies COM id and line settings from the channel; an unmapped COM port keeps the
     device disabled with a warning, and `opencap check` shows it `(disabled)`.
   - Devices on one port or gateway share one open connection; the last one leaving closes it.
 - **Acceptance:** `tests/unit/test_serial_config.py`, `tests/unit/test_kep_import_df1.py`,

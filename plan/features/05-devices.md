@@ -63,8 +63,8 @@ plug-in (manual p. 86–95).
 - **Acceptance:** importer and API unit tests; config fixture; UI smoke test.
 
 ### DEV-03 Data collection on/off (manual p. 87)
-- **What:** A device can be disabled: nothing is sent to it and its data is marked invalid. It can be
-  changed at any time, including through a system tag.
+- **What:** A device can be switched off: no requests go to it, clients see its data as invalid,
+  and the switch works while running, also from a system tag.
 - **Decision:** Adapt — `enabled` in `devices.json` or `overrides.yaml`, changed through the audited
   API (`PATCH /api/v1/devices/{id}` or the override routes) and applied by reload; the writable
   `_Enabled` tag is not offered (SYS-09 in plan 07).
@@ -151,10 +151,10 @@ plug-in (manual p. 86–95).
 - **Requirements:**
   - The MQTT publisher and `GET /api/v1/devices/{id}/values` serve cached values; only `read-once`
     adds a request to the device.
-  - The OPC UA server keeps the rule (#74 in Python, #50 in Rust): subscriptions never trigger device
-    reads; a demand read needs `allow_demand_reads` and happens at most once per `min_scan_ms`.
-- **Acceptance:** `tests/unit/test_cache.py`, `tests/integration/test_publisher.py`; OPC UA server
-  tests counting simulator requests while clients subscribe (#74, #50).
+  - Follow-up in plan 02: the OPC UA server keeps the rule (#74 in Python, #50 in Rust), so
+    subscriptions never trigger device reads and a demand read needs `allow_demand_reads` and happens
+    at most once per `min_scan_ms` (03 §3.5).
+- **Acceptance:** `tests/unit/test_cache.py`, `tests/integration/test_publisher.py`.
 
 ### DEV-10 Auto-demotion (manual p. 89, 139)
 - **What:** After a number of successive failed request cycles (1–30, default 3) a device is taken off

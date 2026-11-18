@@ -12,7 +12,11 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as Json};
 
-use crate::pyfmt::py_repr_list;
+use crate::pyfmt::{py_repr_list, py_repr_str};
+
+/// Each device's diagnostics live under `<channel>.<device>._System` (OPC UA server, D-046), so
+/// no tag or tag group may use that name (compared without case). Python `RESERVED_GROUP`.
+pub const RESERVED_GROUP: &str = "_System";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -293,7 +297,7 @@ impl Device {
         }
     }
 
-    /// pydantic's `_unique_tag_names` validator.
+    /// pydantic's `_unique_tag_names` validator (duplicates, then the reserved `_System` group).
     pub fn validate(&self) -> Result<(), String> {
         if !KNOWN_DRIVERS.contains(&self.driver.as_str()) {
             return Err(format!("{}: {}", self.id, driver_name_error(&self.driver)));
@@ -303,10 +307,26 @@ impl Device {
             self.tags.iter().filter(|t| !seen.insert(t.name.as_str())).map(|t| t.name.clone()).collect();
         dupes.sort();
         dupes.dedup();
-        if dupes.is_empty() {
+        if !dupes.is_empty() {
+            return Err(format!("{}: duplicate tag names {}", self.id, py_repr_list(&dupes)));
+        }
+        let mut reserved: Vec<String> = self
+            .tags
+            .iter()
+            .filter(|t| t.name.split('.').next().unwrap_or("").eq_ignore_ascii_case(RESERVED_GROUP))
+            .map(|t| t.name.clone())
+            .collect();
+        reserved.sort();
+        if reserved.is_empty() {
             Ok(())
         } else {
-            Err(format!("{}: duplicate tag names {}", self.id, py_repr_list(&dupes)))
+            Err(format!(
+                "{}: tag names {} use the reserved group name {} (the per-device diagnostics folder of the OPC UA \
+                 server, D-046)",
+                self.id,
+                py_repr_list(&reserved),
+                py_repr_str(RESERVED_GROUP)
+            ))
         }
     }
 
@@ -707,6 +727,151 @@ pub struct CheckCfg {
     pub est_rtt_ms: f64,
 }
 
+/// Python `OpcUaServerPolicy`.
+pub const OPCUA_SERVER_POLICIES: [&str; 7] = [
+    "None",
+    "Basic256Sha256_Sign",
+    "Basic256Sha256_SignAndEncrypt",
+    "Aes128_Sha256_RsaOaep_Sign",
+    "Aes128_Sha256_RsaOaep_SignAndEncrypt",
+    "Aes256_Sha256_RsaPss_Sign",
+    "Aes256_Sha256_RsaPss_SignAndEncrypt",
+];
+
+fn d_ua_endpoint() -> String {
+    "opc.tcp://127.0.0.1:4840/opencap".into()
+}
+fn d_ua_server_name() -> String {
+    "opencap".into()
+}
+fn d_ua_application_uri() -> String {
+    "urn:opencap:server".into()
+}
+fn d_ua_namespace_uri() -> String {
+    "urn:opencap".into()
+}
+fn d_ua_policies() -> Vec<String> {
+    vec!["None".into()]
+}
+fn d_250() -> i64 {
+    250
+}
+
+/// `poller.yaml` `opcua_server` (Python `OpcUaServerCfg`, D-046). The Rust engine has no OPC UA
+/// server yet (#46): it reads and validates the section like Python, so the same file loads in
+/// both engines, and warns at start when `enabled` is set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpcUaServerCfg {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "d_ua_endpoint")]
+    pub endpoint: String,
+    #[serde(default = "d_ua_server_name")]
+    pub server_name: String,
+    #[serde(default = "d_ua_application_uri")]
+    pub application_uri: String,
+    #[serde(default = "d_ua_namespace_uri")]
+    pub namespace_uri: String,
+    #[serde(default = "d_ua_policies")]
+    pub security_policies: Vec<String>,
+    #[serde(default)]
+    pub certificate: Option<String>,
+    #[serde(default)]
+    pub private_key: Option<String>,
+    #[serde(default)]
+    pub trusted_certs_dir: Option<String>,
+    #[serde(default)]
+    pub anonymous: bool,
+    #[serde(default)]
+    pub username_env: Option<String>,
+    #[serde(default)]
+    pub password_env: Option<String>,
+    #[serde(default = "d_250")]
+    pub update_ms: i64,
+    #[serde(default)]
+    pub allow_insecure_remote: bool,
+}
+
+impl Default for OpcUaServerCfg {
+    fn default() -> Self {
+        d_obj()
+    }
+}
+
+fn non_empty(v: &Option<String>) -> bool {
+    v.as_deref().is_some_and(|s| !s.is_empty())
+}
+
+impl OpcUaServerCfg {
+    /// Python's `Literal` check and `_check` validator, same order and messages.
+    pub fn validate(&self) -> Result<(), String> {
+        for (i, p) in self.security_policies.iter().enumerate() {
+            if !OPCUA_SERVER_POLICIES.contains(&p.as_str()) {
+                let quoted: Vec<String> = OPCUA_SERVER_POLICIES.iter().map(|x| py_repr_str(x)).collect();
+                let (last, rest) = quoted.split_last().expect("not empty");
+                return Err(format!(
+                    "opcua_server.security_policies.{i}: Input should be {} or {last}",
+                    rest.join(", ")
+                ));
+            }
+        }
+        if !self.endpoint.starts_with("opc.tcp://") {
+            return Err(format!("opcua_server.endpoint {} must start with opc.tcp://", py_repr_str(&self.endpoint)));
+        }
+        if self.security_policies.is_empty() {
+            return Err("opcua_server.security_policies must not be empty".into());
+        }
+        if self.security_policies.iter().any(|p| p != "None")
+            && !(non_empty(&self.certificate) && non_empty(&self.private_key))
+        {
+            return Err("opcua_server: secure security_policies need certificate and private_key paths".into());
+        }
+        if non_empty(&self.username_env) != non_empty(&self.password_env) {
+            return Err("opcua_server: set both username_env and password_env, or neither".into());
+        }
+        if self.update_ms < 10 {
+            return Err("opcua_server.update_ms must be >= 10".into());
+        }
+        if self.security_policies.iter().any(|p| p == "None")
+            && !self.allow_insecure_remote
+            && !is_loopback_host(&self.endpoint_host())
+        {
+            return Err(format!(
+                "opcua_server: security policy None on {} would serve plaintext beyond this computer: offer only \
+                 Sign/SignAndEncrypt policies, bind to 127.0.0.1, or set allow_insecure_remote: true",
+                py_repr_str(&self.endpoint)
+            ));
+        }
+        if self.enabled && !self.anonymous && !non_empty(&self.username_env) {
+            return Err("opcua_server: anonymous is off and no user is configured: set username_env/password_env, \
+                        or anonymous: true"
+                .into());
+        }
+        Ok(())
+    }
+
+    /// Host part of `endpoint` (`opc.tcp://host:port/path`), without brackets (Python
+    /// `endpoint_host`).
+    pub fn endpoint_host(&self) -> String {
+        let rest = self.endpoint.strip_prefix("opc.tcp://").unwrap_or(&self.endpoint);
+        let rest = rest.split('/').next().unwrap_or("");
+        if let Some(inner) = rest.strip_prefix('[') {
+            return inner.split(']').next().unwrap_or("").to_string();
+        }
+        if rest.matches(':').count() == 1 {
+            rest.rsplit_once(':').map(|(h, _)| h).unwrap_or(rest).to_string()
+        } else {
+            rest.to_string()
+        }
+    }
+}
+
+/// `localhost` or a loopback IP (all of 127/8, ::1): Python `_is_loopback_host`.
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
 fn d_instance() -> String {
     "opencap-1".into()
 }
@@ -741,6 +906,8 @@ pub struct PollerConfig {
     pub defaults: DeviceDefaults,
     #[serde(default = "d_obj")]
     pub check: CheckCfg,
+    #[serde(default = "d_obj")]
+    pub opcua_server: OpcUaServerCfg,
 }
 
 impl Default for PollerConfig {

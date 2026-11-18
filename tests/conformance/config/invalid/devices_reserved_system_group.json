@@ -1,0 +1,19 @@
+{
+  "document": "devices",
+  "expected_error": "reserved group name '_System'",
+  "semantic": true,
+  "data": {
+    "channels": [
+      {
+        "name": "SITE",
+        "devices": [
+          {
+            "id": "SITE/PLC", "channel": "SITE", "name": "PLC", "driver": "modbus_tcp",
+            "host": "192.0.2.10", "port": 502,
+            "tags": [{"name": "_System.Error", "address": "400001", "dtype": "int16"}]
+          }
+        ]
+      }
+    ]
+  }
+}

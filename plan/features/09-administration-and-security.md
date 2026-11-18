@@ -30,7 +30,7 @@ are planned in their plug-in files.
 - **Audit:** JSON-lines audit log `api.audit_log` (default `data/audit.jsonl`) with who/role/via
   and field-level changes, rotated at 16 MiB, `GET /api/v1/audit` (D-043).
 - **CORS:** `api.cors_origins` (Python applies it; Rust accepts and ignores it, D-062).
-- **OpenAPI contract:** In review (PR #88, #32); the running server does not serve API docs
+- **OpenAPI contract:** Done (`api/openapi.json`, #88); the running server does not serve API docs
   (`openapi_url=None`).
 - **Not yet:** built-in TLS for the API, an event log (#56), a certificate store, support bundle,
   per-tag access policies.
@@ -311,7 +311,7 @@ are planned in their plug-in files.
   `api.cors_origins` (empty by default); the API documentation is the committed OpenAPI contract
   (#32), not served by default. The API itself is planned in
   [10-configuration-api.md](10-configuration-api.md).
-- **Status:** Done (bind, port, CORS, #63); OpenAPI contract In review (PR #88).
+- **Status:** Done (bind, port, CORS, #63; OpenAPI contract, #88).
 - **Requirements:**
   - CORS origins match exactly; no wildcard; no cookies (exists in Python).
   - The Rust engine sends CORS headers when `api.cors_origins` is set (today accepted and unused,
@@ -434,7 +434,7 @@ are planned in their plug-in files.
 | ADM-16 | User import and export | Adapt | Done (users Planned) | #21 | M5 |
 | ADM-17 | ThingWorx interface users | Out of scope | Out of scope | — | — |
 | ADM-18 | Login before configuring | Adapt | Done | #63, #84 | M1 |
-| ADM-19 | Configuration API service settings | Adapt | Done (OpenAPI In review) | #63, PR #88 | M1/M3 |
+| ADM-19 | Configuration API service settings | Adapt | Done | #63, #88 | M1/M3 |
 | ADM-20 | HTTPS for the API | Adapt | Planned (#21) | #21 | M4 |
 | ADM-21 | Audit log (transaction log) | Adapt | Done | #63 | M1 |
 | ADM-22 | Certificate store and API certificates | Adapt | Not started | PR #61 | M3 |

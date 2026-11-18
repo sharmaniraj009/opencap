@@ -1059,3 +1059,143 @@ logs `device.stats`; no simulator sees a write.
   `opencap identity` confirms model 5 is a Q-family CPU and `plc_type: Q` works (D-054); which end
   codes a real CPU returns for a missing or too-short device (D-056); TCP or UDP and the
   network/PC numbers in use on site.
+
+## Phase 4 / Phase 6: OPC UA (client driver and northbound server)
+
+### D-045 opcua_client driver on asyncua 2.1: subscriptions inside the polling core
+PLAN §5.1 says "use subscriptions (monitored items) at the device scan rate, not polling". The
+core asks every driver for values once per rate-group period, so the subscription lives
+inside the driver and `read()` hands out what the server pushed:
+- **connect()** opens a session (security policy and message mode from params; user name and
+  password from the environment variables NAMED in params), creates **one subscription per
+  device** and **one monitored item per distinct NodeId** (all rate groups; tags at the same
+  NodeId share it), then **reads those nodes once**, so the first `read()` (and
+  `opencap read`) has values without waiting for the first publish. Publishing interval =
+  `publishing_interval_ms`, else the fastest rate group; sampling interval =
+  `sampling_interval_ms`, else the tag's own rate; queue size 1, discard oldest; keep-alive
+  requested about every 5 s, lifetime count 4 × the keep-alive count. The server's revised
+  values are used (`opencap identity` shows them).
+- **read(block)** sends nothing: it returns the latest sample of each tag. `source_ts` = the
+  server's SourceTimestamp (ServerTimestamp when absent; the worker's clock when both are).
+  `OpcUaBlock.wire_requests()` is 0, so `opencap check` shows 0 requests per cycle for OPC UA.
+- **Core change (additive): staleness by read time.** A monitored item reports only changes, so
+  a constant value keeps an old SourceTimestamp, and the core's "stale after 3 × rate with no
+  good read" (measured from `source_ts`) would flag it, also when the server's clock is
+  behind. New `Driver.stale_by_read_time` (False by default, True here): the worker records
+  when `read()` last returned each tag good and `ValueCache.expire(..., read_at=...)` measures
+  the age from that. Polled drivers are unchanged. Values cached before a restarted worker
+  (config reload) get one staleness period from when the new driver is created.
+- **Consequence for the payload:** `DateTime` is the newest `source_ts` of the device's good
+  tags (D-017). For an OPC UA device whose values did not change it can be older than the
+  publish time. DataValid and BadTags are not affected. Check with the SubDevice consumer.
+- **Session loss → reconnect → resubscribe.** The session is unusable when the TCP connection
+  closes, asyncua's keep-alive probe fails (a Read of ServerState every max(1 s, timeout_ms),
+  bounded by the same time), the subscription reports a bad status (BadShutdown, BadTimeout),
+  or no publish response or keep-alive arrives for 1.5 × the keep-alive period + 2 × timeout.
+  Then `connected` is False and `read()` raises `ConnectionLost`; the worker reconnects at
+  once, inside the same retry budget (as for Modbus `close_on_timeout`), and a failed connect
+  starts its 1 s → 60 s backoff. `connect()` builds a new session and subscribes everything
+  again. asyncua's own auto-reconnect is off and its stale-subscription watchdog does not see
+  this subscription: recovery belongs to the worker (as D-013 for pymodbus). The driver logs
+  `opcua.session_lost` at INFO once per session; asyncua's ERROR traceback for the Publish
+  request that fails with the connection is filtered out.
+- **Wire lock:** an OPC UA session always has a Publish request outstanding and asyncua probes
+  ServerState in the background, outside the channel's wire lock. connect, close and read take
+  the lock as usual. Each device has its own session (KEPServer shares one per channel); the
+  project has one OPC UA device per channel.
+- **StatusCode → quality:** Good* → good. **Uncertain* → stale**: the value may be usable but
+  is not confirmed good, so it does not replace the last good value, the tag is listed in
+  BadTags, and the OPC UA server passes it on as UncertainLastUsableValue. BadNodeIdUnknown
+  → bad_config, as asked; **deviation:** BadNodeIdInvalid, BadAttributeIdInvalid,
+  BadNotReadable and BadUserAccessDenied are bad_config too (the node, as configured, cannot be
+  read, not a communication fault). Every other Bad → bad_comm. A monitored item the server
+  refuses keeps its status until the next reconnect (no periodic retry). Device health is the
+  session's: a session that delivers only Bad values is still `ok`.
+- **Values** are coerced to the tag's dtype: numbers between int, float and bool (float → int
+  rounds; out of range → bad_decode), strings from String, LocalizedText, QualifiedName,
+  ByteString or any scalar; arrays element-wise.
+- **Addresses:** `ns=<i>;s=|i=|g=|b=`, and `nsu=<uri>;...` resolved through the server's
+  NamespaceArray at connect (an unknown URI is bad_config). Parsed without asyncua at plan
+  time (D-002); a bad NodeId is `Plan.invalid`.
+- **Security:** None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsaPss (Basic256
+  and Basic128Rsa15 if the installed asyncua still has them), Sign or SignAndEncrypt. The client
+  certificate and key are paths in params; when both files are missing a self-signed pair is
+  generated there (key mode 0600, logged with a hint to trust it on the server). Without
+  `server_certificate` the server certificate is taken from GetEndpoints unchecked: pin it
+  for production. Params named `password`, `username`... are rejected; errors name the
+  environment variable, never a value. The KEPServer security-policy codes are still
+  unverified (D-010).
+- **Tested against asyncua's own server only** (D-047), including Basic256Sha256 Sign and
+  SignAndEncrypt and user name/password. Not yet against the project's two real OPC UA
+  servers: run `opencap identity` and `opencap read` on site. asyncua 2.1's server does not
+  notify live monitored items when a node is deleted (its callback coroutine is never
+  awaited); the driver's handling of that status is tested by setting it on a node.
+- **Read-only guard (#74):** right after the asyncua `Client` is built, its `write`,
+  `write_attributes`, `call`, `history_update`, `add_nodes`, `delete_nodes`, `add_references`
+  and `delete_references` are replaced with raising stubs on both the `UaClient` and its
+  `UaSession` (asyncua 2.1 `Node` objects call the session directly). A test shows that
+  `Node.write_value` and `call_method` raise, and that the server sees no write.
+- **Passwords over None (#74):** a `password_env` with security policy None is refused at
+  connect, before any socket is opened, unless `params.allow_insecure_password: true`. The
+  importer lists such KEPServer channels in the import summary and does not fail the import.
+  asyncua is pinned `>=2.1,<2.2` because the driver touches its internals.
+
+### D-046 Northbound OPC UA server (PLAN Phase 6)
+For SCADA/HMI clients that read KEPServer today (`north/opcua_server.py`, `poller.yaml`
+`opcua_server`, **off by default**):
+- **Address space, KEPServer style:** `Objects/<channel>/<device>/<group>/.../<tag>`, NodeId
+  `ns=2;s=<channel>.<device>.<group>.<tag>`, BrowseNames in ns 2. A tag name's dots are its
+  tag-group path, as in KEPServer, so an existing client only changes the endpoint URL. The
+  namespace (`namespace_uri`, default `urn:opencap`) is registered first and gets index 2;
+  set `namespace_uri: KEPServerEX` for clients that address the namespace by URI. Disabled
+  devices and tags are not exposed (the publisher's set). **Check one real SCADA tag path on
+  site.**
+- **Values** are copied from the cache when a device's cache version changes (woken by every
+  device cycle, at the latest every `update_ms`), and only for tags whose value or quality
+  changed. SourceTimestamp = the cache's `source_ts` at that change; ServerTimestamp = the
+  copy time. KEPServer refreshes timestamps on every scan; we do not, to keep the cost
+  proportional to changes (tens of thousands of tags at 1 s), which is also what OPC UA
+  subscribers see by default (DataChangeTrigger StatusValue). DataType follows the dtype
+  (Double for scaled tags); a variable becomes an array (ValueRank 1) at its first list value.
+- **Quality → StatusCode:** good → Good; stale → UncertainLastUsableValue (value kept),
+  never read → BadWaitingForInitialData; bad_comm → BadCommunicationError; bad_config →
+  BadConfigurationError; bad_decode → BadDataEncodingInvalid. A value that does not fit the
+  variable's type is BadDataEncodingInvalid.
+- **`_System` per device:** `_State`, `_Error`, `_NoError`, `_AutoDemoted`, `_Connected`,
+  `_LastGood`, `_ErrorCount`, `_LastError`, `_CycleMs`, `_DeviceId`, `_Driver`, `_Enabled`,
+  from `ChannelWorker.device_status()`. `_Error`, `_NoError`, `_AutoDemoted` and `_DeviceId`
+  keep KEPServer's names and meaning. All read-only (KEPServer's `_Enabled` is writable).
+- **Read-only, three layers:** variables have AccessLevel CurrentRead; the user manager never
+  grants the Admin role; a permission ruleset refuses Write, HistoryUpdate, Call, node
+  management and server registration for every session (BadUserAccessDenied). Method calls
+  are refused too, including standard ones such as ConditionRefresh. RegisterNodes (a read
+  optimisation some SCADA clients use) is allowed.
+- **Security:** `security_policies` (None, Basic256Sha256 / Aes128_Sha256_RsaOaep /
+  Aes256_Sha256_RsaPss with _Sign or _SignAndEncrypt); certificate and key paths, generated
+  self-signed when both are missing. Without `trusted_certs_dir` any client certificate is
+  accepted (asyncua's default) and access rests on the user login; with it, only certificates
+  in that folder (TRUSTED_VALIDATION). `anonymous` (default **off**) and one user name/password from
+  the environment variables named by `username_env`/`password_env`. An enabled server with
+  anonymous off and no `username_env` is a config error; if the variables are unset at start,
+  the server does not start (logged, below). **Policy None on an endpoint that is not loopback
+  is a config error** unless `allow_insecure_remote: true` (then it starts with a WARNING).
+  These defaults were set in the takeover (#74), from the lead review of #61 and 03 §3.7.
+- **Reserved name:** `_System` (any case) cannot be the first segment of a tag name, because it
+  is each device's diagnostics folder. Device validation refuses it in both engines.
+- **Runtime:** started after the workers and the publisher, stopped first. A start failure,
+  at poller start or on reload, is logged as `opcua_server_start_failed`; polling and MQTT
+  continue, and `/health` shows `opcua_server: {running: false, error}`. Reload: changed
+  `opcua_server` settings restart the server;
+  otherwise devices are added, removed or rebuilt (by a fingerprint of name, driver, address and
+  tag types), so clients keep their sessions. asyncua builds its standard address space on every
+  start (~1 s).
+
+### D-047 OPC UA test simulator
+`tests/helpers/opcua_sim.py` is a real asyncua server (no mocked wire) on a `stable_port()`
+(it restarts on the same port, D-022), nodes in ns 7 like the real project, values and status
+codes that survive a restart, users, anonymous off, security policies with a generated
+certificate, and counters for client Read calls (`tag_reads` counts only the sim's own nodes,
+so asyncua's ServerState keep-alive probe is not mistaken for polling), Write attempts and
+monitored items. The first server of a test process builds asyncua's standard address space
+into a shelf in a temp dir (~3 s); later servers load it in milliseconds. `stop()` cancels
+asyncua's once-a-second clock task first (private attribute, guarded), which saves 1 s per stop.

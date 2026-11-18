@@ -253,6 +253,8 @@ These are recorded in `docs/decisions.md` (D-032) as well.
 | `/metrics` | prometheus_client (also `_created` samples) | `prometheus` crate, same names, labels and buckets | `_created` samples are not used |
 | Log lines | structlog JSON (`event` key) | tracing JSON (`message` key), same event names | consumers key on the event name |
 | Test-only `OPENCAP_PUBLISH_TAP` | — | appends every message handed to the link to a file | the conformance adapter's equivalent of the Python spy on `link.publish` |
+| Body on an open path (`/health`, `/metrics`, `/api/v1/auth-info`, UI) or `OPTIONS` | ignored (no open route reads one) | 413 at once, unread (D-062) | an anonymous caller cannot make the server buffer or drain anything |
+| `poller.yaml` `opcua_server.enabled: true` | the OPC UA server starts (D-046) | the section is read and validated like Python's; `opcua_server_start_failed` is logged and polling and MQTT carry on | the Rust OPC UA server is #46; until then a node that needs it runs the Python engine |
 
 ## 3. Build vs reuse
 

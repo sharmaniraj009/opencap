@@ -22,8 +22,8 @@ It is **read-only by design**: no code path writes to a PLC.
   unchanged channels.
 
 Status: the core, Modbus TCP, both Allen-Bradley drivers, the serial drivers (DF1, Modbus
-RTU), Siemens S7 and Mitsubishi MC are done (S7 and MC still need a check on real hardware).
-OPC UA is in progress. See [ROADMAP.md](ROADMAP.md).
+RTU), Siemens S7, Mitsubishi MC, the OPC UA client driver and the OPC UA server for SCADA are
+done (S7, MC and OPC UA still need a check on real equipment). See [ROADMAP.md](ROADMAP.md).
 
 ## Contents
 
@@ -139,10 +139,10 @@ reference implementation.
 | `ab_pccc` | EtherNet/IP, PCCC | SLC 500, MicroLogix | Allen-Bradley ControlLogix Ethernet (data-table model) | `ab` (pycomm3) | ✅ done |
 | `s7` | S7comm (ISO-on-TCP) | S7-300/400/1200/1500 | Siemens TCP/IP Ethernet | `s7` (python-snap7) | ✅ done (field check to do) |
 | `melsec_mc` | MELSEC MC protocol | Mitsubishi Q/L/iQ-R | Mitsubishi Ethernet | `melsec` (pymcprotocol) | ✅ done (field check to do) |
-| `opcua_client` | OPC UA | any OPC UA server | OPC UA Client | `opcua` (asyncua) | 🚧 in progress |
+| `opcua_client` | OPC UA (subscriptions) | any OPC UA server | OPC UA Client | `opcua` (asyncua) | ✅ done (field check to do) |
 | `modbus_rtu` | Modbus RTU (serial, or RTU over TCP) | serial Modbus slaves | Modbus RTU Serial (configured by hand) | `modbus` (+ `serial` for a local port) | ✅ done |
 | `ab_df1` | Allen-Bradley DF1 full duplex | SLC 500, MicroLogix | Allen-Bradley DF1 | none (+ `serial` for a local port) | ✅ done |
-| OPC UA server | OPC UA (north side) | SCADA/HMI clients | KEPServerEX's OPC UA server | | 🚧 in progress |
+| OPC UA server | OPC UA (north side) | SCADA/HMI clients | KEPServerEX's OPC UA server | `opcua` (asyncua) | ✅ done, off by default (hardening: #28) |
 
 Addresses and data types:
 
@@ -171,6 +171,29 @@ Addresses and data types:
   (`D100`, `D0000002`, `W1A`, `R10`, `ZR100`, bits `M`, `X`, `Y`, `B`, bits in words `D10.3`,
   strings such as `DSH200.020`), TCP or UDP. Batch reads of up to 960 words. Only read requests are ever sent
   (D-053, D-055).
+- **OPC UA client:** addresses are NodeIds (`ns=7;s=LTI002_PV`, `i=2258`, `nsu=<uri>;s=...`).
+  Devices subscribe to their nodes instead of polling them, and values carry the server's
+  SourceTimestamp (D-045). Credentials come only from environment variables named in
+  `params.username_env` / `password_env`. A password is never sent over security policy `None`
+  unless `params.allow_insecure_password: true`. Write, call and node-management services are
+  refused inside the driver, even though the library offers them.
+
+### OPC UA server for SCADA
+
+`poller.yaml` → `opcua_server` (off by default) serves the cache read-only with KEPServerEX's
+NodeIds, `ns=2;s=<channel>.<device>[.<group>].<tag>` (tag groups are folders), plus
+`<channel>.<device>._System._Error`, `_State`, `_LastGood`, ... per device. An existing SCADA
+client changes only its endpoint URL. Every write, method call and node change is refused
+(D-046). Secure by default:
+
+- anonymous clients are refused unless `anonymous: true`; set one user with
+  `username_env` / `password_env` (environment variable names, never values);
+- security policy `None` (plaintext) is refused on an endpoint that is not loopback, unless
+  `allow_insecure_remote: true`. For remote SCADA, offer only
+  `Basic256Sha256_SignAndEncrypt` (and the `Aes*` policies) with a `certificate` and
+  `private_key`;
+- if the server cannot start, polling and MQTT carry on, and `/health` reports
+  `opcua_server.running: false` with the error.
 
 Per-driver parameters (`Device.params`) and their KEPServerEX sources:
 [docs/driver_params.md](docs/driver_params.md).

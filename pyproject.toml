@@ -23,7 +23,7 @@ modbus = ["pymodbus>=3.7"]
 ab = ["pycomm3>=1.2"]
 s7 = ["python-snap7>=3.5,<4"]          # pure-Python 3.x API (D-048)
 melsec = ["pymcprotocol>=0.3,<0.4"]    # driver overrides its socket I/O (D-053)
-opcua = ["asyncua>=1.1"]
+opcua = ["asyncua>=2.1,<2.2"]   # client state machine and subscription keep-alive tracking touch asyncua internals (D-045)
 serial = ["pyserial>=3.5"]          # local serial ports and RFC 2217 (modbus_rtu, ab_df1); TCP gateways need nothing
 north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "prometheus-client>=0.20", "ruamel.yaml>=0.19"]  # ruamel.yaml: config API keeps YAML comments
 all = ["opencap[modbus,ab,s7,melsec,opcua,north,serial]"]

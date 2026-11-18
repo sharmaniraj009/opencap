@@ -41,8 +41,8 @@ client library talks to unmodified; deviations are recorded in
 |---|---|---|
 | Siemens S7 driver (`s7`) | ✅ (field check still to do) | S7-300/400/1200/1500 DB, M, I, Q addresses planned into PDU-sized reads; round trips against a simulator that stock python-snap7 talks to; KEPServerEX Siemens TCP/IP Ethernet devices import and poll. |
 | Mitsubishi MC driver (`melsec_mc`) | ✅ (field check still to do) | 3E-frame batch reads of word and bit devices (D, M, X, Y, ...) against a simulator that the client library talks to unmodified; KEPServerEX Mitsubishi Ethernet devices import and poll. |
-| OPC UA client driver (`opcua_client`) | 🚧 | Reads (and subscriptions where configured) from an asyncua test server with security policies None and Basic256Sha256; credentials from environment variables only. |
-| OPC UA server (north side) | 🚧 | SCADA/HMI clients browse `channel/device/tag` and read live values with quality and source timestamps; read-only address space; authenticated, encrypted endpoints. |
+| OPC UA client driver (`opcua_client`) | ✅ (field check still to do) | Reads (and subscriptions where configured) from an asyncua test server with security policies None and Basic256Sha256; credentials from environment variables only. |
+| OPC UA server (north side) | ✅ (off by default; hardening in the next row) | SCADA/HMI clients browse `channel/device/tag` and read live values with quality and source timestamps; read-only address space; authenticated, encrypted endpoints. |
 | Web UI and config API | 🚧 | Browse channels, devices and live values; edit `overrides.yaml` and `devices_map.yaml` through a validated API that writes the files atomically; changes go live through reload; same token as the admin API. |
 
 ## Rust engine, desktop apps and SCADA connectivity

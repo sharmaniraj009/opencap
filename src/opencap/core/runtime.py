@@ -23,6 +23,7 @@ from opencap.core.channel_worker import ChannelWorker
 from opencap.core.registry import Registry
 from opencap.drivers.base import Driver
 from opencap.north.mqtt import MqttLink
+from opencap.north.opcua_server import OpcUaNorth
 from opencap.north.publisher import Publisher
 from opencap.north.saf import StoreAndForward
 
@@ -76,6 +77,9 @@ class Poller:
         self._pub_task: asyncio.Task | None = None
         self._api_server: Any = None
         self._api_task: asyncio.Task | None = None
+        self.opcua: OpcUaNorth | None = None       # northbound OPC UA server (poller.yaml opcua_server)
+        self._opcua_cfg: str | None = None
+        self._opcua_error: str | None = None      # why the enabled server is not running (start failed)
         self._stop_event = asyncio.Event()
         self._reload_lock = asyncio.Lock()
 
@@ -89,6 +93,11 @@ class Poller:
         self._link_task = asyncio.create_task(self.link.run(), name="mqtt-link")
         self._apply_channels(self.loaded.channels)
         self._restart_publisher()
+        try:
+            await self._start_opcua()
+        except Exception as exc:     # as on reload: keep polling and publishing without it
+            self._opcua_error = str(exc)
+            log.error("opcua_server_start_failed", error=str(exc))
         if self._serve_api:
             await self._start_api()
         log.info("poller_started", version=FIRM_VERSION, channels=len(self.workers),
@@ -119,6 +128,7 @@ class Poller:
         self._stop_event.set()
 
     async def stop(self) -> None:
+        await self._stop_opcua()
         if self._api_server is not None:
             self._api_server.should_exit = True
         if self._api_task is not None:
@@ -189,6 +199,8 @@ class Poller:
     def _on_cycle(self, device_id: str) -> None:
         if self.publisher is not None:
             self.publisher.notify_cycle(device_id)
+        if self.opcua is not None:
+            self.opcua.notify(device_id)
 
     # ------------------------------------------------------------------ publisher
     def _restart_publisher(self) -> None:
@@ -221,8 +233,42 @@ class Poller:
             changed = self._apply_channels(loaded.channels)
             await self._stop_publisher()
             self._restart_publisher()
+            await self._reload_opcua()
             log.info("config_reloaded", **{k: len(v) for k, v in changed.items()})
             return changed
+
+    # ------------------------------------------------------------------ OPC UA server (north)
+    def _served_devices(self) -> list[Device]:
+        """Devices exposed northbound: the same set the publisher publishes."""
+        return [d for c in self._active_channels() for d in c.devices if d.enabled]
+
+    async def _start_opcua(self) -> None:
+        cfg = self.loaded.poller.opcua_server
+        self._opcua_cfg = cfg.model_dump_json()
+        self._opcua_error = None
+        if not cfg.enabled:
+            return
+        north = OpcUaNorth(cfg, self._served_devices(), self.cache, self.device_status)
+        await north.start()
+        self.opcua = north
+
+    async def _stop_opcua(self) -> None:
+        north, self.opcua = self.opcua, None
+        if north is not None:
+            await north.stop()
+
+    async def _reload_opcua(self) -> None:
+        """Server settings changed -> restart it; otherwise only sync its devices."""
+        if self.loaded.poller.opcua_server.model_dump_json() != self._opcua_cfg:
+            await self._stop_opcua()
+            try:
+                await self._start_opcua()
+            except Exception as exc:     # keep polling and publishing without it
+                self._opcua_error = str(exc)
+                log.error("opcua_server_start_failed", error=str(exc))
+            return
+        if self.opcua is not None:
+            await self.opcua.set_devices(self._served_devices())
 
     # ------------------------------------------------------------------ queries (API / CLI)
     def _worker_for(self, device_id: str) -> ChannelWorker:
@@ -234,6 +280,14 @@ class Poller:
 
     def device_health_status(self, device_id: str) -> dict[str, Any]:
         return self._worker_for(device_id).health(device_id).status()
+
+    def device_status(self, device_id: str) -> dict[str, Any]:
+        """Health plus cycle_ms, last_error, connected (OPC UA `_System` diagnostics)."""
+        try:
+            return self._worker_for(device_id).device_status(device_id)
+        except KeyError:
+            return {"state": "offline", "last_good": None, "errors": 0, "cycle_ms": None,
+                    "last_error": "not polled", "connected": False}
 
     def device_detail(self, device_id: str) -> dict[str, Any]:
         worker = self._worker_for(device_id)
@@ -293,7 +347,14 @@ class Poller:
             "saf_queue": self.saf.count() if self.saf else 0,
             "channels": len(self.workers),
             "devices": states,
+            **self._opcua_health(),
         }
+
+    def _opcua_health(self) -> dict[str, Any]:
+        """`opcua_server` in /health, only when it is enabled (so the default answer is unchanged)."""
+        if not self.loaded.poller.opcua_server.enabled:
+            return {}
+        return {"opcua_server": {"running": self.opcua is not None, "error": self._opcua_error}}
 
     # ------------------------------------------------------------------ API
     async def _start_api(self) -> None:

@@ -1211,3 +1211,28 @@ asyncua's once-a-second clock task first (private attribute, guarded), which sav
 - **Timing flake:** the panicking-`on_cycle` test waits on the call counter with a 10 s deadline instead of a fixed 300 ms sleep.
 - **Verification:** 100 consecutive `cargo test -p opencap-core --test worker` runs with 8 busy loops on 4 cores: 0 failures
   (was ~4/25). Command: start `sh -c 'while :; do :; done'` x8, then loop the test.
+
+## Omron FINS conformance harness (#13)
+
+### D-066 FINS simulator: sources, KEPServerEX syntax over the issue's examples, and what is not proven
+- **Expected (issue #13):** the KEPServerEX syntax for an EM bank is `E0_100`, and a permissively
+  licensed Python FINS client validates the simulator over UDP and TCP.
+- **Done:** we followed PTC's *Omron FINS Ethernet Driver* manual (v1.083) for the syntax. It writes
+  a banked EM word as `E<bank>:<word>` with a **decimal** bank (`E00:00100`, `E12:32767`; CJ2 up
+  to `E24:`), and the current bank as `E<word>`. `E0_100` is Omron's own notation (W342 5-2-2).
+  The vectors list `E0_100` and `EM100` as invalid, so an importer cannot accept them silently.
+  The same manual sets the rest of the vector set: data types (no 64-bit types and no Double),
+  default types (BCD for timers and counters, DWord for IR), `H`/`L`/`D`/`E` strings, the `D`
+  BCD suffix, and per-model ranges (CJ2's extra AR words, EM banks and task flags).
+- **Independent client:** fins-driver 0.3.1 (MIT), unmodified, validates FINS/UDP only. Its
+  `mode="tcp"` writes bare FINS frames on a TCP socket, with no FINS/TCP header or node
+  handshake (W421 7-4), so no Ethernet unit would accept it; the simulator refuses it with
+  error 1, and a test pins that. FINS/TCP is validated with frames hand-built from W421 in the
+  test. The PTC driver is UDP-only, so FINS/TCP in #54 is an opencap extension.
+- **Not proven by the simulator (check at commissioning, ADR-0014 §5):** KEPServerEX's word order
+  for 32-bit values (its manual does not state it; Omron CPUs keep the low word first, which is
+  the simulator's default); the end code a CPU returns for a word read with a non-zero bit field,
+  and for more than 999 words; whether a CPU answers a frame addressed to another node (the
+  simulator drops it, the driver sees a timeout). The manuals did settle three points that differ
+  from first guesses: a count of 0 is a normal completion; a missing EM bank is `1101`; SRES
+  bit 7 is the fatal and bit 6 the non-fatal CPU error flag.

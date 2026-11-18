@@ -57,7 +57,7 @@ policy-level summary, reconciled with it after #64.
 | EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Evaluate (MPL-2.0 permits static linking) |
 | Siemens S7comm | — (rust-snap7 is MulanPSL-2.0: Avoid) | — | — | Build: native read subset (COTP, S7 setup, read var); snap7 server as Test-only peer |
 | Mitsubishi MC 3E/4E | — | — | — | Build: native (simple framing) |
-| Omron FINS | — | — | — | Build: native |
+| Omron FINS | — | — | — | Build: native (#54); conformance harness `tests/helpers/fins_sim.py` + `docs/protocols/omron-fins.md` (#13) |
 | Beckhoff ADS | ads | MIT or Apache-2.0 (*verify*) | no | Evaluate |
 | DNP3 | opendnp3 (C++) | Apache-2.0 (*verify*; upstream archived) | no | Evaluate in the DNP3 spike |
 | DNP3 | stepfunc `dnp3` (Rust) | non-commercial licence (*verify*) | no | Avoid unless verified OSS |
@@ -88,6 +88,7 @@ policy-level summary, reconciled with it after #64.
 | SNMP agent simulator | snmpsim | BSD-2-Clause (*verify*) | Test-only |
 | IEC 104 test peer | c104 (Python, wraps lib60870) | GPL-3.0 (*verify*) | Test-only: installed in CI, never vendored or shipped |
 | S7 test server | python-snap7 server | MIT | Test-only |
+| Omron FINS client (validates `fins_sim`) | fins-driver 0.3.1 | MIT ([LICENSE at v0.3.1](https://github.com/indrarudianto/fins-driver/blob/v0.3.1/LICENSE), verified) | Test-only (FINS/UDP only: its "tcp" mode lacks the FINS/TCP header) |
 | Docs site | mkdocs-material | MIT | Test-only (build tool) |
 | Python licence report | pip-licenses | MIT | Test-only |
 | MSI build | WiX Toolset | MS-RL (*verify*) | Build tool only; output is not encumbered (*verify*) |

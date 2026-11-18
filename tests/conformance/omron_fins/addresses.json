@@ -1,0 +1,985 @@
+{
+ "description": "KEPServerEX Omron FINS address syntax (CS1/CJ1/CJ2 models) -> FINS area code, word address, bit, kind, words. Default model CJ1. See README.md.",
+ "source": "PTC Omron FINS Ethernet Driver manual v1.083 (CS1/CJ1/CJ2 addressing); Omron W342 5-2-2 for the codes",
+ "valid": [
+  {
+   "address": "D100",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "default type Word"
+  },
+  {
+   "address": "D0",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 0,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "D32767",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 32767,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "last DM word"
+  },
+  {
+   "address": "D00100",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "leading zeros (the manual writes D00000-D32767)"
+  },
+  {
+   "address": "D100",
+   "dtype": "int16",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "D100",
+   "dtype": "float32",
+   "words": 2,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "D100",
+   "dtype": "int32",
+   "words": 2,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "D32766",
+   "dtype": "uint32",
+   "words": 2,
+   "expect": {
+    "area_code": "0x82",
+    "word": 32766,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "last DWord in DM"
+  },
+  {
+   "address": "D200",
+   "dtype": "bcd16",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 200,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "KEPServerEX BCD"
+  },
+  {
+   "address": "D200",
+   "dtype": "bcd32",
+   "words": 2,
+   "expect": {
+    "area_code": "0x82",
+    "word": 200,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "KEPServerEX LBCD"
+  },
+  {
+   "address": "D0D",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 0,
+    "bit": null,
+    "kind": "word",
+    "bcd": true
+   },
+   "note": "'D' suffix: Word as unsigned BCD"
+  },
+  {
+   "address": "D0D",
+   "dtype": "int16",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 0,
+    "bit": null,
+    "kind": "word",
+    "bcd": true
+   },
+   "note": "'D' suffix on a Short: signed BCD"
+  },
+  {
+   "address": "D10D",
+   "dtype": "uint32",
+   "words": 2,
+   "expect": {
+    "area_code": "0x82",
+    "word": 10,
+    "bit": null,
+    "kind": "word",
+    "bcd": true
+   },
+   "note": "'D' suffix on a DWord"
+  },
+  {
+   "address": "D100.0",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x02",
+    "word": 100,
+    "bit": 0,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "D100.15",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x02",
+    "word": 100,
+    "bit": 15,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "CIO0",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB0",
+    "word": 0,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "CIO10",
+   "dtype": "float32",
+   "words": 2,
+   "expect": {
+    "area_code": "0xB0",
+    "word": 10,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "CIO6143",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB0",
+    "word": 6143,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "last CIO word"
+  },
+  {
+   "address": "CIO0010.05",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x30",
+    "word": 10,
+    "bit": 5,
+    "kind": "bit"
+   },
+   "note": "CIOxxxx.bb as the manual writes it"
+  },
+  {
+   "address": "CIO10.05",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x30",
+    "word": 10,
+    "bit": 5,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "CIO10.5",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x30",
+    "word": 10,
+    "bit": 5,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "W0",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB1",
+    "word": 0,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "W511",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB1",
+    "word": 511,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "W3.07",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x31",
+    "word": 3,
+    "bit": 7,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "H20",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB2",
+    "word": 20,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "H1535",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB2",
+    "word": 1535,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "H512-H1535: function block holding area"
+  },
+  {
+   "address": "H511.15",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x32",
+    "word": 511,
+    "bit": 15,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "A448",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB3",
+    "word": 448,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "A959",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB3",
+    "word": 959,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "last AR word on CS1/CJ1"
+  },
+  {
+   "address": "A100.03",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x33",
+    "word": 100,
+    "bit": 3,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "A1471",
+   "model": "CJ2",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB3",
+    "word": 1471,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "A10000",
+   "model": "CJ2",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB3",
+    "word": 10000,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "CJ2 A10000-A11535"
+  },
+  {
+   "address": "E00:00100",
+   "words": 1,
+   "expect": {
+    "area_code": "0xA0",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "EM bank 0 (decimal bank number)"
+  },
+  {
+   "address": "E01:100",
+   "words": 1,
+   "expect": {
+    "area_code": "0xA1",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "E12:32767",
+   "words": 1,
+   "expect": {
+    "area_code": "0xAC",
+    "word": 32767,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "last bank on CS1/CJ1 (bank 12 = C hex)"
+  },
+  {
+   "address": "E12:32766",
+   "dtype": "float32",
+   "words": 2,
+   "expect": {
+    "area_code": "0xAC",
+    "word": 32766,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "E15:0",
+   "model": "CJ2",
+   "words": 1,
+   "expect": {
+    "area_code": "0xAF",
+    "word": 0,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "bank 15 = F hex"
+  },
+  {
+   "address": "E16:0",
+   "model": "CJ2",
+   "words": 1,
+   "expect": {
+    "area_code": "0x60",
+    "word": 0,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "bank 16 = 10 hex: word code 60"
+  },
+  {
+   "address": "E24:5",
+   "model": "CJ2",
+   "words": 1,
+   "expect": {
+    "area_code": "0x68",
+    "word": 5,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "bank 24 = 18 hex, the last"
+  },
+  {
+   "address": "E00:00100.03",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x20",
+    "word": 100,
+    "bit": 3,
+    "kind": "bit"
+   }
+  },
+  {
+   "address": "E16:1.02",
+   "model": "CJ2",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0xE0",
+    "word": 1,
+    "bit": 2,
+    "kind": "bit"
+   },
+   "note": "bank 10 hex bit code E0"
+  },
+  {
+   "address": "E00100",
+   "words": 1,
+   "expect": {
+    "area_code": "0x98",
+    "word": 100,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "current EM bank"
+  },
+  {
+   "address": "E100.04",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x0A",
+    "word": 100,
+    "bit": 4,
+    "kind": "bit"
+   },
+   "note": "current EM bank, bit"
+  },
+  {
+   "address": "T0000",
+   "words": 1,
+   "expect": {
+    "area_code": "0x89",
+    "word": 0,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "timer present value; default type BCD"
+  },
+  {
+   "address": "T4095",
+   "words": 1,
+   "expect": {
+    "area_code": "0x89",
+    "word": 4095,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "T7",
+   "dtype": "uint16",
+   "words": 1,
+   "expect": {
+    "area_code": "0x89",
+    "word": 7,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "TS0007",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x09",
+    "word": 7,
+    "bit": null,
+    "kind": "flag"
+   },
+   "note": "timer completion flag"
+  },
+  {
+   "address": "C3",
+   "words": 1,
+   "expect": {
+    "area_code": "0x89",
+    "word": 32771,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "counter n is FINS address 0x8000 + n"
+  },
+  {
+   "address": "C4095",
+   "words": 1,
+   "expect": {
+    "area_code": "0x89",
+    "word": 36863,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "CS4",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x09",
+    "word": 32772,
+    "bit": null,
+    "kind": "flag"
+   },
+   "note": "counter completion flag"
+  },
+  {
+   "address": "TK00",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x06",
+    "word": 0,
+    "bit": null,
+    "kind": "flag"
+   },
+   "note": "task flag"
+  },
+  {
+   "address": "TK31",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x06",
+    "word": 31,
+    "bit": null,
+    "kind": "flag"
+   }
+  },
+  {
+   "address": "TK127",
+   "model": "CJ2",
+   "dtype": "bool",
+   "words": 1,
+   "expect": {
+    "area_code": "0x06",
+    "word": 127,
+    "bit": null,
+    "kind": "flag"
+   }
+  },
+  {
+   "address": "IR00",
+   "words": 1,
+   "expect": {
+    "area_code": "0xDC",
+    "word": 256,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "index register: one 4-byte element, default DWord"
+  },
+  {
+   "address": "IR15",
+   "dtype": "float32",
+   "words": 1,
+   "expect": {
+    "area_code": "0xDC",
+    "word": 271,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "DR00",
+   "words": 1,
+   "expect": {
+    "area_code": "0xBC",
+    "word": 512,
+    "bit": null,
+    "kind": "word"
+   },
+   "note": "data register"
+  },
+  {
+   "address": "DR14",
+   "dtype": "int32",
+   "words": 2,
+   "expect": {
+    "area_code": "0xBC",
+    "word": 526,
+    "bit": null,
+    "kind": "word"
+   }
+  },
+  {
+   "address": "D01000.100H",
+   "dtype": "string",
+   "words": 50,
+   "expect": {
+    "area_code": "0x82",
+    "word": 1000,
+    "bit": null,
+    "kind": "string",
+    "str_len": 100,
+    "str_order": "H"
+   },
+   "note": "the manual's example: 100 characters, high byte first"
+  },
+  {
+   "address": "D01100.078L",
+   "dtype": "string",
+   "words": 39,
+   "expect": {
+    "area_code": "0x82",
+    "word": 1100,
+    "bit": null,
+    "kind": "string",
+    "str_len": 78,
+    "str_order": "L"
+   },
+   "note": "the manual's example: low byte first"
+  },
+  {
+   "address": "D02000.055D",
+   "dtype": "string",
+   "words": 55,
+   "expect": {
+    "area_code": "0x82",
+    "word": 2000,
+    "bit": null,
+    "kind": "string",
+    "str_len": 55,
+    "str_order": "D"
+   },
+   "note": "the manual's example: one character per word, high byte"
+  },
+  {
+   "address": "D02200.037E",
+   "dtype": "string",
+   "words": 37,
+   "expect": {
+    "area_code": "0x82",
+    "word": 2200,
+    "bit": null,
+    "kind": "string",
+    "str_len": 37,
+    "str_order": "E"
+   },
+   "note": "the manual's example: one character per word, low byte"
+  },
+  {
+   "address": "H0.2H",
+   "dtype": "string",
+   "words": 1,
+   "expect": {
+    "area_code": "0xB2",
+    "word": 0,
+    "bit": null,
+    "kind": "string",
+    "str_len": 2,
+    "str_order": "H"
+   }
+  },
+  {
+   "address": "D32767.002H",
+   "dtype": "string",
+   "words": 1,
+   "expect": {
+    "area_code": "0x82",
+    "word": 32767,
+    "bit": null,
+    "kind": "string",
+    "str_len": 2,
+    "str_order": "H"
+   }
+  },
+  {
+   "address": "D100[4]",
+   "dtype": "int16",
+   "words": 4,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word",
+    "dims": [
+     4
+    ]
+   }
+  },
+  {
+   "address": "D100[4]",
+   "dtype": "float32",
+   "words": 8,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word",
+    "dims": [
+     4
+    ]
+   }
+  },
+  {
+   "address": "D100[2][3]",
+   "dtype": "uint16",
+   "words": 6,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word",
+    "dims": [
+     2,
+     3
+    ]
+   }
+  },
+  {
+   "address": "D100 [2] [3]",
+   "dtype": "uint16",
+   "words": 6,
+   "expect": {
+    "area_code": "0x82",
+    "word": 100,
+    "bit": null,
+    "kind": "word",
+    "dims": [
+     2,
+     3
+    ]
+   },
+   "note": "spaces as the manual prints Dxxxx [rows] [cols]"
+  },
+  {
+   "address": "W10[2][2]",
+   "dtype": "uint32",
+   "words": 8,
+   "expect": {
+    "area_code": "0xB1",
+    "word": 10,
+    "bit": null,
+    "kind": "word",
+    "dims": [
+     2,
+     2
+    ]
+   }
+  }
+ ],
+ "invalid": [
+  {
+   "address": "",
+   "why": "empty"
+  },
+  {
+   "address": "D",
+   "why": "no number"
+  },
+  {
+   "address": "D-1",
+   "why": "negative"
+  },
+  {
+   "address": "D32768",
+   "why": "past the end of DM"
+  },
+  {
+   "address": "D32767",
+   "dtype": "float32",
+   "why": "a 32-bit value needs D32767 and D32768"
+  },
+  {
+   "address": "CIO6144",
+   "why": "past the end of CIO"
+  },
+  {
+   "address": "W512",
+   "why": "past the end of WR"
+  },
+  {
+   "address": "H1536",
+   "why": "past the end of HR"
+  },
+  {
+   "address": "A960",
+   "why": "past the end of AR on CS1/CJ1"
+  },
+  {
+   "address": "A10000",
+   "model": "CJ1",
+   "why": "A10000-A11535 exist on CJ2 only"
+  },
+  {
+   "address": "A1472",
+   "model": "CJ2",
+   "why": "gap between A1471 and A10000"
+  },
+  {
+   "address": "T4096",
+   "why": "past the last timer"
+  },
+  {
+   "address": "C4096",
+   "why": "past the last counter"
+  },
+  {
+   "address": "TK32",
+   "model": "CJ1",
+   "why": "TK00-TK31 on CS1/CJ1"
+  },
+  {
+   "address": "IR16",
+   "why": "IR00-IR15"
+  },
+  {
+   "address": "IR00",
+   "dtype": "uint16",
+   "why": "index registers are 32-bit only"
+  },
+  {
+   "address": "DR16",
+   "why": "DR00-DR15"
+  },
+  {
+   "address": "DR15",
+   "dtype": "int32",
+   "why": "a 32-bit value needs DR15 and DR16"
+  },
+  {
+   "address": "E00:32768",
+   "why": "past the end of an EM bank"
+  },
+  {
+   "address": "E13:0",
+   "model": "CJ1",
+   "why": "EM banks 0-12 on CS1/CJ1"
+  },
+  {
+   "address": "E25:0",
+   "model": "CJ2",
+   "why": "EM banks 0-24 on CJ2"
+  },
+  {
+   "address": "E0_100",
+   "why": "Omron's W342 notation, not KEPServerEX syntax (E00:00100)"
+  },
+  {
+   "address": "EM100",
+   "why": "not KEPServerEX syntax (the current bank is E00100)"
+  },
+  {
+   "address": "D100.16",
+   "why": "bit above 15"
+  },
+  {
+   "address": "D100.",
+   "why": "bit missing"
+  },
+  {
+   "address": "D1.2.3",
+   "why": "two bit numbers"
+  },
+  {
+   "address": "X100",
+   "why": "unknown area"
+  },
+  {
+   "address": "DM100",
+   "why": "not KEPServerEX syntax for DM"
+  },
+  {
+   "address": "TS1.02",
+   "why": "a completion flag has no bit"
+  },
+  {
+   "address": "T1.02",
+   "why": "timer present values have no bits"
+  },
+  {
+   "address": "D100.000H",
+   "why": "string of length 0"
+  },
+  {
+   "address": "D100.009L",
+   "why": "two-per-word strings have an even length"
+  },
+  {
+   "address": "D100.514H",
+   "why": "two-per-word strings are at most 512 characters"
+  },
+  {
+   "address": "D100.257D",
+   "why": "one-per-word strings are at most 256 characters"
+  },
+  {
+   "address": "D32767.004H",
+   "why": "string runs past the end of DM"
+  },
+  {
+   "address": "D100[0]",
+   "why": "zero array dimension"
+  },
+  {
+   "address": "D100.05[2]",
+   "why": "Boolean arrays are not supported"
+  },
+  {
+   "address": "D100[1][2][3]",
+   "why": "three dimensions"
+  },
+  {
+   "address": "D32767[2]",
+   "why": "array runs past the end of DM"
+  },
+  {
+   "address": "T0D",
+   "why": "'D' suffix not allowed where the default type is BCD"
+  },
+  {
+   "address": "D0D",
+   "dtype": "float32",
+   "why": "'D' suffix not allowed on Float"
+  },
+  {
+   "address": "D0D",
+   "dtype": "bcd16",
+   "why": "'D' suffix not allowed on a BCD tag"
+  },
+  {
+   "address": "D100",
+   "dtype": "bool",
+   "why": "Boolean needs a bit address"
+  }
+ ]
+}

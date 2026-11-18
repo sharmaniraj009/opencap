@@ -11,7 +11,10 @@
 # Build with other drivers: --build-arg EXTRAS=modbus,ab,north,s7
 # See docs/deployment.md (volumes, secrets, logs, API binding).
 
-ARG PYTHON_IMAGE=python:3.12-slim
+# Pinned by digest: the multi-arch index, so amd64 and arm64 both resolve from it (#34). To move
+# it, resolve the tag with `docker buildx imagetools inspect python:3.12-slim` (the "Digest:" line)
+# in a PR of its own; the release dry run in that PR rebuilds and smoke-tests both platforms.
+ARG PYTHON_IMAGE=python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 # --- build: wheels for opencap and its dependencies -------------------------------------------
 FROM ${PYTHON_IMAGE} AS build

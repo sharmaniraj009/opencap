@@ -20,6 +20,12 @@ on:
         description: "Broker outage in the Phase 1 acceptance test, seconds (600 = the plan's 10 minutes)"
         required: false
         default: "8"
+  workflow_call:          # the release workflow runs these checks first (#34)
+    inputs:
+      outage_s:
+        type: string
+        required: false
+        default: "8"
 
 permissions:
   contents: read

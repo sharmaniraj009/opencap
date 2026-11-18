@@ -73,10 +73,13 @@ Unicode-3.0 or Unlicense, except:
 
 - **MPL-2.0**, unmodified, pulled in by Tauri's HTML handling: `cssparser`, `cssparser-macros`,
   `selectors`, `dtoa-short`, `option-ext`. MPL-2.0 is file-level copyleft: fine to ship
-  unmodified, and changes to those files would have to be published. `engine/deny.toml` does not
-  allow MPL-2.0 yet; the desktop workspace has no `cargo deny` gate of its own yet.
+  unmodified, and changes to those files would have to be published. `desktop/deny.toml`
+  allows MPL-2.0 for these five crates only.
 - **CDLA-Permissive-2.0**: `webpki-roots` (Mozilla's root certificates, via `ureq`).
 - `r-efi` is MIT OR Apache-2.0 OR LGPL-2.1-or-later; MIT applies.
+
+CI enforces this with cargo-deny (`desktop/deny.toml`; job "Desktop licence and advisory gate"
+in `.github/workflows/licenses.yml`) on pull requests that touch `desktop/` and nightly.
 
 ## Not yet
 

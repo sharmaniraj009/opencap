@@ -20,10 +20,10 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 
-use opencap_core::cache::Snapshot;
 use opencap_core::config::{slug, Device, PayloadCfg};
 use opencap_core::health::HealthStatus;
 use opencap_core::pyfmt::{py_float_repr, py_round, write_json_str};
+use opencap_core::store::Snapshot;
 use opencap_core::value::{Quality, Value};
 use opencap_core::FIRM_VERSION;
 
@@ -69,7 +69,7 @@ pub struct Payload {
     pub bad_tags: Option<Vec<String>>,
 }
 
-/// Build the message for one device from a cache snapshot. `now` is only used when no
+/// Build the message for one device from a store snapshot. `now` is only used when no
 /// tag is good (tests pass it for a fixed output). Errors only for an unknown timezone.
 pub fn build_payload(
     device: &Device,

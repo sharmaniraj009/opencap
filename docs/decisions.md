@@ -1211,3 +1211,36 @@ asyncua's once-a-second clock task first (private attribute, guarded), which sav
 - **Timing flake:** the panicking-`on_cycle` test waits on the call counter with a 10 s deadline instead of a fixed 300 ms sleep.
 - **Verification:** 100 consecutive `cargo test -p opencap-core --test worker` runs with 8 busy loops on 4 cores: 0 failures
   (was ~4/25). Command: start `sh -c 'while :; do :; done'` x8, then loop the test.
+
+### D-066 Tag store and change-event bus as built (#41)
+`engine/crates/opencap-core/src/store.rs` replaces the Rust `ValueCache` with ADR-0005's tag store. Every Python cache
+rule is kept; `tests/unit/test_cache.py` is ported case by case. Where the store goes beyond what a reader of
+ADR-0005 / 03 §3.2 would expect:
+- **One writer, enforced.** `register()` returns the device's only valid `DeviceWriter`. Registering the device again
+  (reload) makes earlier writers stale: their writes are ignored and publish nothing. Expected: a convention. Why: on
+  reload the old channel worker is stopped on a spawned task and could otherwise write once more, possibly with an
+  old tag layout, after its successor started.
+- **`ChangeBatch.changes` holds what changed, not every tag written.** A tag is in the batch when its value, quality or
+  `source_ts` changed; a write that changed nothing (the same bad quality again, a good read with the same value and
+  device timestamp) publishes no batch. The version still bumps on every update (Python rule). A new source_ts is a
+  change, so every good poll of a timestamp-less protocol is published. `register()` publishes the whole device
+  (`full: true`) only when the slot is new or its tags changed; `unregister()` publishes nothing (devices change only
+  on reload, which restarts the north plugins).
+- **On `Lagged` the receiver jumps to the newest batch.** tokio resumes a lagged receiver at the oldest slot, which the
+  next send overwrites, so a subscriber that spends a few milliseconds resynchronising lags again at once. Measured
+  (250k updates/s, slow subscriber): 461 resyncs in 3 s and writer p99 32 µs before; 2 resyncs/s and p99 within
+  noise of the all-fast case after. The queued batches are older than the snapshots the subscriber takes next, so
+  dropping them loses nothing. `north_lagged_total{agent}` counts skipped batches (overwritten plus dropped), not lag
+  events; the `north.lagged` warning is logged at most every 10 s per subscriber.
+- **`server_ts`** ([ADR-0006](adr/0006-quality-and-timestamps.md)) is set by the store on every accepted write,
+  including bad qualities and expiry to stale. It is not in the admin API's JSON or the payload, which stay identical
+  to Python's; the OPC UA server (#46) is its first consumer.
+- **The MQTT publisher keeps snapshot semantics.** It is now the `mqtt` north plugin (`NorthPlugin`, agent `mqtt`) and
+  wakes on its devices' batches instead of `on_cycle`; on `Lagged` every device loop re-reads its snapshot. It still
+  compares snapshots with what it last published (Python's deadband rule), so payloads stay byte-identical.
+  `WorkerOptions::on_cycle` remains (Python parity, tests); the runtime no longer sets it.
+- **Not configurable yet:** the bus capacity is the 4,096 default (a `poller.yaml` key would change the shared
+  schema; add it with the first site that needs it). `DemandReader` serves the store only (`allow_demand_reads`
+  arrives with #46). The variant type keeps its Rust name, `Value` (03 §3.1 says `Variant`).
+- **Benchmarks** use Criterion 0.7 (Apache-2.0 OR MIT) with default features off: 0.8 needs Rust 1.86 and the
+  workspace declares 1.85. Numbers: 04 §4.1.

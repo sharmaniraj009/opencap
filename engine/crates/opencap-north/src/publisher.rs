@@ -1,4 +1,7 @@
-//! Publisher: when to send what (Python `opencap.north.publisher`).
+//! Publisher: when to send what (Python `opencap.north.publisher`), as the `mqtt` north
+//! plugin (03 §3.5). It reads the tag store and wakes on the change-event bus (ADR-0005):
+//! a batch for a device wakes that device's on_change loop; `Lagged` wakes every device
+//! loop, which then resynchronises from its snapshot, as on every wake-up.
 //!
 //! Data messages (topic `device.publish.topic`, not retained):
 //! - `interval`: the full snapshot every `interval_ms`; the first one interval after start;
@@ -6,7 +9,8 @@
 //! - `on_change`: a message when a tag goes between good and not good, or a good value
 //!   moves by more than `deadband` (absolute, on the rounded value, compared with the last
 //!   PUBLISHED value); bools and strings on any difference; plus a heartbeat every
-//!   `heartbeat_ms`. Checked on `notify_cycle()` and every `on_change_poll_s`.
+//!   `heartbeat_ms`. Checked on every change batch for the device and every
+//!   `on_change_poll_s`.
 //! - A device that never had a good read since start publishes no data, only status.
 //!
 //! Status messages (`status_topic(device, topic_prefix)`, retained): `{"state","last_good","errors"}`
@@ -18,17 +22,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
-use opencap_core::cache::{Snapshot, ValueCache};
 use opencap_core::config::{default_topic, Device, PayloadCfg, PublishMode};
-use opencap_core::health::HealthStatus;
+use opencap_core::store::{Change, DeviceId, Snapshot, TagStoreReader};
 use opencap_core::value::{Quality, TagValue, Value};
 
 use crate::payload::{build_payload, clean_value, encode, encode_status, status_topic};
+use crate::plugin::{DeviceStatusReader, NorthContext, NorthError, NorthPlugin};
 
 /// Floor for interval_ms / heartbeat_ms (protects against 0 in config).
 pub const MIN_PERIOD_MS: i64 = 50;
@@ -48,9 +53,7 @@ impl Sink for crate::mqtt::MqttLink {
     }
 }
 
-pub type StatusFn = Arc<dyn Fn(&str) -> Option<HealthStatus> + Send + Sync>;
-
-/// True once any tag of the device has had a good read (the cache keeps the last good ts).
+/// True once any tag of the device has had a good read (the store keeps the last good ts).
 pub fn ever_good(snapshot: &Snapshot) -> bool {
     snapshot.values().any(|tv| tv.source_ts.is_some())
 }
@@ -126,26 +129,37 @@ impl Default for PublisherOptions {
     }
 }
 
+/// The MQTT north plugin. Run it with `plugin::spawn(Box::new(publisher.clone()), ctx)`;
+/// the `Arc` stays usable for counters.
 pub struct Publisher {
     devices: Vec<Device>,
-    cache: Arc<ValueCache>,
     sink: Arc<dyn Sink>,
     cfg: PayloadCfg,
-    status_fn: StatusFn,
     opts: PublisherOptions,
     data_topic: HashMap<String, String>,
     status_topic: HashMap<String, String>,
-    wake: HashMap<String, Notify>,
+    /// One per device, same order as `devices`.
+    wake: Vec<Notify>,
     data_published: HashMap<String, AtomicU64>,
+}
+
+#[async_trait]
+impl NorthPlugin for Arc<Publisher> {
+    fn kind(&self) -> &'static str {
+        "mqtt"
+    }
+
+    async fn run(self: Box<Self>, ctx: NorthContext) -> Result<(), NorthError> {
+        (*self).serve(ctx).await;
+        Ok(())
+    }
 }
 
 impl Publisher {
     pub fn new(
         devices: Vec<Device>,
-        cache: Arc<ValueCache>,
         sink: Arc<dyn Sink>,
         cfg: PayloadCfg,
-        status_fn: StatusFn,
         opts: PublisherOptions,
         topic_prefix: &str,
     ) -> Arc<Self> {
@@ -155,36 +169,55 @@ impl Publisher {
             .map(|d| (d.id.clone(), d.publish.topic.clone().unwrap_or_else(|| default_topic(d, topic_prefix))))
             .collect();
         let status_topic = devices.iter().map(|d| (d.id.clone(), status_topic(d, topic_prefix))).collect();
-        let wake = devices.iter().map(|d| (d.id.clone(), Notify::new())).collect();
+        let wake = devices.iter().map(|_| Notify::new()).collect();
         let data_published = devices.iter().map(|d| (d.id.clone(), AtomicU64::new(0))).collect();
-        Arc::new(Self { devices, cache, sink, cfg, status_fn, opts, data_topic, status_topic, wake, data_published })
-    }
-
-    /// ChannelWorker on_cycle hook.
-    pub fn notify_cycle(&self, device_id: &str) {
-        if let Some(n) = self.wake.get(device_id) {
-            n.notify_one();
-        }
+        Arc::new(Self { devices, sink, cfg, opts, data_topic, status_topic, wake, data_published })
     }
 
     pub fn data_published(&self, device_id: &str) -> u64 {
         self.data_published.get(device_id).map(|c| c.load(Ordering::Relaxed)).unwrap_or(0)
     }
 
-    /// Run every device loop and the status loop until the task is aborted.
-    pub async fn run(self: Arc<Self>) {
+    /// Run every device loop and the status loop; dispatch bus events until shutdown.
+    async fn serve(self: Arc<Self>, mut ctx: NorthContext) {
+        let ids: HashMap<DeviceId, usize> =
+            self.devices.iter().enumerate().map(|(i, d)| (ctx.store.intern(&d.id), i)).collect();
         let mut set = JoinSet::new();
         for i in 0..self.devices.len() {
             let me = self.clone();
+            let store = ctx.store.clone();
             if self.devices[i].publish.mode == PublishMode::OnChange {
-                set.spawn(async move { me.on_change_loop(i).await });
+                set.spawn(async move { me.on_change_loop(i, store).await });
             } else {
-                set.spawn(async move { me.interval_loop(i).await });
+                set.spawn(async move { me.interval_loop(i, store).await });
             }
         }
         let me = self.clone();
-        set.spawn(async move { me.status_loop().await });
-        while set.join_next().await.is_some() {}
+        let status = ctx.status.clone();
+        set.spawn(async move { me.status_loop(status).await });
+        let shutdown = ctx.shutdown.clone();
+        loop {
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                change = ctx.events.recv() => match change {
+                    Some(Change::Batch(batch)) => {
+                        if let Some(i) = ids.get(&batch.device) {
+                            self.wake[*i].notify_one();
+                        }
+                    }
+                    // Skipped batches: every loop re-reads its device's snapshot.
+                    Some(Change::Lagged(_)) => self.wake.iter().for_each(Notify::notify_one),
+                    None => {
+                        shutdown.cancelled().await;
+                        break;
+                    }
+                },
+                Some(ended) = set.join_next() => {
+                    error!(agent = %ctx.agent, error = ?ended.err(), "publisher_loop_ended");
+                }
+            }
+        }
+        set.shutdown().await;
     }
 
     fn publish_data(&self, dev: &Device, snapshot: &Snapshot) {
@@ -203,13 +236,13 @@ impl Publisher {
         }
     }
 
-    async fn interval_loop(&self, i: usize) {
+    async fn interval_loop(&self, i: usize, store: TagStoreReader) {
         let dev = &self.devices[i];
         let period = Duration::from_millis(dev.publish.interval_ms.max(MIN_PERIOD_MS) as u64);
         let mut next_t = Instant::now() + period;
         loop {
             tokio::time::sleep_until(next_t).await;
-            let snap = self.cache.snapshot(&dev.id);
+            let snap = store.snapshot(&dev.id);
             if ever_good(&snap) {
                 self.publish_data(dev, &snap);
             }
@@ -221,12 +254,12 @@ impl Publisher {
         }
     }
 
-    async fn on_change_loop(&self, i: usize) {
+    async fn on_change_loop(&self, i: usize, store: TagStoreReader) {
         let dev = &self.devices[i];
         let heartbeat = Duration::from_millis(dev.publish.heartbeat_ms.max(MIN_PERIOD_MS) as u64);
         let poll = Duration::from_secs_f64(self.opts.on_change_poll_s);
         let decimals = self.cfg.float_decimals;
-        let wake = &self.wake[&dev.id];
+        let wake = &self.wake[i];
         let mut last_version: Option<u64> = None;
         let mut last_sent: Option<Snapshot> = None;
         let mut last_sent_t = Instant::now();
@@ -238,12 +271,12 @@ impl Publisher {
             let _ = tokio::time::timeout(timeout, wake.notified()).await;
             let now = Instant::now();
             let due = last_sent.is_some() && now.duration_since(last_sent_t) >= heartbeat;
-            let version = self.cache.version(&dev.id);
+            let version = store.version(&dev.id);
             if Some(version) == last_version && !due {
                 continue;
             }
             last_version = Some(version);
-            let snap = self.cache.snapshot(&dev.id);
+            let snap = store.snapshot(&dev.id);
             if !ever_good(&snap) {
                 continue;
             }
@@ -259,14 +292,14 @@ impl Publisher {
         }
     }
 
-    async fn status_loop(&self) {
+    async fn status_loop(&self, status_of: DeviceStatusReader) {
         let mut last_state: HashMap<String, &'static str> = HashMap::new();
         let mut last_sent: HashMap<String, Instant> = HashMap::new();
         let refresh = Duration::from_secs_f64(self.opts.status_refresh_s);
         loop {
             let now = Instant::now();
             for dev in &self.devices {
-                let Some(status) = (self.status_fn)(&dev.id) else {
+                let Some(status) = status_of.get(&dev.id) else {
                     debug!(device = %dev.id, "status_unavailable");
                     continue;
                 };
@@ -296,14 +329,24 @@ impl Publisher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin::{spawn, NorthHandle};
     use chrono::{TimeZone, Utc};
     use opencap_core::config::{DType, Tag};
-    use opencap_core::health::State;
+    use opencap_core::health::{HealthStatus, State};
+    use opencap_core::metrics::METRICS;
+    use opencap_core::store::{DeviceWriter, TagStore};
     use std::sync::Mutex;
 
     #[derive(Default)]
     struct FakeSink {
         sent: Mutex<Vec<(String, Vec<u8>, bool)>>,
+    }
+
+    impl FakeSink {
+        fn data(&self) -> Vec<String> {
+            let sent = self.sent.lock().unwrap();
+            sent.iter().filter(|m| m.0.ends_with("/data")).map(|m| String::from_utf8(m.1.clone()).unwrap()).collect()
+        }
     }
 
     impl Sink for FakeSink {
@@ -335,16 +378,34 @@ mod tests {
 
     fn snap(a: Option<f64>, b: bool) -> Snapshot {
         let ts = Utc.with_ymd_and_hms(2026, 11, 16, 10, 0, 0).unwrap();
-        let mut s = Snapshot::new();
-        s.insert(
-            "A".into(),
-            match a {
-                Some(v) => TagValue::good(Value::Float(v), ts),
-                None => TagValue::bad(Quality::BadComm, Some(ts)),
-            },
-        );
-        s.insert("B".into(), TagValue::good(Value::Bool(b), ts));
-        s
+        let a = match a {
+            Some(v) => TagValue::good(Value::Float(v), ts),
+            None => TagValue::bad(Quality::BadComm, Some(ts)),
+        };
+        Snapshot::from_pairs("S/D", [("A", a), ("B", TagValue::good(Value::Bool(b), ts))])
+    }
+
+    fn write(w: &DeviceWriter, s: &Snapshot) {
+        assert!(w.update(s.iter()));
+    }
+
+    struct Rig {
+        store: Arc<TagStore>,
+        writer: DeviceWriter,
+        sink: Arc<FakeSink>,
+        publisher: Arc<Publisher>,
+        handle: NorthHandle,
+    }
+
+    fn rig(d: Device, capacity: usize, agent: &str, opts: PublisherOptions) -> Rig {
+        let store = Arc::new(TagStore::with_options(capacity, None));
+        let writer = store.register(&d);
+        let sink = Arc::new(FakeSink::default());
+        let publisher = Publisher::new(vec![d], sink.clone(), PayloadCfg::default(), opts, "opencap");
+        let status = DeviceStatusReader::new(|_| Some(HealthStatus { state: State::Ok, last_good: None, errors: 0 }));
+        let ctx = NorthContext::new(agent, store.reader(), status);
+        let handle = spawn(Box::new(publisher.clone()), ctx);
+        Rig { store, writer, sink, publisher, handle }
     }
 
     #[test]
@@ -359,42 +420,61 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn interval_and_status_messages() {
-        let cache = Arc::new(ValueCache::new());
-        let d = dev(PublishMode::Interval, 0.0);
-        cache.register(&d);
-        let sink = Arc::new(FakeSink::default());
-        let status: StatusFn = Arc::new(|_| Some(HealthStatus { state: State::Ok, last_good: None, errors: 0 }));
-        let p = Publisher::new(
-            vec![d.clone()],
-            cache.clone(),
-            sink.clone(),
-            PayloadCfg::default(),
-            status,
-            PublisherOptions::default(),
-            "opencap",
-        );
-        let task = tokio::spawn(p.clone().run());
+        let r = rig(dev(PublishMode::Interval, 0.0), 64, "mqtt", PublisherOptions::default());
         tokio::time::sleep(Duration::from_millis(350)).await;
         // never read good: no data, but a retained status message
         {
-            let sent = sink.sent.lock().unwrap();
+            let sent = r.sink.sent.lock().unwrap();
             assert_eq!(sent.len(), 1);
             assert_eq!(sent[0].0, "opencap/s/d/status");
             assert!(sent[0].2);
         }
-        cache.update("S/D", &snap(Some(2.5), true));
+        write(&r.writer, &snap(Some(2.5), true));
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let data: Vec<String> = sink
-            .sent
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|m| m.0.ends_with("/data"))
-            .map(|m| String::from_utf8(m.1.clone()).unwrap())
-            .collect();
+        let data = r.sink.data();
         assert_eq!(data.len(), 3);
         assert!(data[0].contains("\"Data\":{\"A\":2.5,\"B\":true}"), "{}", data[0]);
-        assert_eq!(p.data_published("S/D"), 3);
-        task.abort();
+        assert_eq!(r.publisher.data_published("S/D"), 3);
+        r.handle.stop(Duration::from_secs(1)).await;
+        assert_eq!(r.store.version("S/D"), 2);
+    }
+
+    /// on_change wakes on the device's change batches, not on the poll timer.
+    #[tokio::test(start_paused = true)]
+    async fn on_change_is_woken_by_the_bus() {
+        let opts = PublisherOptions { on_change_poll_s: 3600.0, ..PublisherOptions::default() };
+        let r = rig(dev(PublishMode::OnChange, 0.5), 64, "mqtt", opts);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        write(&r.writer, &snap(Some(1.0), true));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        write(&r.writer, &snap(Some(1.2), true)); // inside the deadband
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        write(&r.writer, &snap(Some(2.0), true));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let data = r.sink.data();
+        assert_eq!(data.len(), 2, "{data:?}");
+        assert!(data[0].contains("\"A\":1.0") && data[1].contains("\"A\":2.0"), "{data:?}");
+        r.handle.stop(Duration::from_secs(1)).await;
+    }
+
+    /// A publisher that falls behind the bus is told so, counts it, and resynchronises: it
+    /// publishes the device's latest values from the store.
+    #[tokio::test(start_paused = true)]
+    async fn lagging_publisher_resyncs_from_the_store() {
+        let opts = PublisherOptions { on_change_poll_s: 3600.0, ..PublisherOptions::default() };
+        let r = rig(dev(PublishMode::OnChange, 0.0), 2, "lag-test", opts);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let before = METRICS.north_lagged.with_label_values(&["lag-test"]).get();
+        // The test task does not yield, so the publisher cannot keep up with 10 batches on a
+        // bus of 2.
+        for i in 1..=10 {
+            write(&r.writer, &snap(Some(i as f64), i % 2 == 0));
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(METRICS.north_lagged.with_label_values(&["lag-test"]).get() - before, 10);
+        let data = r.sink.data();
+        assert_eq!(data.len(), 1, "conflated to the latest value: {data:?}");
+        assert!(data[0].contains("\"Data\":{\"A\":10.0,\"B\":true}"), "{}", data[0]);
+        r.handle.stop(Duration::from_secs(1)).await;
     }
 }

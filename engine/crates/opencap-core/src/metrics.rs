@@ -21,6 +21,8 @@ pub struct Metrics {
     pub saf_dropped: IntCounter,
     /// Device loops restarted after a panic (03 section 3.4).
     pub driver_panics: IntCounterVec,
+    /// Change batches a north agent skipped because it lagged behind the bus (ADR-0005).
+    pub north_lagged: IntCounterVec,
 }
 
 pub static METRICS: LazyLock<Metrics> = LazyLock::new(|| {
@@ -53,7 +55,16 @@ pub static METRICS: LazyLock<Metrics> = LazyLock::new(|| {
         &["device"],
     )
     .expect("metric");
+    let north_lagged = IntCounterVec::new(
+        Opts::new(
+            "north_lagged_total",
+            "Change batches a north agent skipped because it fell behind (resynced from the store)",
+        ),
+        &["agent"],
+    )
+    .expect("metric");
     registry.register(Box::new(driver_panics.clone())).expect("register");
+    registry.register(Box::new(north_lagged.clone())).expect("register");
     registry.register(Box::new(poll_requests.clone())).expect("register");
     registry.register(Box::new(poll_cycle.clone())).expect("register");
     registry.register(Box::new(poll_overrun.clone())).expect("register");
@@ -71,6 +82,7 @@ pub static METRICS: LazyLock<Metrics> = LazyLock::new(|| {
         saf_queue,
         saf_dropped,
         driver_panics,
+        north_lagged,
     }
 });
 
@@ -95,10 +107,12 @@ mod tests {
         super::METRICS.poll_requests.with_label_values(&["S/D", "ok"]).inc();
         super::METRICS.mqtt_published.inc();
         super::METRICS.driver_panics.with_label_values(&["S/D"]).inc();
+        super::METRICS.north_lagged.with_label_values(&["mqtt"]).inc_by(0);
         let text = super::render();
         for name in [
             "poll_requests_total",
             "driver_panics_total",
+            "north_lagged_total",
             "mqtt_published_total",
             "saf_queue_messages",
             "saf_dropped_total",

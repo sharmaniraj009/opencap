@@ -1,7 +1,8 @@
 """Regenerate the shared conformance vectors from the Python reference (ADR-0014).
 
-The inputs below are written by hand (directed cases, one behaviour each) plus a few seeded
-random mixes; every `expected` is what the current Python code makes of the input
+The inputs below (Allen-Bradley ones in `gen_conformance_ab.py`) are written by hand
+(directed cases, one behaviour each) plus a few seeded random mixes; every `expected` is what
+the current Python code makes of the input
 (`tests/conformance/reference.py`). Files land in `tests/conformance/<area>/`, format in
 `tests/conformance/README.md`.
 
@@ -27,8 +28,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for _p in (ROOT, ROOT / "scripts"):        # the repo (opencap, tests) and the AB case module beside us
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+import gen_conformance_ab  # noqa: E402
 
 from opencap import FIRM_VERSION  # noqa: E402
 from opencap.config.models import Device, PayloadCfg, PublishCfg, Scale, Tag  # noqa: E402
@@ -1040,6 +1044,9 @@ SPECS: dict[str, list[FileSpec]] = {
         ("datetime", "DateTime: newest good source_ts, time zones, now fallback (D-017).", payload_datetime()),
     ],
 }
+
+
+SPECS.update(gen_conformance_ab.SPECS)      # Allen-Bradley Logix and PCCC (#5)
 
 
 def build() -> dict[Path, str]:

@@ -1,0 +1,24 @@
+{
+ "format": 1,
+ "area": "ab_pccc/decode",
+ "description": "Float and string files; timer and counter sub-elements.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"f-float32","description":"F file float.","input":{"params":{},"tags":[{"name":"X","address":"F8:0","dtype":"float32"}],"value":{"t":"float","v":"1.5"}},"expected":{"values":{"X":{"t":"float","v":"1.5"}}}},
+  {"id":"f-float64","description":"F file typed float64.","input":{"params":{},"tags":[{"name":"X","address":"F8:0","dtype":"float64"}],"value":{"t":"float","v":"-0.1"}},"expected":{"values":{"X":{"t":"float","v":"-0.1"}}}},
+  {"id":"f-nan","description":"A NaN float passes through.","input":{"params":{},"tags":[{"name":"X","address":"F8:0","dtype":"float32"}],"value":{"t":"float","v":"nan"}},"expected":{"values":{"X":{"t":"float","v":"nan"}}}},
+  {"id":"f-array","description":"F {n} read.","input":{"params":{},"tags":[{"name":"A","address":"F8:0","dtype":"float32"},{"name":"B","address":"F8:1","dtype":"float32"}],"value":{"t":"list","v":[{"t":"float","v":"0.25"},{"t":"float","v":"-2.0"}]}},"expected":{"values":{"A":{"t":"float","v":"0.25"},"B":{"t":"float","v":"-2.0"}}}},
+  {"id":"f-int-value","description":"An integer value on an F file converts to float.","input":{"params":{},"tags":[{"name":"X","address":"F8:0","dtype":"float32"}],"value":{"t":"int","v":"3"}},"expected":{"values":{"X":{"t":"float","v":"3.0"}}}},
+  {"id":"st-string","description":"ST string.","input":{"params":{},"tags":[{"name":"X","address":"ST9:0","dtype":"string"}],"value":{"t":"str","v":"PUMP 1 RUN"}},"expected":{"values":{"X":{"t":"str","v":"PUMP 1 RUN"}}}},
+  {"id":"st-pair","description":"ST {2} read.","input":{"params":{},"tags":[{"name":"A","address":"ST9:0","dtype":"string"},{"name":"B","address":"ST9:1","dtype":"string"}],"value":{"t":"list","v":[{"t":"str","v":"A"},{"t":"str","v":""}]}},"expected":{"values":{"A":{"t":"str","v":"A"},"B":{"t":"str","v":""}}}},
+  {"id":"t-acc","description":"Timer .ACC word.","input":{"params":{},"tags":[{"name":"X","address":"T4:0.ACC","dtype":"int16"}],"value":{"t":"int","v":"1234"}},"expected":{"values":{"X":{"t":"int","v":"1234"}}}},
+  {"id":"t-acc-uint16","description":"Timer .ACC typed uint16 masks a negative value.","input":{"params":{},"tags":[{"name":"X","address":"T4:0.ACC","dtype":"uint16"}],"value":{"t":"int","v":"-1"}},"expected":{"values":{"X":{"t":"int","v":"65535"}}}},
+  {"id":"t-dn-bool","description":"Timer .DN: pycomm3 already extracted the bit (true).","input":{"params":{},"tags":[{"name":"X","address":"T4:0.DN","dtype":"bool"}],"value":{"t":"bool","v":true}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"t-dn-int","description":"Timer .DN given as integer 1.","input":{"params":{},"tags":[{"name":"X","address":"T4:0.DN","dtype":"bool"}],"value":{"t":"int","v":"1"}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"t-dn-zero","description":"Timer .DN false.","input":{"params":{},"tags":[{"name":"X","address":"T4:0.DN","dtype":"bool"}],"value":{"t":"int","v":"0"}},"expected":{"values":{"X":{"t":"bool","v":false}}}},
+  {"id":"t-dn-int16","description":"Timer .DN typed int16.","input":{"params":{},"tags":[{"name":"X","address":"T4:0.DN","dtype":"int16"}],"value":{"t":"bool","v":true}},"expected":{"values":{"X":{"t":"int","v":"1"}}}},
+  {"id":"t-dn-nonzero-int","description":"A non-zero integer for a T/C bit is true (not bit 0 of it).","input":{"params":{},"tags":[{"name":"X","address":"T4:0.DN","dtype":"bool"}],"value":{"t":"int","v":"2"}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"c-acc-negative","description":"Counter .ACC stays signed in int16.","input":{"params":{},"tags":[{"name":"X","address":"C5:0.ACC","dtype":"int16"}],"value":{"t":"int","v":"-5"}},"expected":{"values":{"X":{"t":"int","v":"-5"}}}},
+  {"id":"c-ov","description":"Counter .OV bit.","input":{"params":{},"tags":[{"name":"X","address":"C5:0.OV","dtype":"bool"}],"value":{"t":"bool","v":false}},"expected":{"values":{"X":{"t":"bool","v":false}}}}
+ ]
+}

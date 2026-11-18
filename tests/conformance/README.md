@@ -14,11 +14,17 @@ tests/conformance/
   modbus/decode/*.json Modbus register/bit decoding (D-006)
   scaling/*.json       tag scaling (linear, sqrt, clamps, negate)
   payload/*.json       SubDevice JSON payload bytes (D-017)
+  ab_logix/plan/*.json   Allen-Bradley Logix/Micro800 read groups and packing (D-008, D-025)
+  ab_logix/decode/*.json Logix values coerced to the configured dtype
+  ab_pccc/plan/*.json    PCCC (SLC/MicroLogix) address parsing and file blocks (D-008, D-027)
+  ab_pccc/decode/*.json  PCCC words, bits, floats, strings and T/C sub-elements
   config/              config model fixtures: an older, separate format, see config/compare.py
 ```
 
-Generator: [`scripts/gen_conformance.py`](../../scripts/gen_conformance.py).
-Python check: [`tests/unit/test_conformance_vectors.py`](../unit/test_conformance_vectors.py).
+Generator: [`scripts/gen_conformance.py`](../../scripts/gen_conformance.py) (Allen-Bradley inputs
+in [`scripts/gen_conformance_ab.py`](../../scripts/gen_conformance_ab.py)).
+Python checks: [`tests/unit/test_conformance_vectors.py`](../unit/test_conformance_vectors.py) (every
+vector, every area) and [`tests/unit/test_conformance_ab.py`](../unit/test_conformance_ab.py).
 
 ## File format
 
@@ -132,6 +138,56 @@ The SubDevice JSON message for one device, byte for byte.
 - `expected`: `{"bytes": "..."}`, the UTF-8 text of the encoded payload. The message contains
   `"FirmVersion":"<firm_version>"`; an engine with another release number replaces that one
   field before comparing, as the payload golden test does.
+
+### `ab_logix/plan`
+
+Planning of an `ab_logix` device (ControlLogix/CompactLogix and Micro800, symbolic tags).
+
+- `input`: `{"params": {...}, "tags": [...]}` as for Modbus. Params that matter: `micro800`
+  (truth value), `max_batch` (names per read, default 40; `0`/`null` = default),
+  `connection_size` (default 4000 B, 500 B on Micro800), plus `batching`, `slot` and `path`,
+  which are only validated.
+- `expected`: `{"blocks": [...], "invalid": {...}}`, or `{"error": "reason"}` when the params are
+  refused (when the driver is built or the plan made). Each block is one `plc.read(*names)`:
+  - `reads`: the distinct names in read order (sorted by code point), each with `data_size`
+    (estimated reply bytes: dtype size, a `.n` bit's host as at least 4 B, the largest per name)
+    and `path_size` (request path bytes);
+  - `items`: `{"tag", "index", "bit"}`, the read each tag takes its value from and its `.n` bit,
+    ordered by read then tag name;
+  - `tags`, `micro800`, `connection_size`;
+  - `wire_requests`: the estimated CIP round trips: one request per name on Micro800 or for a
+    single name, otherwise Multiple Service Packets packed greedily by response size against
+    the connection size, and fragmented reads for an entry larger than the connection.
+
+### `ab_logix/decode`
+
+- `input`: `{"params", "tags", "values"}`. The tags plan to exactly one block; `values` is a
+  tagged value: the list `plc.read(*names)` returned, aligned with the block's `reads` (a
+  `none` element: no value for that name), or `none` for no reply at all.
+- `expected`: `{"values": {"TAG": <value>}}`, each tag coerced to its dtype (integers wrap to
+  the dtype's width, `.n` bits taken from the integer) or a `decode_error`.
+
+### `ab_pccc/plan`
+
+Planning of an `ab_pccc` device (SLC 500, MicroLogix, PLC-5 data tables; `ab_df1` shares it).
+
+- `input`: `{"params": {...}, "tags": [...]}`. Params: `max_elements` (100), `max_gap` (4),
+  `request_size` (232 B, clamped to the 255-byte PCCC limit), plus `file_check` and `path`,
+  which are only validated.
+- `expected`: `{"blocks": [...], "invalid": {...}}` or `{"error": "reason"}`. Each block is one
+  PCCC read: `address` (the read string, `N7:0{3}`), `file_type`, `file_number`, `slot` (I/O
+  only, else null), `field` (T/C sub-element, else null), `start` (first element, or word in
+  the slot), `count`, `elem_size`, `tags`, and `items` `{"tag", "offset", "bit"}` ordered by
+  offset, bit (none first) and tag name.
+
+### `ab_pccc/decode`
+
+- `input`: `{"params", "tags", "value"}`. The tags plan to exactly one block; `value` is the
+  tagged `.value` pycomm3 returned for its address: a scalar for one element, a list for `{n}`,
+  or `none`. N/B/S/I/O words come back signed.
+- `expected`: `{"values": {"TAG": <value>}}`: words masked or sign-extended to the dtype, bits
+  taken from the whole word, T/C bits already extracted (any non-zero is true), or a
+  `decode_error`.
 
 ## Regenerating
 

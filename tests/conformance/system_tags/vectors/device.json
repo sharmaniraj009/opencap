@@ -1,0 +1,599 @@
+{
+ "spec": "docs/spec/system-tags.md",
+ "spec_version": 1,
+ "description": "Device status and config mirrors (spec §8, §9).",
+ "cases": [
+  {
+   "kind": "snapshot",
+   "name": "device_state_table",
+   "sections": [
+    "8.1",
+    "9"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:30.900Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Plant A",
+      "enabled": true,
+      "devices": [
+       {
+        "name": "Ok",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "error_since": null,
+         "last_good": "2026-11-18T10:00:30.100Z",
+         "errors": 2,
+         "last_error": null,
+         "cycle_ms": 12.5,
+         "connected": true,
+         "last_connect_failed": false
+        },
+        "counters": {
+         "overruns": 1
+        }
+       },
+       {
+        "name": "New",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "offline",
+         "consecutive_failures": 0,
+         "error_since": null,
+         "last_good": null,
+         "errors": 0,
+         "last_error": null,
+         "cycle_ms": 0.0,
+         "connected": false,
+         "last_connect_failed": false
+        }
+       },
+       {
+        "name": "Failing",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "offline",
+         "consecutive_failures": 2,
+         "error_since": "2026-11-18T10:00:00.000Z",
+         "last_good": "2026-11-18T09:59:58.000Z",
+         "errors": 2,
+         "last_error": "HR 0..9 (10 regs): timeout",
+         "cycle_ms": 9012.0,
+         "connected": true,
+         "last_connect_failed": false
+        }
+       },
+       {
+        "name": "Demoted",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "demoted",
+         "consecutive_failures": 3,
+         "error_since": "2026-11-18T09:58:00.000Z",
+         "last_good": null,
+         "errors": 7,
+         "last_error": "connect failed: connection refused",
+         "cycle_ms": 3.4,
+         "connected": false,
+         "last_connect_failed": true
+        }
+       },
+       {
+        "name": "Off",
+        "enabled": false,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": null,
+        "counters": {
+         "ok": 12,
+         "overruns": 4
+        }
+       }
+      ]
+     },
+     {
+      "name": "Plant B",
+      "enabled": false,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "errors": 5,
+         "connected": true,
+         "last_good": "2026-11-18T09:00:00.000Z"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Plant A.Ok._System._State": {
+     "dtype": "string",
+     "value": "ok"
+    },
+    "Plant A.Ok._System._Error": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Ok._System._NoError": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Ok._System._SecondsInError": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Plant A.Ok._System._AutoDemoted": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Ok._System._FailedConnection": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Ok._System._Connected": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Ok._System._LastGood": {
+     "dtype": "datetime",
+     "value": "2026-11-18T10:00:30.100Z"
+    },
+    "Plant A.Ok._System._LastError": {
+     "dtype": "string",
+     "value": ""
+    },
+    "Plant A.Ok._System._ErrorCount": {
+     "dtype": "uint64",
+     "value": 2
+    },
+    "Plant A.Ok._System._CycleMs": {
+     "dtype": "float64",
+     "value": 12.5
+    },
+    "Plant A.Ok._System._Overruns": {
+     "dtype": "uint64",
+     "value": 1
+    },
+    "Plant A.Ok._System._Enabled": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.New._System._State": {
+     "dtype": "string",
+     "value": "offline"
+    },
+    "Plant A.New._System._Error": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.New._System._NoError": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.New._System._SecondsInError": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Plant A.New._System._AutoDemoted": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.New._System._Connected": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.New._System._LastGood": {
+     "dtype": "datetime",
+     "value": null
+    },
+    "Plant A.New._System._ErrorCount": {
+     "dtype": "uint64",
+     "value": 0
+    },
+    "Plant A.Failing._System._State": {
+     "dtype": "string",
+     "value": "offline"
+    },
+    "Plant A.Failing._System._Error": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Failing._System._NoError": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Failing._System._SecondsInError": {
+     "dtype": "uint32",
+     "value": 30
+    },
+    "Plant A.Failing._System._AutoDemoted": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Failing._System._FailedConnection": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Failing._System._LastGood": {
+     "dtype": "datetime",
+     "value": "2026-11-18T09:59:58.000Z"
+    },
+    "Plant A.Failing._System._LastError": {
+     "dtype": "string",
+     "value": "HR 0..9 (10 regs): timeout"
+    },
+    "Plant A.Failing._System._ErrorCount": {
+     "dtype": "uint64",
+     "value": 2
+    },
+    "Plant A.Failing._System._CycleMs": {
+     "dtype": "float64",
+     "value": 9012.0
+    },
+    "Plant A.Demoted._System._State": {
+     "dtype": "string",
+     "value": "demoted"
+    },
+    "Plant A.Demoted._System._Error": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Demoted._System._NoError": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Demoted._System._SecondsInError": {
+     "dtype": "uint32",
+     "value": 150
+    },
+    "Plant A.Demoted._System._AutoDemoted": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Demoted._System._FailedConnection": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Demoted._System._Connected": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Demoted._System._LastError": {
+     "dtype": "string",
+     "value": "connect failed: connection refused"
+    },
+    "Plant A.Demoted._System._ErrorCount": {
+     "dtype": "uint64",
+     "value": 7
+    },
+    "Plant A.Off._System._State": {
+     "dtype": "string",
+     "value": "disabled"
+    },
+    "Plant A.Off._System._Error": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Off._System._NoError": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Off._System._SecondsInError": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Plant A.Off._System._AutoDemoted": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Off._System._FailedConnection": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Off._System._Connected": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Off._System._LastGood": {
+     "dtype": "datetime",
+     "value": null
+    },
+    "Plant A.Off._System._LastError": {
+     "dtype": "string",
+     "value": ""
+    },
+    "Plant A.Off._System._ErrorCount": {
+     "dtype": "uint64",
+     "value": 0
+    },
+    "Plant A.Off._System._CycleMs": {
+     "dtype": "float64",
+     "value": 0.0
+    },
+    "Plant A.Off._System._Overruns": {
+     "dtype": "uint64",
+     "value": 4
+    },
+    "Plant A.Off._System._Enabled": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.Off._Statistics._SuccessfulReads": {
+     "dtype": "uint32",
+     "value": 12
+    },
+    "Plant A.Off._Statistics._RequestsOk": {
+     "dtype": "uint64",
+     "value": 12
+    },
+    "Plant B.PLC1._System._State": {
+     "dtype": "string",
+     "value": "disabled"
+    },
+    "Plant B.PLC1._System._Error": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant B.PLC1._System._Enabled": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant B.PLC1._System._Connected": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant B.PLC1._System._ErrorCount": {
+     "dtype": "uint64",
+     "value": 0
+    },
+    "Plant B.PLC1._System._LastGood": {
+     "dtype": "datetime",
+     "value": null
+    }
+   },
+   "absent": [
+    "Plant A.Ok._System._ActivePath",
+    "Plant A.Ok._System._ConnectTimeout",
+    "Plant A.Ok._System._DemandPoll"
+   ]
+  },
+  {
+   "kind": "snapshot",
+   "name": "device_config_mirrors",
+   "sections": [
+    "8.2"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Plant A",
+      "enabled": true,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        },
+        "scan_ms": 500,
+        "timeout_ms": 2000,
+        "retries": 0,
+        "demote_after": 0,
+        "demote_for_ms": 10000,
+        "description": "pump house"
+       },
+       {
+        "name": "PLC2",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.11",
+        "port": 5020,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        },
+        "demote_after": -1
+       },
+       {
+        "name": "Sim1",
+        "enabled": true,
+        "driver": "simulator",
+        "host": "sim",
+        "port": 0,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       },
+       {
+        "name": "Logix",
+        "enabled": true,
+        "driver": "ab_logix",
+        "host": "192.0.2.12",
+        "port": 44818,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Plant A.PLC1._System._Driver": {
+     "dtype": "string",
+     "value": "modbus_tcp"
+    },
+    "Plant A.PLC1._System._DeviceId": {
+     "dtype": "string",
+     "value": "192.0.2.10:502"
+    },
+    "Plant A.PLC1._System._Description": {
+     "dtype": "string",
+     "value": "pump house"
+    },
+    "Plant A.PLC1._System._Simulated": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.PLC1._System._ScanMode": {
+     "dtype": "string",
+     "value": "tag_scan_rate"
+    },
+    "Plant A.PLC1._System._ScanRateMs": {
+     "dtype": "uint32",
+     "value": 500
+    },
+    "Plant A.PLC1._System._RequestTimeout": {
+     "dtype": "uint32",
+     "value": 2000
+    },
+    "Plant A.PLC1._System._RequestAttempts": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "Plant A.PLC1._System._AutoDemotionEnabled": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.PLC1._System._AutoDemotedFailureCount": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Plant A.PLC1._System._AutoDemotionIntervalMS": {
+     "dtype": "uint32",
+     "value": 10000
+    },
+    "Plant A.PLC2._System._DeviceId": {
+     "dtype": "string",
+     "value": "192.0.2.11:5020"
+    },
+    "Plant A.PLC2._System._Description": {
+     "dtype": "string",
+     "value": ""
+    },
+    "Plant A.PLC2._System._ScanRateMs": {
+     "dtype": "uint32",
+     "value": 1000
+    },
+    "Plant A.PLC2._System._RequestTimeout": {
+     "dtype": "uint32",
+     "value": 3000
+    },
+    "Plant A.PLC2._System._RequestAttempts": {
+     "dtype": "uint32",
+     "value": 3
+    },
+    "Plant A.PLC2._System._AutoDemotionEnabled": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A.PLC2._System._AutoDemotedFailureCount": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Plant A.PLC2._System._AutoDemotionIntervalMS": {
+     "dtype": "uint32",
+     "value": 30000
+    },
+    "Plant A.Sim1._System._Simulated": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Sim1._System._Driver": {
+     "dtype": "string",
+     "value": "simulator"
+    },
+    "Plant A.Logix._System._DeviceId": {
+     "dtype": "string",
+     "value": "192.0.2.12:44818"
+    },
+    "Plant A.Logix._System._AutoDemotionEnabled": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Plant A.Logix._System._AutoDemotedFailureCount": {
+     "dtype": "uint32",
+     "value": 3
+    }
+   },
+   "absent": [
+    "Plant A.PLC1._System._EncapsulationIp",
+    "Plant A.Logix._System._EncapsulationPort"
+   ]
+  }
+ ]
+}

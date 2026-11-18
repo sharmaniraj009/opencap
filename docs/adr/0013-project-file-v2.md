@@ -1,6 +1,6 @@
 # 0013. Project file v2: one project document plus node settings
 
-- Status: Proposed (to be reconciled with the `web-ui` config API PR)
+- Status: Proposed. Reconciled with the config API as built in #63 (see "Status after #63"); implementation is #37
 - Date: 2026-11-17
 - Deciders: technical lead
 
@@ -34,3 +34,23 @@ API writes into `overrides.yaml` (overrides grow into a second project); a datab
 
 ## Revisit when
 Many concurrent editors per project (05 "revisit").
+
+## Status after #63 (2026-11-18)
+The configuration API merged in #63, **on the v1 layout**. `src/opencap/config/store.py`
+(`ConfigStore`) edits `devices.json`, `devices_map.yaml` and `overrides.yaml`. Each change is
+validated with the models, a staged loader run and the driver plan. Revisions are content
+hashes exposed as `ETag`, with `If-Match` → 412. Multi-file commits are atomic with rollback,
+the audit log is written inside the lock, and a write does not reload until `POST /reload` or
+`?apply=true` (D-039–D-044). D-012 was amended: `devices_map.yaml` is now rewritten through
+ruamel.yaml with its comments kept.
+
+What this means for v2 (#37):
+- #37 first extracts a `ProjectStore` protocol from `ConfigStore` (load, revision, commit,
+  rollback, history) and makes the API depend on the protocol, not the class. Then it adds the
+  v2 store (`project.json` + `node.yaml`) as a second implementation, and `opencap config migrate`.
+- The `/map…` and `/overrides…` routes and the `files`-keyed export stay as **v1 compatibility
+  routes** for installations that keep the KEPServerEX-managed layering. On a v2 project they
+  answer 409 with a pointer to `/channels…`.
+- The API's KEPServerEX import keeps the CLI's stub-append rules (D-012) on v1. On v2 it produces
+  a project revision through the same `ProjectStore`.
+- This ADR becomes Accepted when #37 merges.

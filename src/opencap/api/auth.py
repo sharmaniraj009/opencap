@@ -7,9 +7,10 @@ Tokens (poller.yaml `api`):
 
 Roles: `viewer` may use safe methods only (GET/HEAD): status, values, config reads,
 validation, export, audit. `admin` may also change things (config writes, import, reload,
-read-once). With no token at all the API starts only on a loopback bind, and every caller
-is the admin "anonymous" (D-019); then unsafe requests a browser marks as cross-site are
-refused, so a web page cannot drive the open local API.
+read-once). With no token at all the API starts only on a loopback bind (D-019) and is
+**read-only**: every caller is the viewer "anonymous", and only requests addressed to a
+loopback host name (`Host: 127.0.0.1`, `localhost` or `[::1]`) are answered, so a web page
+cannot reach it through DNS rebinding either.
 
 The web UI is a static page that sends the same `Authorization: Bearer` header; it keeps
 the token in the browser tab's `sessionStorage`. There are no cookies, so no CSRF surface.
@@ -28,6 +29,9 @@ from opencap.config.models import ApiCfg
 Role = Literal["viewer", "admin"]
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 LEGACY_NAME = "default"
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+OPEN_READ_ONLY = ("no API token is configured, so the API is read-only: "
+                  "set api.tokens (or api.token_env) in poller.yaml to make changes")
 
 
 @dataclass(frozen=True)
@@ -54,14 +58,12 @@ def is_safe(method: str) -> bool:
     return method.upper() in SAFE_METHODS
 
 
-def cross_site(headers: Mapping[str, str], host: str | None) -> bool:
-    """True when a browser says the request comes from another web origin."""
-    if headers.get("sec-fetch-site", "").lower() == "cross-site":
-        return True
-    origin = headers.get("origin")
-    if origin and origin != "null" and host:
-        return origin.split("://", 1)[-1].rstrip("/") != host
-    return origin == "null"
+def host_name(host: str | None) -> str:
+    """The name part of a Host header: "[::1]:8080" -> "::1", "localhost:8080" -> "localhost"."""
+    host = (host or "").strip().lower()
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
 
 
 class Auth:
@@ -80,7 +82,6 @@ class Auth:
         if len(set(secrets_seen)) != len(secrets_seen):
             raise RuntimeError("api tokens: two tokens have the same secret; give each its own")
         self.open = not self._tokens
-        self._cors = set(cfg.cors_origins)
 
     def check_token(self, given: str) -> tuple[str, Role] | None:
         """(name, role) of the token, or None. Compares against every token (constant time)."""
@@ -95,10 +96,12 @@ class Auth:
         """Authorize a request. Raises AuthError."""
         via = "ui" if headers.get("x-opencap-client", "") == "ui" else "api"
         if self.open:
-            origin = headers.get("origin")
-            if not is_safe(method) and cross_site(headers, host) and origin not in self._cors:
-                raise AuthError(403, "cross-site request refused")
-            return Principal("anonymous", "admin", via)
+            # DNS rebinding: a foreign page reaching the loopback API sends its own host name
+            if host_name(host) not in LOOPBACK_HOSTS:
+                raise AuthError(403, "no API token is configured: only requests to localhost are answered")
+            if not is_safe(method):
+                raise AuthError(403, OPEN_READ_ONLY)
+            return Principal("anonymous", "viewer", via)
         scheme, _, given = headers.get("authorization", "").partition(" ")
         found = self.check_token(given.strip()) if scheme.lower() == "bearer" and given.strip() else None
         if found is None:

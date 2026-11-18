@@ -472,7 +472,8 @@ api:
 `viewer` may read everything (status, values, config, validation, export, audit); `admin` may
 also change the config, import, reload and read-once. `api.token_env` still works: it is the
 admin named `default`. Log in to the UI with a token; it is kept in that browser tab only
-(`sessionStorage`) and sent as a bearer token.
+(`sessionStorage`) and sent as a bearer token. With no token configured at all, the API and the
+UI are read-only and answer only requests addressed to localhost.
 
 **UI pages.** Dashboard (sites and devices: ok/offline/demoted, last good, errors, cycle time,
 MQTT link, outbox size) · device page (live values and quality every 2 s, block plan,
@@ -481,8 +482,8 @@ overrides; validation errors next to the field; Reload) · check (block plan and
 · import (KEPServerEX `project.json` or an opencap export, with a dry-run diff) · audit log.
 The UI never writes a PLC value.
 
-**Configuration API** (contract: [03 §3.6](docs/architecture/03-deep-dive.md)). Reads return
-the config `revision` (also as `ETag`). **Every write needs `If-Match: <revision>`**: 428
+**Configuration API** (contract: [03 §3.6](docs/architecture/03-deep-dive.md)). Reads, lists
+included, return the config `revision` (also as `ETag`). **Every write needs `If-Match: <revision>`**: 428
 without it, 412 when someone changed the config since you read it. `PUT` replaces, `PATCH` is a
 JSON merge patch (`null` removes a key).
 
@@ -494,7 +495,7 @@ JSON merge patch (`null` removes a key).
 | `GET/POST /api/v1/channels/{channel}/devices` · `GET /api/v1/devices` | devices of a channel · all devices |
 | `GET/PUT/PATCH/DELETE /api/v1/devices/{id}` | one device (`devices.json`) |
 | `GET/POST /api/v1/devices/{id}/tags` · `GET/PUT/PATCH/DELETE …/tags/{tag}` | tags (POST takes one or a list) |
-| `GET /api/v1/devices/{id}/status`, `/values`, `/plan`, `/identity` · `POST …/read-once` | the running device |
+| `GET /api/v1/devices/{id}/status`, `/values`, `/plan`, `/identity` · `POST …/read-once` | the running device (identity is cached 5 min; `?refresh=true` needs admin) |
 | `GET /api/v1/map` · `PUT /api/v1/map/defaults` · `GET/PUT/PATCH/DELETE /api/v1/map/devices/{id}` | `devices_map.yaml` |
 | `GET /api/v1/overrides` · `GET/PUT/PATCH/DELETE /api/v1/overrides/devices/{id}` · `GET/PUT/DELETE /api/v1/overrides/channels/{channel}` | `overrides.yaml` |
 | `GET /api/v1/project[?download=true]` | the whole config (the four files), a backup |
@@ -515,8 +516,12 @@ curl -s -H "$H" -X POST $API/reload                       # apply (or add ?apply
 
 Every change is checked by its model, by the loader and by the device's driver (a tag address the
 driver cannot read is refused) before anything is written; a 422 lists each error with its field.
-Files are written atomically and the previous version is kept as `<file>.bak`; comments in the
-hand-owned `devices_map.yaml` and `overrides.yaml` are kept. A write changes the files only:
+A change to several files is written all or nothing (temp files first, then renames, rolled back
+on failure), the previous version is kept as `<file>.bak`, and comments in the hand-owned
+`devices_map.yaml` and `overrides.yaml` are kept. If the config directory is read-only (see
+[Deployment](#deployment)), the UI turns editing off and writes answer 503 with the path. The
+token is checked before a request body is read, and bodies are limited to 1 MiB (64 MiB for
+imports). A write changes the files only:
 `POST /api/v1/reload` applies them (only changed channels restart), or add `?apply=true` to the
 write. Renaming a device or channel moves its map entry and override along; deleting one deletes
 them. Channels, devices and tags live in `devices.json`, which a KEPServerEX re-import replaces:

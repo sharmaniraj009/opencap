@@ -113,6 +113,12 @@
     editHref: function (id) { return href("edit", id); },
     channelHref: function (name) { return "#/channel/" + enc(name); },
     isAdmin: function () { return Alpine.store("app").role === "admin"; },
+    canEdit: function () { var s = Alpine.store("app"); return s.role === "admin" && s.writable; },
+    editBlockedText: function () {
+      var s = Alpine.store("app");
+      if (s.role !== "admin") return s.open ? "No API token is configured: the configuration is read-only." : "Your role is viewer: changes need an admin token.";
+      return s.writable ? "" : "The config directory is read-only: " + s.writableReason;
+    },
     fmt: function (v) {
       if (v === null || v === undefined) return "—";
       if (typeof v === "boolean") return v ? "true" : "false";
@@ -154,7 +160,7 @@
   }
 
   document.addEventListener("alpine:init", function () {
-    Alpine.store("app", { name: "", role: "", open: false, ready: false, route: parseHash(), pending: null, flash: null });
+    Alpine.store("app", { name: "", role: "", open: false, writable: false, writableReason: "", ready: false, route: parseHash(), pending: null, flash: null });
 
     // ------------------------------------------------------------ shell
     Alpine.data("shell", function () {
@@ -176,6 +182,7 @@
             return call("GET", "/api/v1/whoami", { token: readToken() });
           }).then(function (me) {
             s.name = me.name; s.role = me.role; s.open = me.open; s.ready = true;
+            s.writable = !!me.config_writable; s.writableReason = me.config_writable_reason || "";
           }).catch(function () {
             s.name = ""; s.role = ""; s.ready = true;
           });
@@ -262,6 +269,7 @@
             writeToken(self.token.trim());
             var s = Alpine.store("app");
             s.name = me.name; s.role = me.role; s.open = me.open;
+            s.writable = !!me.config_writable; s.writableReason = me.config_writable_reason || "";
             self.token = "";
             go("dashboard");
           }).catch(function (e) {
@@ -343,10 +351,10 @@
             if (e.status === 404) self.missing = true; else self.error = e.message;
           });
         },
-        loadIdentity: function () {
+        loadIdentity: function (refresh) {
           var self = this;
           this.ident = null;
-          call("GET", "/api/v1/devices/" + encId(this.id) + "/identity").then(function (i) {
+          call("GET", "/api/v1/devices/" + encId(this.id) + "/identity" + (refresh ? "?refresh=true" : "")).then(function (i) {
             self.ident = { connected: i.connected, error: i.error || "", rows: Object.keys(i.identity || {}).sort().map(function (k) { return { key: k, value: i.identity[k] }; }) };
           }).catch(function (e) { self.ident = { connected: false, error: e.message, rows: [] }; });
         },
@@ -388,9 +396,9 @@
         init: function () { this.load(); },
         load: function () {
           var self = this;
-          return Promise.all([call("GET", "/api/v1/project/status"), call("GET", "/api/v1/channels").catch(function () { return []; }),
+          return Promise.all([call("GET", "/api/v1/project/status"), call("GET", "/api/v1/channels").catch(function () { return { channels: [] }; }),
                               call("GET", "/api/v1/map")]).then(function (r) {
-            self.summary = r[0]; self.rev = r[0].revision; self.channels = r[1];
+            self.summary = r[0]; self.rev = r[0].revision; self.channels = r[1].channels;
             self.defaultsText = pretty(r[2].defaults);
           }).catch(function (e) { self.loadError = e.message; });
         },
@@ -533,7 +541,7 @@
                               call("GET", "/api/v1/channels")]).then(function (res) {
             self.apply(res[0]);
             self.drivers = res[1].drivers;
-            self.channels = res[2].map(function (c) { return c.name; });
+            self.channels = res[2].channels.map(function (c) { return c.name; });
           }).catch(function (e) { self.loadError = e.message; });
         },
         apply: function (data) {

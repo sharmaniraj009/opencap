@@ -42,6 +42,8 @@ OUTAGE_S = float(os.environ.get("OPENCAP_OUTAGE_S", "8"))
 VICTIM = 7                                   # index of the simulator we kill
 DATETIME_RE = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
 
+API_TOKEN = "phase1-acceptance-token"
+
 
 def _close(got, want) -> bool:
     if isinstance(want, float) or isinstance(got, float):
@@ -62,7 +64,9 @@ async def _wait(pred, timeout: float, what: str, step: float = 0.1) -> None:
         await asyncio.sleep(step)
 
 
-async def test_phase1_acceptance(tmp_path, engine_factory):
+async def test_phase1_acceptance(tmp_path, engine_factory, monkeypatch):
+    # open mode (no token) is read-only (D-040); read-once below needs the admin token
+    monkeypatch.setenv("OPENCAP_API_TOKEN", API_TOKEN)
     configure_logging("WARNING")
     timeout_s = max(120.0, OUTAGE_S * 3 + 120)
     async with asyncio.timeout(timeout_s):
@@ -164,7 +168,8 @@ async def _check_kill_one(col, poller, sims, topics, status_topics) -> None:
 
 async def _check_api(api_port, devices) -> None:
     base = f"http://127.0.0.1:{api_port}"
-    async with httpx.AsyncClient(base_url=base, timeout=10) as http:
+    async with httpx.AsyncClient(base_url=base, timeout=10,
+                                 headers={"Authorization": f"Bearer {API_TOKEN}"}) as http:
         health = (await http.get("/health")).json()
         assert health["mqtt_connected"] is True and health["devices"]["ok"] == N_DEVICES
         dev = devices[0].id

@@ -23,7 +23,8 @@
     <button class="link" x-show="!app().open" @click="logout()">Log out</button>
   </div>
 </header>
-<div class="banner info" x-show="app().open" x-cloak>No API token is configured: the API and this UI are open to anyone on this machine (loopback only). Set <code>api.tokens</code> in poller.yaml.</div>
+<div class="banner info" x-show="app().open" x-cloak>No API token is configured, so this UI is read-only and answers only on localhost. Set <code>api.tokens</code> in poller.yaml to edit the configuration.</div>
+<div class="banner warn" id="readonly-config" x-show="app().name && isAdmin() && !app().writable" x-cloak>Configuration editing is off: <span x-text="app().writableReason"></span>. See docs/deployment.md (the config directory must be writable by opencap).</div>
 <div class="banner warn" id="pending" x-show="pendingShown()" x-cloak>
   <span x-text="pendingText()"></span>
   <button class="primary small" x-show="canReload()" @click="reload()">Reload now</button>
@@ -133,7 +134,7 @@
       <table class="compact kv" x-show="ident && has(ident.rows)">
         <tbody><template x-for="row in (ident ? ident.rows : [])" :key="row.key"><tr><th x-text="row.key"></th><td class="wrap" x-text="fmt(row.value)"></td></tr></template></tbody>
       </table>
-      <button class="small" @click="loadIdentity()">Refresh identity</button>
+      <button class="small" x-show="isAdmin()" @click="loadIdentity(true)">Ask the device again</button>
     </div>
 
     <h2>Block plan</h2>
@@ -192,7 +193,7 @@
     </table>
   </div>
   <p class="muted" x-show="summary && !has(channels)">No channels yet: add one or <a href="#/import">import a KEPServerEX project</a>.</p>
-  <form id="channel-create" class="inline-form" x-show="isAdmin()" @submit.prevent="addChannel()">
+  <form id="channel-create" class="inline-form" x-show="canEdit()" @submit.prevent="addChannel()">
     <div class="error-box" x-show="has(general)"><strong>Not saved:</strong><ul><template x-for="(g, i) in general" :key="i"><li x-text="g"></li></template></ul></div>
     <label>New channel <input name="name" x-model="newChannel" placeholder="Plant A" required><span class="field-error" x-show="err('name')" x-text="err('name')"></span></label>
     <button type="submit">Add channel</button>
@@ -200,12 +201,12 @@
 
   <h2>Publish defaults <small class="muted">devices_map.yaml <code>defaults</code>, merged into every device's publish settings</small></h2>
   <form id="map-defaults" class="stack" @submit.prevent="saveDefaults()">
-    <fieldset :disabled="!isAdmin()">
+    <fieldset :disabled="!canEdit()">
       <div class="error-box" x-show="has(defaultsErrors)"><strong>Not saved:</strong><ul><template x-for="(e, i) in defaultsErrors" :key="i"><li x-text="e"></li></template></ul></div>
       <p class="flash flash-ok inline" x-show="defaultsNote" x-text="defaultsNote"></p>
       <label>Defaults (JSON; publish settings: env, mode, interval_ms, heartbeat_ms, deadband)
         <textarea name="defaults" rows="3" spellcheck="false" placeholder='{"env": "prod"}' x-model="defaultsText"></textarea></label>
-      <button type="submit" x-show="isAdmin()">Save defaults</button>
+      <button type="submit" x-show="canEdit()">Save defaults</button>
     </fieldset>
   </form>
 
@@ -224,11 +225,11 @@
   <p class="crumbs"><a href="#/config">Config</a> ›</p>
   <div class="toolbar">
     <h1 x-text="name"></h1>
-    <div class="actions" x-show="isAdmin()"><button class="danger" @click="remove()">Delete channel</button></div>
+    <div class="actions" x-show="canEdit()"><button class="danger" @click="remove()">Delete channel</button></div>
   </div>
   <p class="error" x-show="loadError" x-text="loadError"></p>
   <form id="channel-form" class="grid-form" @submit.prevent="save()" x-show="channel">
-    <fieldset :disabled="!isAdmin()">
+    <fieldset :disabled="!canEdit()">
       <div class="error-box" x-show="has(general)"><strong>Not saved:</strong><ul><template x-for="(g, i) in general" :key="i"><li x-text="g"></li></template></ul></div>
       <p class="flash flash-ok inline" x-show="note" x-text="note"></p>
       <label>Name <input name="name" x-model="form.name" required><span class="field-error" x-show="err('name')" x-text="err('name')"></span></label>
@@ -237,7 +238,7 @@
         <select name="override" x-model="form.override">
           <option value="">none</option><option value="true">force enabled</option><option value="false">force disabled</option>
         </select></label>
-      <div class="buttons" x-show="isAdmin()"><button type="submit">Save channel</button></div>
+      <div class="buttons" x-show="canEdit()"><button type="submit">Save channel</button></div>
     </fieldset>
   </form>
   <h2>Devices</h2>
@@ -258,7 +259,7 @@
       </tbody>
     </table>
   </div>
-  <template x-if="isAdmin()">
+  <template x-if="canEdit()">
     <section>
       <h2>Add a device</h2>
       <form id="device-create" class="grid-form" @submit.prevent="addDevice()">
@@ -284,7 +285,7 @@
     <h1 x-text="dev ? dev.name : id"></h1>
     <div class="actions">
       <a class="button" :href="deviceHref(id)">Live values</a>
-      <button class="danger" x-show="isAdmin() && dev" @click="removeDevice()">Delete device</button>
+      <button class="danger" x-show="canEdit() && dev" @click="removeDevice()">Delete device</button>
     </div>
   </div>
   <p class="error" x-show="loadError" x-text="loadError"></p>
@@ -292,7 +293,7 @@
   <div x-show="dev">
   <h2>Device</h2>
   <form id="device-form" class="grid-form" @submit.prevent="saveDevice()">
-    <fieldset :disabled="!isAdmin()">
+    <fieldset :disabled="!canEdit()">
       <div class="error-box" x-show="has(general)"><strong>Not saved:</strong><ul><template x-for="(g, i) in general" :key="i"><li x-text="g"></li></template></ul></div>
       <p class="flash flash-ok inline" x-show="note" x-text="note"></p>
       <label>Name <input name="name" x-model="form.name" required><span class="field-error" x-show="err('name')" x-text="err('name')"></span></label>
@@ -309,7 +310,7 @@
       <label>Demote for ms <input name="demote_for_ms" x-model="form.demote_for_ms" inputmode="numeric"><span class="field-error" x-show="err('demote_for_ms')" x-text="err('demote_for_ms')"></span></label>
       <label class="wide">Params (JSON, see docs/driver_params.md)
         <textarea name="params" rows="4" spellcheck="false" x-model="form.params"></textarea><span class="field-error" x-show="err('params')" x-text="err('params')"></span></label>
-      <div class="buttons" x-show="isAdmin()"><button type="submit" class="primary">Save device</button></div>
+      <div class="buttons" x-show="canEdit()"><button type="submit" class="primary">Save device</button></div>
     </fieldset>
   </form>
 
@@ -341,7 +342,7 @@
             <template x-if="isEditing(t)"><td><input name="description" aria-label="description" x-model="tagEdit.description"></td></template>
             <td class="nowrap">
               <span class="saved" x-show="savedTag === t.name && !isEditing(t)">saved</span>
-              <template x-if="isAdmin() && !isEditing(t)"><span><button class="small" @click="startEdit(t)">Edit</button> <button class="small danger" @click="deleteTag(t)">Delete</button></span></template>
+              <template x-if="canEdit() && !isEditing(t)"><span><button class="small" @click="startEdit(t)">Edit</button> <button class="small danger" @click="deleteTag(t)">Delete</button></span></template>
               <template x-if="isEditing(t)"><span><button class="primary small" @click="saveTag()">Save</button> <button class="small" @click="cancelEdit()">Cancel</button></span></template>
             </td>
           </tr>
@@ -349,7 +350,7 @@
       </tbody>
     </table>
   </div>
-  <form id="tag-create" class="grid-form" x-show="isAdmin()" @submit.prevent="addTag()">
+  <form id="tag-create" class="grid-form" x-show="canEdit()" @submit.prevent="addTag()">
     <h3 class="wide">Add a tag</h3>
     <div class="error-box" x-show="has(newTagGeneral)"><strong>Not saved:</strong><ul><template x-for="(g, i) in newTagGeneral" :key="i"><li x-text="g"></li></template></ul></div>
     <label>Name <input name="name" x-model="newTag.name" required><span class="field-error" x-show="newTagErr('name')" x-text="newTagErr('name')"></span></label>
@@ -364,7 +365,7 @@
 
   <h2>Publish map <small class="muted">devices_map.yaml</small></h2>
   <form id="map-form" class="grid-form" @submit.prevent="saveMap()">
-    <fieldset :disabled="!isAdmin()">
+    <fieldset :disabled="!canEdit()">
       <div class="error-box" x-show="has(mapGeneral)"><strong>Not saved:</strong><ul><template x-for="(g, i) in mapGeneral" :key="i"><li x-text="g"></li></template></ul></div>
       <p class="flash flash-ok inline" x-show="mapNote" x-text="mapNote"></p>
       <p class="muted wide" x-show="!hasMap">No entry: the device publishes without a SubDeviceId.</p>
@@ -372,7 +373,7 @@
       <label>Topic <input name="topic" x-model="map.topic" placeholder="default: <prefix>/<site>/<device>/data"><span class="field-error" x-show="mapErr('topic')" x-text="mapErr('topic')"></span></label>
       <label>Env <input name="env" x-model="map.env" placeholder="default"><span class="field-error" x-show="mapErr('env')" x-text="mapErr('env')"></span></label>
       <div class="field"><label class="check"><input type="checkbox" name="stub" x-model="map.stub"> Stub (generated guess: confirm before go-live)</label></div>
-      <div class="buttons" x-show="isAdmin()">
+      <div class="buttons" x-show="canEdit()">
         <button type="submit">Save map entry</button>
         <button type="button" class="danger" x-show="hasMap" @click="removeMap()">Remove entry</button>
       </div>
@@ -381,12 +382,12 @@
 
   <h2>Override <small class="muted">overrides.yaml: survives a KEPServerEX re-import</small></h2>
   <form id="override-form" class="stack" @submit.prevent="saveOverride()">
-    <fieldset :disabled="!isAdmin()">
+    <fieldset :disabled="!canEdit()">
       <div class="error-box" x-show="has(ovErrors)"><strong>Not saved:</strong><ul><template x-for="(e, i) in ovErrors" :key="i"><li x-text="e"></li></template></ul></div>
       <p class="flash flash-ok inline" x-show="ovNote" x-text="ovNote"></p>
       <label>Override (JSON; fields: enabled, host, port, scan_ms, min_scan_ms, timeout_ms, retries, demote_after, demote_for_ms, params, publish, tags). Empty removes it.
         <textarea name="override" rows="8" spellcheck="false" placeholder='{"timeout_ms": 2000, "tags": {"FLOW_1": {"scan_ms": 10000}}}' x-model="overrideText"></textarea></label>
-      <button type="submit" x-show="isAdmin()">Save override</button>
+      <button type="submit" x-show="canEdit()">Save override</button>
     </fieldset>
   </form>
   </div>
@@ -449,8 +450,8 @@
 <section x-data="importView" id="view-import">
   <h1>Import</h1>
   <p class="muted">A KEPServerEX <code>project.json</code> export replaces <code>devices.json</code> (as <code>opencap import-kep</code>) and adds stub SubDeviceIds for new devices to <code>devices_map.yaml</code>; your overrides and existing map entries are kept. An opencap export (Config › Export) restores the files it contains. Every import is a dry run first: nothing is written until you apply it, and the config must not change in between.</p>
-  <p class="error" x-show="!isAdmin()">Your role is viewer: imports need an admin token.</p>
-  <form id="import-form" class="stack" x-show="isAdmin()" @submit.prevent="preview()">
+  <p class="error" x-show="!canEdit()" x-text="editBlockedText()"></p>
+  <form id="import-form" class="stack" x-show="canEdit()" @submit.prevent="preview()">
     <label>File <input type="file" name="file" accept=".json,application/json" @change="pick($event)" required></label>
     <div class="buttons"><button type="submit" class="primary" :disabled="busy">Preview changes (dry run)</button></div>
   </form>

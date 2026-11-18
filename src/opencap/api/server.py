@@ -5,8 +5,10 @@ Auth (D-019, D-040): `Authorization: Bearer <token>`. Tokens are named and carry
 (`viewer`: GET only; `admin`: also changes), see `opencap.api.auth`. The legacy single
 token from the env var named in `poller.yaml` `api.token_env` is the admin "default".
 `/health`, `/metrics`, `/api/v1/auth-info` and the UI's static files are open; everything
-else needs a token.
-With no token set the API refuses to start unless it is bound to a loopback address.
+else needs a token, checked before the request body is read (`guard.py`, which also caps
+body sizes).
+With no token set the API refuses to start unless it is bound to a loopback address, and
+then it is read-only and answers only requests addressed to localhost.
 
 Routes: runtime status (`/channels`, `/devices/...`, `POST /reload`; unversioned, kept for
 existing clients), the configuration API (`/api/v1/...`, see `config_api.py`) and the UI,
@@ -29,6 +31,7 @@ from opencap.api.audit import AuditLog
 from opencap.api.auth import Auth, AuthError, Principal
 from opencap.api.config_api import Unavailable, build_router
 from opencap.api.context import ApiContext
+from opencap.api.guard import ApiGuard
 from opencap.config.models import ApiCfg
 from opencap.config.store import ConfigError, ConfigStore
 
@@ -88,6 +91,9 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
 
     app = FastAPI(title="opencap", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.ctx = ctx
+    # Authenticate before any body is read, and cap body sizes (guard.py). Added before CORS, so
+    # the CORS middleware sits outside it and answers preflight requests.
+    app.add_middleware(ApiGuard, auth=auth)
     if cfg.cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=cfg.cors_origins, allow_credentials=False,
                            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],

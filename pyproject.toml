@@ -7,7 +7,7 @@ name = "opencap"
 version = "0.1.0"
 description = "Open-source industrial connectivity server: polls PLCs (Modbus, Allen-Bradley, ...) and publishes to MQTT"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]   # NOTICE lists the vendored files (ADR-0007)
 authors = [{ name = "opencap contributors" }]
 readme = "README.md"
 requires-python = ">=3.12"

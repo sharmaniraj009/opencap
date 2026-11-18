@@ -17,7 +17,7 @@ ARG PYTHON_IMAGE=python:3.12-slim
 FROM ${PYTHON_IMAGE} AS build
 ARG EXTRAS=modbus,ab,north
 WORKDIR /src
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml README.md LICENSE NOTICE ./
 COPY src ./src
 RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[${EXTRAS}]"
 

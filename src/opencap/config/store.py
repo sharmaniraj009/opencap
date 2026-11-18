@@ -23,7 +23,9 @@ Writes never apply anything to the running poller: that is `POST /reload`.
 
 from __future__ import annotations
 
+import contextvars
 import copy
+import errno
 import hashlib
 import json
 import os
@@ -37,17 +39,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, get_args
 
+import yaml
 from pydantic import BaseModel, ValidationError
 
 from opencap import FIRM_VERSION
 from opencap.config import yamledit
 from opencap.config.diff import capped, changes, devices_file_diff, text_diff
-from opencap.config.kep_import import (
+from opencap.config.kep_import import (  # the CLI importer's own helpers, so both behave alike
     DEVICES_MAP_HEADER,
     OVERRIDES_TEMPLATE,
+    _indent,
+    _stub_entries,
+    _yaml_entries,
     devices_json_text,
     import_kep,
-    stub_sub_device_id,
 )
 from opencap.config.loader import (
     DEVICES_FILE,
@@ -101,6 +106,28 @@ class NotFound(ConfigError):
 
 class Conflict(ConfigError):
     status = 409
+
+
+class StorageError(ConfigError):
+    """The files could not be written (read-only mount, permissions, full disk). Nothing changed."""
+
+    status = 503
+
+    def __init__(self, message: str, *, full: bool = False) -> None:
+        super().__init__(message)
+        if full:
+            self.status = 507
+
+
+class PartialWrite(StorageError):
+    """A multi-file change failed and could not be fully undone: `files` are in the new state."""
+
+    status = 500
+
+    def __init__(self, message: str, files: list[str]) -> None:
+        super().__init__(message)
+        self.status = 500
+        self.files = files
 
 
 class PreconditionFailed(ConfigError):
@@ -208,6 +235,97 @@ def atomic_write(path: Path, text: str, *, backup: bool = True) -> None:
     _fsync_dir(path.parent)
 
 
+def _is_full(exc: OSError) -> bool:
+    return exc.errno in (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC))
+
+
+def _write_bytes_atomically(path: Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with open(tmp, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def commit_files(directory: Path, texts: dict[str, str]) -> dict[str, bytes | None]:
+    """Write several files as one change: all or nothing, as far as the filesystem allows.
+
+    1. every new text goes to a temp file next to its target, fsynced;
+    2. each existing file is hard-linked (or copied) to `<name>.bak`;
+    3. the temp files are renamed over their targets.
+    If a step fails, the files already renamed get their previous bytes back and StorageError is
+    raised (nothing changed). If even that fails, PartialWrite names the files left changed.
+    Returns the previous bytes of every file (None = it did not exist), for a later rollback.
+    """
+    directory = Path(directory)
+    old: dict[str, bytes | None] = {}
+    staged: dict[str, Path] = {}
+    renamed: list[str] = []
+    try:
+        for name, text in texts.items():
+            path = directory / name
+            old[name] = path.read_bytes() if path.exists() else None
+            tmp = path.with_name(f".{name}.{uuid.uuid4().hex[:8]}.tmp")
+            staged[name] = tmp
+            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            if old[name] is not None:
+                shutil.copymode(path, tmp)
+        for name in texts:
+            path = directory / name
+            if old[name] is None:
+                continue
+            btmp = path.with_name(f".{name}.bak.{uuid.uuid4().hex[:8]}.tmp")
+            try:
+                try:
+                    os.link(path, btmp)              # the old inode lives on as the .bak
+                except OSError:
+                    shutil.copy2(path, btmp)
+                os.replace(btmp, path.with_name(name + ".bak"))
+            finally:
+                if btmp.exists():
+                    btmp.unlink()
+        for name, tmp in staged.items():
+            os.replace(tmp, directory / name)
+            renamed.append(name)
+    except OSError as exc:
+        left = rollback_files(directory, {n: old[n] for n in renamed})
+        what = f"cannot write {exc.filename or directory}: {exc.strerror or exc}"
+        if left:
+            raise PartialWrite(f"{what}; could not restore {', '.join(left)}, which now hold the new "
+                               "version (the previous one is in the .bak file)", left) from None
+        raise StorageError(f"{what}; nothing was changed", full=_is_full(exc)) from None
+    finally:
+        for tmp in staged.values():
+            if tmp.exists():
+                tmp.unlink()
+    _fsync_dir(directory)
+    return old
+
+
+def rollback_files(directory: Path, old: dict[str, bytes | None]) -> list[str]:
+    """Put back the previous bytes of `old`'s files; returns the files that could not be restored."""
+    left = []
+    for name, data in old.items():
+        path = Path(directory) / name
+        try:
+            if data is None:
+                path.unlink(missing_ok=True)
+            else:
+                _write_bytes_atomically(path, data)
+        except OSError:
+            left.append(name)
+    _fsync_dir(Path(directory))
+    return left
+
+
 # --- state ----------------------------------------------------------------------------
 
 @dataclass
@@ -272,6 +390,8 @@ class _Txn:
         self.map_renames: yamledit.Renames = {}
         self.ov_renames: yamledit.Renames = {}
         self.raw_texts: dict[str, str] = {}               # files replaced verbatim (import)
+        self.extra_files: dict[str, str] = {}             # other files written with the change
+        self.notes: list[dict[str, Any]] = []             # extra audit changes (e.g. file diffs)
         self.check_devices: set[str] = set()              # plan these effective devices
         self.check_tags: dict[str, set[str]] = {}         # ... and these tags must plan
         self.warnings: list[str] = []
@@ -385,13 +505,77 @@ def _changed_tags(old: list[dict[str, Any]], new: list[dict[str, Any]]) -> set[s
     return out
 
 
+STUBS_FILE = "devices_map.stubs.yaml"
+
+
+def _kep_map_update(text: str | None, devices_file: DevicesFile) -> tuple[str | None, str | None, str, list[str]]:
+    """What `opencap import-kep` does to devices_map.yaml (kep_import.update_devices_map), as texts:
+    create the file, or append stub entries for new device ids below the existing text; never
+    rewrite it. When appending is not safe, the stubs go to devices_map.stubs.yaml instead.
+    Returns (new map text or None, side-file text or None, status, new device ids)."""
+    stubs = _stub_entries(devices_file)
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d")
+    if text is None:
+        body = ("defaults: {}\ndevices:\n" + _indent(_yaml_entries(stubs))) if stubs else "defaults: {}\ndevices: {}\n"
+        return DEVICES_MAP_HEADER + body, None, f"created with {len(stubs)} stub entries", list(stubs)
+    try:
+        data = yaml.safe_load(text) or {}
+        existing = DeviceMap.model_validate(data)
+    except Exception as exc:  # noqa: BLE001 - leave an invalid file alone, like the CLI
+        return None, None, f"not updated: existing file is invalid ({type(exc).__name__}); fix it and re-import", []
+    new = {k: v for k, v in stubs.items() if k not in existing.devices}
+    if not new:
+        return None, None, f"unchanged ({len(existing.devices)} entries, no new devices)", []
+    expected = DeviceMap(defaults=existing.defaults, devices={**existing.devices, **new})
+    block = f"  # stubs added by the opencap config API import on {stamp}\n" + _indent(_yaml_entries(new))
+    base = text if text.endswith("\n") or not text else text + "\n"
+    candidates = [base + block] + ([base + "devices:\n" + block] if "devices" not in data else [])
+    for candidate in candidates:
+        try:
+            if DeviceMap.model_validate(yaml.safe_load(candidate) or {}) == expected:
+                return candidate, None, f"appended {len(new)} stub entries ({len(existing.devices)} existing kept)", list(new)
+        except Exception:  # noqa: BLE001
+            continue
+    side = "# New device ids not in devices_map.yaml: merge these by hand.\ndevices:\n" + _indent(_yaml_entries(new))
+    return None, side, (f"not updated: cannot append safely to its layout; {len(new)} new stub entries "
+                        f"written to {STUBS_FILE} for a manual merge"), list(new)
+
+
 def _safe_filename(name: str | None) -> str:
     base = Path(name or "project.json").name
     base = re.sub(r"[^A-Za-z0-9._ -]+", "_", base).strip(" .") or "project.json"
     return base[:100]
 
 
+MAX_NOTE_CHARS = 20_000
+
+
+def _file_notes(old: dict[str, str | None], new: dict[str, str | None], names: list[str]) -> list[dict[str, Any]]:
+    """Audit entries for whole files replaced by an import: a device-level summary for
+    devices.json, a unified text diff for the YAML files."""
+    notes: list[dict[str, Any]] = []
+    for name in names:
+        if name == DEVICES_FILE:
+            def doc(text: str | None) -> dict[str, Any]:
+                try:
+                    data = json.loads(text) if text else {}
+                    return data if isinstance(data, dict) and isinstance(data.get("channels"), list) else {"channels": []}
+                except ValueError:
+                    return {"channels": []}
+            notes.append({"path": name, "old": None, "new": None,
+                          "summary": devices_file_diff(doc(old.get(name)), doc(new.get(name)))["summary"]})
+        else:
+            d = text_diff(old.get(name), new.get(name), name)["diff"]
+            notes.append({"path": name, "old": None, "new": None,
+                          "diff": d if len(d) <= MAX_NOTE_CHARS else d[:MAX_NOTE_CHARS] + "\n… (truncated)"})
+    return notes
+
+
 # --- the store ------------------------------------------------------------------------
+
+# Who makes the current change (set by the API around a store call). The store passes it to
+# `on_commit` while it still holds the lock, so the audit entry is written with the change.
+CURRENT_WRITER: contextvars.ContextVar[Any] = contextvars.ContextVar("opencap_writer", default=None)
 
 class ConfigStore:
     """Read and change the config directory. Thread-safe; see the module docstring."""
@@ -400,6 +584,9 @@ class ConfigStore:
         self.dir = Path(config_dir)
         self.lock = threading.Lock()                 # held for every change and by POST /reload
         self._disk_cache: DiskState | None = None
+        # called with (result, writer, detail) after the files are written, inside the lock;
+        # if it raises (e.g. the audit log cannot be written) the change is rolled back
+        self.on_commit: Callable[[Result, Any, dict[str, Any] | None], None] | None = None
 
     # reading ------------------------------------------------------------------------
     def _raw(self) -> tuple[dict[str, bytes | None], str]:
@@ -436,6 +623,56 @@ class ConfigStore:
 
     def revision(self) -> str:
         return self._raw()[1]
+
+    def writable(self) -> dict[str, Any]:
+        """Can the API write the config files? (read-only mounts, ProtectSystem, permissions)"""
+        def no(reason: str) -> dict[str, Any]:
+            return {"writable": False, "reason": reason, "config_dir": str(self.dir)}
+
+        if not self.dir.is_dir():
+            return no(f"{self.dir} does not exist")
+        try:
+            if os.statvfs(self.dir).f_flag & os.ST_RDONLY:
+                return no(f"{self.dir} is on a read-only filesystem")
+        except (OSError, AttributeError):
+            pass
+        if not os.access(self.dir, os.W_OK | os.X_OK):
+            return no(f"{self.dir} is not writable by this process")
+        for name in CONFIG_FILES:
+            path = self.dir / name
+            if path.exists() and not os.access(path, os.W_OK):
+                return no(f"{path} is not writable by this process")
+        return {"writable": True, "reason": None, "config_dir": str(self.dir)}
+
+    def _commit(self, action: str, texts: dict[str, str], build: Callable[[], Result],
+                detail: dict[str, Any] | None) -> Result:
+        """Write `texts` as one change, then hand the result to `on_commit` (the audit log).
+        Runs with the lock held. Rolls the files back if the audit entry cannot be written."""
+        if not texts:
+            return build()
+        try:
+            old = commit_files(self.dir, texts)
+        except PartialWrite as exc:
+            if self.on_commit is not None:     # best effort: say what is on disk now
+                try:
+                    partial = Result(action=action + ".partial", target=str(exc.files), revision=self.revision(),
+                                     changes=[], truncated=0, warnings=[exc.message], files=exc.files)
+                    self.on_commit(partial, CURRENT_WRITER.get(), {"error": exc.message})
+                except Exception:  # noqa: BLE001
+                    pass
+            raise
+        result = build()
+        if self.on_commit is not None:
+            try:
+                self.on_commit(result, CURRENT_WRITER.get(), detail)
+            except Exception as exc:  # noqa: BLE001 - no unaudited changes: undo it
+                left = rollback_files(self.dir, old)
+                self._disk_cache = None
+                msg = f"the audit log could not be written ({exc})"
+                if left:
+                    raise PartialWrite(f"{msg}, and {', '.join(left)} could not be restored", left) from None
+                raise StorageError(f"{msg}; the change was rolled back") from None
+        return result
 
     @staticmethod
     def _check_if_match(if_match: str | None, state: _State) -> None:
@@ -493,11 +730,12 @@ class ConfigStore:
             "dtypes": list(get_args(DType)),
         }
 
-    def list_channels(self) -> list[dict[str, Any]]:
+    def list_channels(self) -> dict[str, Any]:
         state = self._read()
         ov = state.overrides.get("channels") if isinstance(state.overrides.get("channels"), dict) else {}
-        return [{"name": c["name"], "enabled": c.get("enabled", True), "devices": len(c["devices"]),
-                 "override": ov.get(c["name"])} for c in self._devices_or_empty(state)["channels"]]
+        return {"channels": [{"name": c["name"], "enabled": c.get("enabled", True), "devices": len(c["devices"]),
+                              "override": ov.get(c["name"])} for c in self._devices_or_empty(state)["channels"]],
+                "revision": state.revision}
 
     def get_channel(self, name: str) -> dict[str, Any]:
         state = self._read()
@@ -511,12 +749,13 @@ class ConfigStore:
                         "revision": state.revision}
         raise NotFound(f"unknown channel {name!r}")
 
-    def list_devices(self, channel: str | None = None) -> list[dict[str, Any]]:
+    def list_devices(self, channel: str | None = None) -> dict[str, Any]:
         state = self._read()
         dmap = state.dmap.get("devices") or {}
         ovd = state.overrides.get("devices") or {}
-        return [_device_summary(d, dmap, ovd) for c in self._devices_or_empty(state)["channels"]
-                if channel is None or c["name"] == channel for d in c["devices"]]
+        return {"devices": [_device_summary(d, dmap, ovd) for c in self._devices_or_empty(state)["channels"]
+                            if channel is None or c["name"] == channel for d in c["devices"]],
+                "revision": state.revision}
 
     def get_device(self, dev_id: str) -> dict[str, Any]:
         state = self._read()
@@ -579,11 +818,19 @@ class ConfigStore:
     # validation ---------------------------------------------------------------------
     def _load_texts(self, texts: dict[str, str | None]) -> LoadedConfig:
         """Run the real loader on these file texts (staged in a temporary directory)."""
-        with tempfile.TemporaryDirectory(prefix="opencap-stage-") as tmp:
+        try:
+            tmpdir = tempfile.TemporaryDirectory(prefix="opencap-stage-")
+        except OSError as exc:
+            raise StorageError(f"cannot create a staging directory to validate the change: {exc}",
+                               full=_is_full(exc)) from None
+        with tmpdir as tmp:
             stage = Path(tmp)
             for name, text in texts.items():
                 if text is not None:
-                    (stage / name).write_text(text, encoding="utf-8")
+                    try:
+                        (stage / name).write_text(text, encoding="utf-8")
+                    except OSError as exc:
+                        raise StorageError(f"cannot stage {name} for validation: {exc}", full=_is_full(exc)) from None
             try:
                 return load_config(stage)
             except ValidationError as exc:
@@ -622,7 +869,8 @@ class ConfigStore:
 
     # the change pipeline ------------------------------------------------------------
     def _run(self, action: str, target: str, fn: Callable[[_Txn], tuple[Any, Any, Any]], *,
-             if_match: str | None = None, dry_run: bool = False) -> Result:
+             if_match: str | None = None, dry_run: bool = False,
+             detail: dict[str, Any] | None = None) -> Result:
         with self.lock:
             state = self._read()
             self._check_if_match(if_match, state)
@@ -653,19 +901,28 @@ class ConfigStore:
             errors, plan_warnings = self._plan_check(loaded, txn)
             if errors:
                 raise Invalid("the driver rejects this configuration", errors)
-            if not dry_run:
-                for name in changed:
-                    atomic_write(self.dir / name, texts[name])
-            new_state_rev = self.revision() if not dry_run else state.revision
-            if not dry_run:
-                self._disk_cache = DiskState(new_state_rev, loaded, None)
-            diff = changes(before, after)
+            extra = {}
+            for name, text in txn.extra_files.items():
+                path = self.dir / name
+                if not path.exists() or path.read_text(encoding="utf-8") != text:
+                    extra[name] = text
+            diff = [*changes(before, after), *txn.notes]
             capped_diff = capped(diff)
             warnings = [*txn.warnings, *plan_warnings, *loaded.warnings]
             warnings += [f"{n}: comments could not be kept; the old text is in {n}.bak" for n in comments_lost]
-            return Result(action=action, target=target, revision=new_state_rev, changes=capped_diff["changes"],
-                          truncated=capped_diff["truncated"], warnings=warnings, files=changed, data=data,
-                          comments_lost=comments_lost)
+            files = [*changed, *extra]
+
+            def build() -> Result:
+                rev = state.revision if dry_run else self.revision()
+                if not dry_run:
+                    self._disk_cache = DiskState(rev, loaded, None)
+                return Result(action=action, target=target, revision=rev, changes=capped_diff["changes"],
+                              truncated=capped_diff["truncated"], warnings=warnings, files=files, data=data,
+                              comments_lost=comments_lost)
+
+            if dry_run:
+                return build()
+            return self._commit(action, {**{n: texts[n] for n in changed}, **extra}, build, detail)
 
     # channels -----------------------------------------------------------------------
     def create_channel(self, body: Any, *, if_match: str | None = None) -> Result:
@@ -1018,29 +1275,36 @@ class ConfigStore:
                 raise Invalid("cannot import this project", [_err((), f"KEPServer import failed: {exc}")]) from None
         new_devices = _dump(result.devices_file)
         stub_ids: list[str] = []
+        map_status = {"status": "unchanged", "side_file": None}
+        diff_summary = devices_file_diff(state.devices or {"channels": []}, new_devices)
 
         def apply(txn: _Txn):
             before = txn.devices
             txn.devices = new_devices
-            section = txn.map_devices()
-            for ch in result.devices_file.channels:
-                single = len(ch.devices) == 1
-                for dev in ch.devices:
-                    if dev.id not in section:
-                        section[dev.id] = {"sub_device_id": stub_sub_device_id(ch.name, dev.name, single), "stub": True}
-                        stub_ids.append(dev.id)
+            text, side, status, new_ids = _kep_map_update(state.texts[MAP_FILE], result.devices_file)
+            stub_ids.extend(new_ids)
+            map_status["status"] = status
+            if text is not None:
+                txn.raw_texts[MAP_FILE] = text
+            if side is not None:
+                txn.extra_files[STUBS_FILE] = side
+                map_status["side_file"] = STUBS_FILE
+                txn.warnings.append(f"{MAP_FILE} {status}")
             if state.texts[OVERRIDES_FILE] is None:
                 txn.raw_texts[OVERRIDES_FILE] = OVERRIDES_TEMPLATE
             txn.check_devices.update(d.id for c in result.devices_file.channels for d in c.devices)
             return {"generated_from": before.get("generated_from")}, {"generated_from": new_devices.get("generated_from")}, None
 
-        res = self._run("config.import_kep", _safe_filename(filename), apply, if_match=if_match, dry_run=dry_run)
+        detail = {"kind": "kepserver", "devices_json": diff_summary["summary"], "stubs_added": stub_ids,
+                  "problems": len(result.problems)}
+        res = self._run("config.import_kep", _safe_filename(filename), apply, if_match=if_match, dry_run=dry_run,
+                        detail=detail)
         report = {
             "kind": "kepserver",
             "dry_run": dry_run,
             "revision": state.revision,
-            "devices_json": devices_file_diff(state.devices or {"channels": []}, new_devices),
-            "devices_map": {"stubs_added": stub_ids, "created": state.texts[MAP_FILE] is None},
+            "devices_json": diff_summary,
+            "devices_map": {"stubs_added": stub_ids, "created": state.texts[MAP_FILE] is None, **map_status},
             "overrides": {"created": state.texts[OVERRIDES_FILE] is None},
             "files": res.files,
             "warnings": res.warnings,
@@ -1067,6 +1331,8 @@ class ConfigStore:
 
         def apply(txn: _Txn):
             txn.raw_texts.update(files)
+            txn.notes = _file_notes(state.texts, {**state.texts, **files},
+                                    [n for n in CONFIG_FILES if n in files and files[n] != state.texts[n]])
             txn.check_devices.update(txn.device_ids())
             if DEVICES_FILE in files:
                 try:
@@ -1078,7 +1344,8 @@ class ConfigStore:
 
         old_state_ok = state.devices_error is None and not state.yaml_errors
         if old_state_ok:
-            res = self._run("config.import", "export", apply, if_match=if_match, dry_run=dry_run)
+            res = self._run("config.import", "export", apply, if_match=if_match, dry_run=dry_run,
+                            detail={"kind": "opencap-export"})
         else:
             res = self._run_replace(files, if_match=if_match, dry_run=dry_run)
         report: dict[str, Any] = {"kind": "opencap-export", "dry_run": dry_run, "revision": state.revision,
@@ -1115,9 +1382,14 @@ class ConfigStore:
             texts = {**state.texts, **files}
             loaded = self._load_texts(texts)
             changed = [n for n in CONFIG_FILES if texts[n] != state.texts[n]]
-            if not dry_run:
-                for name in changed:
-                    atomic_write(self.dir / name, texts[name])
-            rev = self.revision() if not dry_run else state.revision
-            return Result(action="config.import", target="export", revision=rev, changes=[], truncated=0,
-                          warnings=list(loaded.warnings), files=changed)
+            notes = _file_notes(state.texts, texts, changed)
+
+            def build() -> Result:
+                rev = self.revision() if not dry_run else state.revision
+                return Result(action="config.import", target="export", revision=rev, changes=notes, truncated=0,
+                              warnings=list(loaded.warnings), files=changed)
+
+            if dry_run:
+                return build()
+            return self._commit("config.import", {n: texts[n] for n in changed}, build,
+                                {"kind": "opencap-export", "replaced_unparseable": True})

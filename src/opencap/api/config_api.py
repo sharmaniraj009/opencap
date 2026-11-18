@@ -22,6 +22,7 @@ removes a key). A write changes the files only; `POST /api/v1/reload` applies, o
 
 from __future__ import annotations
 
+import time
 from typing import Annotated, Any, Callable
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
@@ -30,9 +31,10 @@ from starlette.concurrency import run_in_threadpool
 
 from opencap.api.context import ApiContext
 from opencap.config.models import Channel, Device, DeviceMapEntry, DeviceOverride, PublishCfg, Tag
-from opencap.config.store import MAX_IMPORT_BYTES, ConfigError, ConfigStore, Invalid, Result
+from opencap.config.store import CURRENT_WRITER, MAX_IMPORT_BYTES, ConfigError, ConfigStore, Invalid, Result
 
 JSON_TYPES = ("application/json",)
+IDENTITY_TTL_S = 300
 IfMatch = Annotated[str | None, Header(alias="If-Match")]
 JsonBody = Annotated[Any, Body()]
 Apply = Annotated[bool, Query(description="reload right after the write")]
@@ -74,8 +76,7 @@ async def _write(request: Request, fn: Callable[[], Result], *, if_match: str | 
     """Run one store change (If-Match required), audit it, optionally reload, answer."""
     _need_if_match(if_match)
     ctx = _ctx(request)
-    result: Result = await run_in_threadpool(fn)
-    await run_in_threadpool(ctx.record, request.state.principal, result)
+    result: Result = await run_in_threadpool(as_writer, request.state.principal, fn)
     body = result.body()
     if apply and result.files:
         try:
@@ -84,6 +85,16 @@ async def _write(request: Request, fn: Callable[[], Result], *, if_match: str | 
             body["reload_error"] = f"reload failed, old config kept: {exc}"
     body["pending_reload"] = (await run_in_threadpool(ctx.tracker.status)).get("pending_reload", False)
     return with_rev(body, status)
+
+
+def as_writer(principal: Any, fn: Callable[[], Any]) -> Any:
+    """Run a store call (in a worker thread) on behalf of `principal`: the store audits the
+    change with this name while it still holds its lock."""
+    token = CURRENT_WRITER.set(principal)
+    try:
+        return fn()
+    finally:
+        CURRENT_WRITER.reset(token)
 
 
 def _lookup(fn, device_id: str) -> Any:
@@ -100,7 +111,10 @@ def build_router() -> APIRouter:
     @r.get("/whoami")
     def whoami(request: Request) -> dict[str, Any]:
         p = request.state.principal
-        return {"name": p.name, "role": p.role, "open": _ctx(request).auth.open}
+        ctx = _ctx(request)
+        w = ctx.store.writable() if ctx.store is not None else {"writable": False, "reason": "no config directory"}
+        return {"name": p.name, "role": p.role, "open": ctx.auth.open,
+                "config_writable": w["writable"], "config_writable_reason": w["reason"]}
 
     @r.get("/status")
     def status(request: Request) -> dict[str, Any]:
@@ -111,8 +125,9 @@ def build_router() -> APIRouter:
 
     # --- runtime per device (device ids contain "/": suffix routes come first) ----
     @r.get("/devices/{device_id:path}/tags")
-    def list_tags(request: Request, device_id: str) -> list[dict[str, Any]]:
-        return _store(request).get_device(device_id)["device"]["tags"]
+    def list_tags(request: Request, device_id: str) -> JSONResponse:
+        dev = _store(request).get_device(device_id)
+        return with_rev({"tags": dev["device"]["tags"], "revision": dev["revision"]})
 
     @r.post("/devices/{device_id:path}/tags", status_code=201)
     async def create_tags(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
@@ -157,9 +172,21 @@ def build_router() -> APIRouter:
         return _lookup(_ctx(request).poller.device_plan, device_id)
 
     @r.get("/devices/{device_id:path}/identity")
-    async def device_identity(request: Request, device_id: str) -> dict[str, Any]:
+    async def device_identity(request: Request, device_id: str, refresh: bool = False) -> dict[str, Any]:
+        """Identity over the existing connection. Cached for IDENTITY_TTL_S because asking can
+        cost a request on the wire (Modbus FC43); `?refresh=true` (admin) asks again now."""
+        ctx = _ctx(request)
+        if refresh and not request.state.principal.is_admin:
+            raise HTTPException(status_code=403, detail="refreshing the identity needs the admin role")
+        now = time.monotonic()
+        cached = ctx.identity_cache.get(device_id)
+        if cached is not None and not refresh and now - cached[0] < IDENTITY_TTL_S:
+            return {**cached[1], "cached": True, "age_s": round(now - cached[0])}
         try:
-            return await _ctx(request).poller.device_identity(device_id)
+            result = await ctx.poller.device_identity(device_id)
+            if result.get("connected"):
+                ctx.identity_cache[device_id] = (now, result)
+            return {**result, "cached": False}
         except KeyError:
             raise HTTPException(status_code=404, detail=f"device {device_id!r} is not polled") from None
         except Exception as exc:  # noqa: BLE001 - e.g. the safety timeout: report, do not 500
@@ -183,8 +210,8 @@ def build_router() -> APIRouter:
 
     # --- channels ----------------------------------------------------------------
     @r.get("/channels")
-    def list_channels(request: Request) -> list[dict[str, Any]]:
-        return _store(request).list_channels()
+    def list_channels(request: Request) -> JSONResponse:
+        return with_rev(_store(request).list_channels())
 
     @r.post("/channels", status_code=201)
     async def create_channel(request: Request, body: JsonBody, if_match: IfMatch = None,
@@ -193,10 +220,10 @@ def build_router() -> APIRouter:
                             if_match=if_match, apply=apply, status=201)
 
     @r.get("/channels/{channel}/devices")
-    def list_channel_devices(request: Request, channel: str) -> list[dict[str, Any]]:
+    def list_channel_devices(request: Request, channel: str) -> JSONResponse:
         store = _store(request)
         store.get_channel(channel)                      # 404 for an unknown channel
-        return store.list_devices(channel)
+        return with_rev(store.list_devices(channel))
 
     @r.post("/channels/{channel}/devices", status_code=201)
     async def create_device(request: Request, channel: str, body: JsonBody, if_match: IfMatch = None,
@@ -222,8 +249,8 @@ def build_router() -> APIRouter:
 
     # --- devices -----------------------------------------------------------------
     @r.get("/devices")
-    def list_devices(request: Request, channel: str | None = None) -> list[dict[str, Any]]:
-        return _store(request).list_devices(channel)
+    def list_devices(request: Request, channel: str | None = None) -> JSONResponse:
+        return with_rev(_store(request).list_devices(channel))
 
     @r.get("/devices/{device_id:path}")
     def get_device(request: Request, device_id: str) -> JSONResponse:
@@ -342,7 +369,9 @@ def build_router() -> APIRouter:
     @r.get("/project/status")
     def project_status(request: Request) -> JSONResponse:
         store = _store(request)
-        return with_rev({**store.summary(), "status": _ctx(request).tracker.status()})
+        w = store.writable()
+        return with_rev({**store.summary(), "writable": w["writable"], "writable_reason": w["reason"],
+                         "status": _ctx(request).tracker.status()})
 
     @r.get("/project/pending")
     def project_pending(request: Request) -> dict[str, Any]:
@@ -378,13 +407,12 @@ def build_router() -> APIRouter:
         if not dry_run:
             _need_if_match(if_match)
         raw = await read_json_body(request)
-        report = await run_in_threadpool(store.import_config, raw, dry_run=dry_run, filename=filename,
-                                         if_match=if_match)
+        report = await run_in_threadpool(as_writer, request.state.principal,
+                                         lambda: store.import_config(raw, dry_run=dry_run, filename=filename,
+                                                                     if_match=if_match))
         ctx = _ctx(request)
         result: Result | None = report.pop("result", None)
         if result is not None:
-            await run_in_threadpool(ctx.record, request.state.principal, result,
-                                    {"kind": report["kind"], **(result.data or {})})
             report["applied"], report["changes"] = True, result.changes
             if apply and result.files:
                 try:

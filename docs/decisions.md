@@ -112,8 +112,11 @@ SEWAGE_LAST_DAY vs SEWAGE_PREVIOUS_DAY_TOTALIZER) come out as suspect.
 Publish settings, lowest priority first: devices.json → `devices_map.yaml` `defaults` →
 `overrides.yaml` `publish` → the device's `devices_map.yaml` entry. Default topic:
 `opencap/<slug(channel)>/<slug(device)>/data`, lowercase, MQTT-safe (e.g.
-`opencap/site_001/8_pump/data`); the `opencap` level is `mqtt.topic_prefix` (D-028). `devices_map.yaml` is never rewritten. New devices are
+`opencap/site_001/8_pump/data`); the `opencap` level is `mqtt.topic_prefix` (D-028). `devices_map.yaml` is never rewritten by an import. New devices are
 appended as `stub: true`, or written to `devices_map.stubs.yaml` when appending is not safe.
+**Amended by D-041:** the config API and the web UI edit entries of `devices_map.yaml` in
+place when an operator changes them, keeping comments and key order (falling back to a
+rewrite that keeps the header and is reported); an import through the API still only appends.
 
 ## Phase 1
 
@@ -610,7 +613,8 @@ validators, not the schema, can reject it) so the Rust engine can load them with
   need a token?), and `/devices/{id}/status|values|plan|identity`, `POST …/read-once`, `POST /reload`
   under `/api/v1` (the unversioned runtime routes stay for existing clients). `/north` and `/plugins`
   wait for north plugins; the WebSocket feed and the committed OpenAPI document are #31 and #32.
-- **Writes need `If-Match`** with the config revision: 428 without it, 412 when it is stale (409 stays
+- **Reads return `revision` and `ETag`**, list reads included (`{"channels": […], "revision": …}`).
+  **Writes need `If-Match`** with the config revision: 428 without it, 412 when it is stale (409 stays
   for name clashes). The revision is a hash of the four files' bytes, not a counter, so it also
   changes on hand edits.
 - **Deviation: a write does not apply itself.** §3.6 reads "persisted, audited, and then applied";
@@ -638,7 +642,8 @@ validators, not the schema, can reject it) so the Rust engine can load them with
   Channels, devices and tags are in `devices.json`, which a KEPServerEX re-import replaces; the
   import dry run shows what would be lost, and fixes that must survive belong in `overrides.yaml`.
 - `GET /api/v1/devices/{id}/identity` asks the driver over the device's existing connection only
-  and never opens one (Micro800s have few CIP connections): `ChannelWorker.identity()` and
+  and never opens one (Micro800s have few CIP connections). Asking can cost a request on the wire
+  (Modbus FC43), so the answer is cached for 5 minutes and `?refresh=true` is admin-only: `ChannelWorker.identity()` and
   `Poller.device_plan()/device_identity()` are new, additive. `core/plan_report.py` is the JSON form
   of `opencap check`; `check.py` is unchanged.
 
@@ -651,9 +656,16 @@ validators, not the schema, can reject it) so the Rust engine can load them with
   on demand (≈23 s of requests on a non-batching Micro800), so it is not a viewer action. This is the
   two-role subset of the viewer/operator/engineer/admin set the security RFC will define (03 §3.7).
 - Tokens are read at start; a change needs a restart, like the other `api` settings.
-- With no token at all (loopback only, D-019) everyone is the admin `anonymous`. New: an unsafe
-  request a browser marks as cross-site (`Sec-Fetch-Site`/`Origin`, unless listed in
-  `api.cors_origins`) is refused, so a web page cannot drive the open local API.
+- **Open mode** (no token at all, loopback bind only, D-019) is now **read-only**: everyone is the
+  viewer `anonymous`, every unsafe method gets 403, and only requests whose `Host` is `127.0.0.1`,
+  `localhost` or `[::1]` are answered. A page using DNS rebinding sends its own host name, so it
+  can neither read nor change anything. (Before, open mode allowed `POST /reload`; comparing
+  `Origin` with `Host` did not stop rebinding, review of #63.)
+- **Authentication happens before the body is read**: a pure ASGI guard (`api/guard.py`) in front of
+  the app authenticates every non-open route from its headers, so an unauthenticated caller gets
+  401 without a body byte read or parsed. It also caps bodies at 1 MiB (64 MiB for
+  `POST /api/v1/project/import`): a larger `Content-Length` gets 413 at once, and a chunked body
+  is counted while it is read.
 - `api.cors_origins` (default empty) lets the desktop app or another UI origin call the API
   (ADR-0010); the API uses bearer tokens only, never cookies, so there is no CSRF surface.
 
@@ -661,9 +673,22 @@ validators, not the schema, can reject it) so the Rust engine can load them with
 - Each file is written to a temp file in the same directory, fsynced, renamed over the original;
   the previous version is kept as `<file>.bak` (one generation, a hard link to the old inode).
   Permissions are copied. `config/*.bak` and the temp files are git-ignored.
-- A change touching several files (e.g. a device rename) writes them one by one. Each write is atomic
-  and every intermediate state loads (unknown ids in the map/overrides are warnings), and
-  `POST /reload` takes the store's lock, so a reload never sees half a change. `SIGHUP` does not.
+- **A change touching several files** (e.g. a device rename) is committed in two phases: every temp
+  file is written and fsynced first, the `.bak` links are made, then the renames. If any step fails,
+  the files already renamed get their previous bytes back and nothing changed (503); only if that
+  restore also fails is the result a partial write (500, naming the files left new, audited as
+  `<action>.partial`). A fault-injection test makes the second rename of a device rename fail.
+  `POST /reload` takes the store's lock, so a reload never sees a change in progress; `SIGHUP` does
+  not.
+- **The audit entry is written inside the lock**, right after the files. If it cannot be written,
+  the change is rolled back (503): there are no unaudited changes.
+- **Read-only or full storage** gives 503 (507 for a full disk) with the path, never a bare 500.
+  `GET /api/v1/project/status` and `/whoami` report `writable` (`access()` plus the read-only mount
+  flag), and the UI turns editing off when it is false. `deploy/opencap.service` sets
+  `ReadWritePaths=/etc/opencap`; `docs/deployment.md` makes the directory sticky (1775,
+  root:opencap) with opencap owning only the config files, so opencap can replace them but not
+  `opencap.env`, and explains how to keep the config read-only (and the Docker mount for editing).
+  The sticky-bit layout follows POSIX semantics; it was not exercised on a real systemd host.
 - **Comments are kept** with ruamel.yaml's round-trip mode: the change is made on the plain data the
   loader reads and synced into the existing document (new keys appended, renamed keys keep their
   place). The result is parsed again with PyYAML (the loader's parser); if it differs from the
@@ -679,11 +704,14 @@ validators, not the schema, can reject it) so the Rust engine can load them with
   `If-Match` (the UI sends the dry run's revision, so the diff seen is the change applied). The body
   must be `application/json`, at most 64 MiB.
 - KEPServerEX import = `opencap import-kep` minus the reports: `devices.json` replaced, stub entries
-  appended to `devices_map.yaml` for new device ids, `overrides.yaml` template written if missing; the
-  summary and problems are in the response instead of `reports/`. **Deviation:** the API passes
+  appended below the existing `devices_map.yaml` text with the CLI's own helpers (never a rewrite),
+  or written to `devices_map.stubs.yaml` when appending is not safe; `overrides.yaml` template
+  written if missing. The summary and problems are in the response instead of `reports/`. **Deviation:** the API passes
   poller.yaml `defaults` to the importer (as poller.yaml documents); the CLI passes the built-in
   defaults. They differ only when poller.yaml changes `defaults`.
-- An export restores files byte-for-byte, also over files that no longer parse.
+- An export restores files byte-for-byte, also over files that no longer parse. It can replace
+  `poller.yaml` (including `api`), so it is admin-only like every import, and its audit entry holds
+  a unified diff of each YAML file and a device-level summary for `devices.json`.
 
 ### D-043 Audit log
 JSON lines at `api.audit_log` (default `data/audit.jsonl`): time, token name, role, `via` (`ui` when
@@ -711,6 +739,8 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   `X-Opencap-Client: ui`. A 401 sends the UI back to the login page. Writes send `If-Match` with the
   revision of the data on screen; a 412 tells the operator to load the page again.
 - Textareas for params, overrides and publish defaults take JSON (the API's format), not YAML.
+- Editing controls need the admin role **and** a writable config directory (`whoami` reports
+  `config_writable`); otherwise the UI says why editing is off. Open mode is read-only (D-040).
 - **Read-only towards PLCs:** the UI offers read-once and identity, never a value write.
 - A browser smoke test (`tests/ui/browser_smoke.js`, run by `tests/integration/test_ui_browser.py`,
   marker `acceptance`) drives Chromium through every page at desktop and phone width and fails on any

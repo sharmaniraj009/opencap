@@ -117,7 +117,8 @@ def test_open_endpoints(env):
     c, _, _, _ = env
     assert c.get(f"{V1}/auth-info").json() == {"open": False}
     assert c.get("/health").status_code == 200
-    assert c.get(f"{V1}/whoami", headers=VIEWER).json() == {"name": "grafana", "role": "viewer", "open": False}
+    me = c.get(f"{V1}/whoami", headers=VIEWER).json()
+    assert {k: me[k] for k in ("name", "role", "open")} == {"name": "grafana", "role": "viewer", "open": False}
 
 
 def test_401_has_www_authenticate(env):
@@ -148,19 +149,75 @@ def test_token_names_unique_and_default_reserved():
         ApiCfg(tokens=[ApiToken(name="default", token_env="X")])
 
 
-def test_open_loopback_api_refuses_cross_site_changes(tmp_path):
+def test_open_mode_is_read_only_and_answers_only_localhost(tmp_path):
+    """No token configured (loopback bind): reads work for localhost, every write is refused,
+    and a DNS-rebinding request (a foreign host name pointed at 127.0.0.1) gets nothing."""
     poller = ConfigPoller(make_config(tmp_path))
-    c = TestClient(create_app(poller, ApiCfg(audit_log=str(tmp_path / "a.jsonl")), environ={}))
+    app = create_app(poller, ApiCfg(audit_log=str(tmp_path / "a.jsonl")), environ={})
+    c = TestClient(app, base_url="http://127.0.0.1:8080")
     assert c.get(f"{V1}/auth-info").json() == {"open": True}
-    assert c.get(f"{V1}/whoami").json()["name"] == "anonymous"
-    assert c.patch(DEV_PATH, json={"retries": 1}, headers={"If-Match": rev(c)}).status_code == 200
-    evil = {"Origin": "http://evil.example", "Sec-Fetch-Site": "cross-site"}
-    assert c.post(f"{V1}/reload", headers=evil).status_code == 403
-    assert c.post("/reload", headers=evil).status_code == 403
-    assert c.patch(DEV_PATH, json={"retries": 0}, headers={**evil, "If-Match": rev(c)}).status_code == 403
-    assert c.get(f"{V1}/channels", headers=evil).status_code == 200           # reads are fine
-    lines = [json.loads(x) for x in (tmp_path / "a.jsonl").read_text().splitlines()]
-    assert lines[0]["who"] == "anonymous"
+    me = c.get(f"{V1}/whoami").json()
+    assert {k: me[k] for k in ("name", "role", "open")} == {"name": "anonymous", "role": "viewer", "open": True}
+    assert c.get(f"{V1}/channels").status_code == 200
+    for host in ("localhost:8080", "[::1]:8080", "127.0.0.1"):
+        assert c.get(f"{V1}/whoami", headers={"Host": host}).status_code == 200, host
+    r = c.patch(DEV_PATH, json={"host": "198.51.100.66"}, headers={"If-Match": rev(c)})
+    assert r.status_code == 403 and "read-only" in r.json()["detail"]
+    assert c.post(f"{V1}/reload").status_code == 403 and c.post("/reload").status_code == 403
+    assert c.post(f"{DEV_PATH}/read-once").status_code == 403 and poller.read_onces == []
+    rebind = {"Host": "attacker.example:8080", "Origin": "http://attacker.example:8080",
+              "Sec-Fetch-Site": "same-origin"}
+    assert c.get(f"{V1}/project", headers=rebind).status_code == 403          # no config leaves
+    assert c.patch(DEV_PATH, json={"host": "198.51.100.66"}, headers={**rebind, "If-Match": "x"}).status_code == 403
+    assert not (tmp_path / "a.jsonl").exists()                                  # nothing changed
+
+
+def test_unauthenticated_requests_are_refused_before_the_body_is_read(env):
+    c, _, _, _ = env
+    r = c.patch(DEV_PATH, content=b"{not json", headers={"Content-Type": "application/json"})
+    assert r.status_code == 401                                                 # not 422
+    r = c.patch(DEV_PATH, content=b"{not json", headers={**VIEWER, "Content-Type": "application/json"})
+    assert r.status_code == 403
+
+
+async def test_guard_never_reads_the_body_of_a_refused_request(env):
+    c = env[0]
+    called = []
+
+    async def receive():
+        called.append(1)
+        raise AssertionError("the body was read")
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "method": "PATCH", "path": DEV_PATH, "raw_path": DEV_PATH.encode(),
+             "query_string": b"", "headers": [(b"host", b"testserver"), (b"content-type", b"application/json"),
+                                               (b"content-length", b"999999999")],
+             "scheme": "http", "server": ("testserver", 80), "client": ("127.0.0.1", 1), "root_path": "",
+             "http_version": "1.1", "asgi": {"version": "3.0"}}
+    await c.app(scope, receive, send)
+    assert called == [] and sent[0]["status"] == 401
+
+
+def test_body_size_cap(env):
+    c, _, cfg, _ = env
+    big = b'{"description": "' + b"x" * (1024 * 1024 + 10) + b'"}'
+    r = c.patch(f"{DEV_PATH}/tags/FLOW_1", content=big, headers={**admin_w(c), "Content-Type": "application/json"})
+    assert r.status_code == 413
+
+    def chunks():                                   # no Content-Length: counted while read
+        for _ in range(20):
+            yield b"x" * 100_000
+
+    r = c.patch(f"{DEV_PATH}/tags/FLOW_1", content=chunks(), headers={**admin_w(c), "Content-Type": "application/json"})
+    assert r.status_code == 413
+    # the import route accepts up to 64 MiB: a 2 MiB document is parsed (and refused as unknown)
+    doc = json.dumps({"junk": "x" * (2 * 1024 * 1024)}).encode()
+    r = c.post(f"{V1}/project/import", content=doc, headers={**ADMIN, "Content-Type": "application/json"})
+    assert r.status_code == 422
 
 
 def test_cors_only_for_configured_origins(tmp_path):
@@ -215,11 +272,15 @@ def test_device_and_tag_reads(env):
     c, _, _, _ = env
     dev = c.get(DEV_PATH, headers=VIEWER).json()
     assert dev["device"]["id"] == DEV and dev["map_entry"]["stub"] is True
-    assert len(c.get(f"{DEV_PATH}/tags", headers=VIEWER).json()) == 9
+    tags = c.get(f"{DEV_PATH}/tags", headers=VIEWER)
+    assert len(tags.json()["tags"]) == 9 and tags.headers["etag"] == f'"{tags.json()["revision"]}"'
     assert c.get(f"{DEV_PATH}/tags/FLOW_1", headers=VIEWER).json()["tag"]["address"] == "400045"
-    assert [d["id"] for d in c.get(f"{V1}/channels/SITE MODBUS/devices", headers=VIEWER).json()] == [DEV]
-    assert len(c.get(f"{V1}/devices", headers=VIEWER).json()) == 10
-    assert c.get(f"{V1}/devices?channel=S7 MULTI", headers=VIEWER).json()[1]["name"] == "OUT-2"
+    assert [d["id"] for d in c.get(f"{V1}/channels/SITE MODBUS/devices", headers=VIEWER).json()["devices"]] == [DEV]
+    devices = c.get(f"{V1}/devices", headers=VIEWER)
+    assert len(devices.json()["devices"]) == 10 and devices.headers["etag"] == f'"{rev(c)}"'
+    assert c.get(f"{V1}/devices?channel=S7 MULTI", headers=VIEWER).json()["devices"][1]["name"] == "OUT-2"
+    channels = c.get(f"{V1}/channels", headers=VIEWER)
+    assert channels.json()["channels"][0]["name"] == "SITE MODBUS" and channels.json()["revision"] == rev(c)
     for path in (f"{V1}/channels/NOPE", f"{V1}/channels/NOPE/devices", f"{V1}/devices/SITE MODBUS/NOPE",
                  f"{DEV_PATH}/tags/NOPE", f"{V1}/map/devices/NOPE/X", f"{V1}/overrides/devices/{DEV}",
                  f"{V1}/overrides/channels/SITE MODBUS", f"{V1}/devices/NOPE/X/values"):
@@ -449,9 +510,15 @@ def test_device_plan_identity_and_read_once(env):
     c, poller, _, _ = env
     plan = c.get(f"{DEV_PATH}/plan", headers=VIEWER).json()
     assert plan["id"] == DEV and plan["block_plan"] and "invalid" in plan
-    assert c.get(f"{DEV_PATH}/identity", headers=VIEWER).json() == {"connected": False, "identity": {}}
+    assert c.get(f"{DEV_PATH}/identity", headers=VIEWER).json() == {"connected": False, "identity": {}, "cached": False}
     poller.identities[DEV] = {"vendor": "Example"}
-    assert c.get(f"{DEV_PATH}/identity", headers=VIEWER).json()["identity"] == {"vendor": "Example"}
+    first = c.get(f"{DEV_PATH}/identity", headers=VIEWER).json()
+    assert first["identity"] == {"vendor": "Example"} and first["cached"] is False
+    poller.identities[DEV] = {"vendor": "Changed"}                 # cached: no new request
+    again = c.get(f"{DEV_PATH}/identity", headers=VIEWER).json()
+    assert again["identity"] == {"vendor": "Example"} and again["cached"] is True
+    assert c.get(f"{DEV_PATH}/identity?refresh=true", headers=VIEWER).status_code == 403
+    assert c.get(f"{DEV_PATH}/identity?refresh=true", headers=ADMIN).json()["identity"] == {"vendor": "Changed"}
     assert c.post(f"{DEV_PATH}/read-once", headers=ADMIN).json()["FLOW_1"]["quality"] == "good"
     assert poller.read_onces == [DEV]
     for path in ("plan", "identity", "status"):
@@ -490,3 +557,38 @@ async def test_reload_waits_for_a_config_write_in_progress(tmp_path):
     await asyncio.gather(task, return_exceptions=True)
     ctx.store.lock.release()
     assert not ctx.store.lock.locked()
+
+
+def test_read_only_config_is_reported_and_writes_answer_503(env, monkeypatch):
+    import errno
+    import os
+
+    from opencap.config import store as store_mod
+
+    c, _, cfg, tmp = env
+    me = c.get(f"{V1}/whoami", headers=ADMIN).json()
+    assert me["config_writable"] is True and me["config_writable_reason"] is None
+    monkeypatch.setattr(store_mod.os, "access", lambda path, mode: False)
+    assert c.get(f"{V1}/project/status", headers=VIEWER).json()["writable"] is False
+    assert c.get(f"{V1}/whoami", headers=ADMIN).json()["config_writable"] is False
+    monkeypatch.undo()
+
+    def ro(*_a, **_k):
+        raise OSError(errno.EROFS, os.strerror(errno.EROFS), str(cfg / "devices.json"))
+
+    monkeypatch.setattr(store_mod.os, "replace", ro)
+    r = c.patch(DEV_PATH, json={"retries": 0}, headers=admin_w(c))
+    assert r.status_code == 503 and str(cfg) in r.json()["detail"] and "nothing was changed" in r.json()["detail"]
+    assert audit_lines(tmp) == []
+
+
+def test_unwritable_audit_log_rolls_the_change_back(tmp_path):
+    cfg = make_config(tmp_path)
+    (tmp_path / "audit-dir").mkdir()
+    app = create_app(ConfigPoller(cfg), api_cfg(tmp_path).model_copy(update={"audit_log": str(tmp_path / "audit-dir")}),
+                     environ=ENV)
+    c = TestClient(app)
+    before = (cfg / "devices.json").read_bytes()
+    r = c.patch(DEV_PATH, json={"retries": 0}, headers=admin_w(c))
+    assert r.status_code == 503 and "rolled back" in r.json()["detail"]
+    assert (cfg / "devices.json").read_bytes() == before

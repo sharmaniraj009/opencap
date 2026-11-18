@@ -66,14 +66,18 @@ class ApiContext:
     store: ConfigStore | None
     audit: AuditLog
     tracker: PendingTracker = field(init=False)
+    identity_cache: dict[str, tuple[float, dict[str, Any]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.tracker = PendingTracker(self.poller, self.store)
+        if self.store is not None:
+            self.store.on_commit = self._audit_commit
 
-    def record(self, principal: Principal, result: Result, detail: dict[str, Any] | None = None) -> None:
-        if not result.files:                  # nothing written: nothing to audit
-            return
-        self.audit.record(principal, result.action, result.target, revision=result.revision,
+    def _audit_commit(self, result: Result, writer: Any, detail: dict[str, Any] | None) -> None:
+        """Called by the store with its lock held, right after the files are written. If the
+        audit entry cannot be written the store rolls the change back (no unaudited changes)."""
+        who = writer if isinstance(writer, Principal) else Principal("local", "admin", "api")
+        self.audit.record(who, result.action, result.target, revision=result.revision,
                           files=result.files, changes=result.changes, truncated=result.truncated,
                           detail=detail)
 

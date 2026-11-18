@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,9 @@ from opencap.config.store import (
     Conflict,
     Invalid,
     NotFound,
+    PartialWrite,
     PreconditionFailed,
+    StorageError,
     atomic_write,
     merge_patch,
 )
@@ -116,7 +119,8 @@ def test_summary_and_reads(store: ConfigStore):
     assert s["valid"] and s["counts"]["devices"] == 10 and s["counts"]["channels"] == 9
     assert "modbus_tcp" in s["drivers"] and "float32" in s["dtypes"]
     assert len(s["revision"]) == 16
-    assert [c["name"] for c in store.list_channels()][0] == "SITE MODBUS"
+    assert [c["name"] for c in store.list_channels()["channels"]][0] == "SITE MODBUS"
+    assert store.list_devices()["revision"] == s["revision"]
     dev = store.get_device(DEV)
     assert dev["map_entry"] == {"sub_device_id": "SUB_ONE"}
     assert dev["override"]["timeout_ms"] == 2000
@@ -439,3 +443,137 @@ def test_empty_names_hosts_and_addresses_are_rejected(store: ConfigStore):
     assert exc.value.errors[0]["loc"] == ["host"]
     with pytest.raises(Invalid):
         store.create_channel({"name": "  "})
+
+
+# --- storage failures: all or nothing (review of #63) ----------------------------------
+
+def _snapshot(cfg: Path) -> dict[str, bytes]:
+    return {p.name: p.read_bytes() for p in cfg.iterdir() if not p.name.endswith(".bak")}
+
+
+def test_a_failed_multi_file_write_changes_nothing(store: ConfigStore, cfg: Path, monkeypatch):
+    """Device rename = devices.json + devices_map.yaml + overrides.yaml. The second rename fails:
+    the first file gets its old bytes back, nothing is audited, and the caller gets a 503."""
+    from opencap.config import store as store_mod
+
+    before = _snapshot(cfg)
+    audited = []
+    store.on_commit = lambda result, who, detail: audited.append(result)
+    real_replace = os.replace
+
+    def flaky_replace(src, dst):
+        if Path(dst).name == "devices_map.yaml" and Path(src).name.startswith(".devices_map.yaml."):
+            raise OSError(errno.EIO, "Input/output error", str(dst))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(store_mod.os, "replace", flaky_replace)
+    with pytest.raises(StorageError) as exc:
+        store.update_device(DEV, {"name": "Device9"}, partial=True)
+    assert exc.value.status == 503 and "nothing was changed" in exc.value.message
+    assert "devices_map.yaml" in exc.value.message
+    monkeypatch.setattr(store_mod.os, "replace", real_replace)
+    assert _snapshot(cfg) == before                        # byte for byte, no temp files left
+    assert audited == []
+    load_config(cfg)
+
+
+def test_a_failed_rollback_is_reported_and_audited_as_partial(store: ConfigStore, cfg: Path, monkeypatch):
+    from opencap.config import store as store_mod
+
+    audited = []
+    store.on_commit = lambda result, who, detail: audited.append((result, detail))
+    real_replace = os.replace
+    renamed = []
+
+    def broken_disk(src, dst):
+        name = Path(dst).name
+        if name == "devices_map.yaml" and Path(src).name.startswith(".devices_map.yaml."):
+            raise OSError(errno.EIO, "Input/output error", str(dst))
+        if name == "devices.json" and "devices.json" in renamed:        # the rollback write
+            raise OSError(errno.EIO, "Input/output error", str(dst))
+        real_replace(src, dst)
+        if name == "devices.json":
+            renamed.append(name)
+
+    monkeypatch.setattr(store_mod.os, "replace", broken_disk)
+    with pytest.raises(PartialWrite) as exc:
+        store.update_device(DEV, {"name": "Device9"}, partial=True)
+    assert exc.value.status == 500 and exc.value.files == ["devices.json"]
+    assert audited and audited[0][0].action == "device.update.partial"
+    assert audited[0][0].files == ["devices.json"]
+
+
+def test_read_only_and_full_disks_are_503_and_507(store: ConfigStore, cfg: Path, monkeypatch):
+    from opencap.config import store as store_mod
+
+    before = _snapshot(cfg)
+    for code, status in ((errno.EROFS, 503), (errno.EACCES, 503), (errno.ENOSPC, 507)):
+        def fail(*_a, code=code, **_k):
+            raise OSError(code, os.strerror(code), str(cfg / "devices.json"))
+
+        monkeypatch.setattr(store_mod.os, "replace", fail)
+        with pytest.raises(StorageError) as exc:
+            store.update_device(DEV, {"retries": 0}, partial=True)
+        assert exc.value.status == status and str(cfg) in exc.value.message
+        monkeypatch.undo()
+    assert _snapshot(cfg) == before
+
+
+def test_an_audit_failure_rolls_the_change_back(store: ConfigStore, cfg: Path):
+    before = _snapshot(cfg)
+
+    def audit_down(result, who, detail):
+        raise OSError(errno.EROFS, "Read-only file system", "data/audit.jsonl")
+
+    store.on_commit = audit_down
+    with pytest.raises(StorageError) as exc:
+        store.update_device(DEV, {"name": "Device9"}, partial=True)
+    assert "rolled back" in exc.value.message
+    assert _snapshot(cfg) == before
+
+
+def test_writable_reports_why_not(store: ConfigStore, cfg: Path, monkeypatch):
+    from opencap.config import store as store_mod
+
+    assert store.writable()["writable"] is True
+    monkeypatch.setattr(store_mod.os, "access", lambda path, mode: Path(path) != cfg)
+    w = store.writable()
+    assert w["writable"] is False and str(cfg) in w["reason"]
+    monkeypatch.undo()
+
+    class RO:
+        f_flag = os.ST_RDONLY
+
+    monkeypatch.setattr(store_mod.os, "statvfs", lambda path: RO())
+    assert "read-only filesystem" in store.writable()["reason"]
+
+
+def test_kep_import_appends_stubs_like_the_cli_or_writes_a_side_file(store: ConfigStore, cfg: Path):
+    store.delete_device("SITE PCCC/7 PUMP")
+    before = (cfg / "devices_map.yaml").read_text()
+    report = store.import_config(SAMPLE.read_bytes(), dry_run=False, filename="project.json")
+    text = (cfg / "devices_map.yaml").read_text()
+    assert text.startswith(before)                               # appended, never rewritten
+    assert "# stubs added by the opencap config API import on" in text
+    assert report["devices_map"]["status"].startswith("appended")
+    # a layout that cannot be appended to safely: flow-style devices mapping
+    (cfg / "devices_map.yaml").write_text("defaults: {}\ndevices: {SITE MODBUS/Device1: {sub_device_id: S1}}\n")
+    store.delete_device("SITE LOGIX/STP")
+    report = store.import_config(SAMPLE.read_bytes(), dry_run=False, filename="project.json")
+    assert (cfg / "devices_map.yaml").read_text() == "defaults: {}\ndevices: {SITE MODBUS/Device1: {sub_device_id: S1}}\n"
+    side = yaml.safe_load((cfg / "devices_map.stubs.yaml").read_text())
+    assert "SITE LOGIX/STP" in side["devices"] and report["devices_map"]["side_file"] == "devices_map.stubs.yaml"
+    assert any("devices_map.stubs.yaml" in w for w in report["result"].warnings)
+
+
+def test_export_import_audits_text_diffs(store: ConfigStore, cfg: Path):
+    exported = store.export()
+    (cfg / "poller.yaml").write_text("instance: before\n")
+    exported["files"]["poller.yaml"] = "instance: after\n"
+    audited = []
+    store.on_commit = lambda result, who, detail: audited.append((result, detail))
+    store.import_config(json.dumps(exported).encode(), dry_run=False)
+    result, detail = audited[0]
+    assert detail == {"kind": "opencap-export"}
+    note = next(c for c in result.changes if c["path"] == "poller.yaml")
+    assert "-instance: before" in note["diff"] and "+instance: after" in note["diff"]

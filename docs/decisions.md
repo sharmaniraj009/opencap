@@ -555,7 +555,15 @@ answers STS 0x10 and the block becomes `bad_config` — and ACK timing over the 
 RS-485 (inter-frame timing, local echo); one byte-for-byte frame capture (D-035); RFC 2217 against a real
 COM-port server.
 
-### D-059 Config JSON Schema exported from the Pydantic models (#2)
+### D-059 Licence gate: allow-list over installed distributions, `OR`/`AND` aware (#6)
+`scripts/check_licenses.py` + `licenses/python-allow.toml` check every distribution installed from `.[all,dev]`.
+The pip classifier "BSD License" is ambiguous (2- or 3-clause) and is treated as BSD-3-Clause since both are allowed.
+`A OR B` passes when either side is allowed (cryptography, paho-mqtt); `A AND B` needs both. Exceptions: `asyncua`
+(LGPL-3.0, imported unmodified, ADR-0007). MPL-2.0 is allowed (certifi, unmodified). A root `deny.toml` is the
+project-wide Rust floor (adds MPL-2.0 and Unicode-DFS-2016); `engine/deny.toml` stays the engine owner's file.
+**Not verified here:** the cargo-deny job has not run locally (no network for installing it); it runs in CI.
+
+### D-060 Config JSON Schema exported from the Pydantic models (#2)
 `python -m opencap.config.schema --out schema/` writes `schema/{devices,poller,devices_map,overrides}.schema.json`
 (JSON Schema 2020-12, sorted keys, `$id`, top-level `version`; the `$id` base is the repo URL, not a hosted
 endpoint). A drift test regenerates and compares. Conformance fixtures in `tests/conformance/config/` are

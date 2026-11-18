@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,21 @@ def pytest_addoption(parser):
         help="engine the conformance (acceptance) tests drive: the Python reference Poller (default) "
              "or the Rust engine binary from engine/ (see tests/helpers/engine.py)",
     )
+
+
+@pytest.fixture
+def no_gc():
+    """For tests with wall-clock bounds: collect first, then no automatic collection while the
+    test runs. A full collection after the asyncua and config-API tests takes ~300-400 ms here
+    (more on CI runners) and stalls the event loop; CI saw a 0.4 s gap in a 90 ms
+    channel-isolation bound and a UDP reply miss a 300 ms timeout because of it. The pause
+    hits every channel at once, so it says nothing about what these tests check."""
+    gc.collect()
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.enable()
 
 
 @pytest.fixture

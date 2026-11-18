@@ -303,11 +303,12 @@ async def test_power_off_gives_connection_lost_and_power_on_reconnects(executor)
         await sim.stop()
 
 
+@pytest.mark.usefixtures("no_gc")
 async def test_udp(executor) -> None:
     sim = await start_sim(port=stable_port())
     try:
         sim.fill(TAGS, seed=6)
-        drv = make_driver(sim, TAGS, executor, timeout_ms=300, protocol="udp")
+        drv = make_driver(sim, TAGS, executor, timeout_ms=1000, protocol="udp")   # CI runners stall
         await drv.connect()
         sim.reset_counters()
         assert_values(sim, TAGS, await read_all(drv))
@@ -315,7 +316,7 @@ async def test_udp(executor) -> None:
         assert (await drv.identity())["protocol"] == "udp"
 
         sim.mute = True                                              # no answer: timeout, new socket next time
-        with pytest.raises(CommError, match="no reply within 300 ms") as info:
+        with pytest.raises(CommError, match="no reply within 1000 ms") as info:
             await drv.read(blocks(drv)[0])
         assert not isinstance(info.value, ConnectionLost) and not drv.connected
         sim.mute = False

@@ -21,7 +21,8 @@ def pytest_addoption(parser):
 
 # --- the Rust port gap: suites the chosen engine cannot run yet ---------------------------------
 # `@pytest.mark.drivers("ab_logix", ...)` names the PLC drivers a suite polls. With --engine=rust
-# a suite is skipped when the binary does not implement one of them, and an acceptance suite
+# a suite is skipped when the binary does not implement one of them ("driver not ported", or
+# "driver not compiled in" when its crate exists but the feature is off), and an acceptance suite
 # that does not drive the engine through `engine_factory` (it reaches into the Python Poller) is
 # skipped too. Both are listed at the end of the run and, on CI, in the job summary.
 _PORT_GAP = pytest.StashKey[dict]()
@@ -42,17 +43,14 @@ def pytest_runtest_setup(item):
     drivers = _suite_drivers(item)
     if not acceptance and not drivers:
         return
-    from tests.helpers.engine import NOT_AGNOSTIC, NOT_PORTED, implemented_drivers
+    from tests.helpers.engine import NOT_AGNOSTIC, unsupported_reason
 
     gap = item.config.stash[_PORT_GAP]
     gap[item.nodeid] = {"drivers": drivers, "outcome": None, "reason": ""}
-    implemented = implemented_drivers("rust") or frozenset()     # raises when there is no binary
-    missing = sorted(set(drivers) - implemented)
-    if missing:
-        reason = f"{NOT_PORTED}: {', '.join(missing)}"
-    elif "engine_factory" not in getattr(item, "fixturenames", ()):
+    reason = unsupported_reason("rust", drivers)                 # raises when there is no binary
+    if reason is None and "engine_factory" not in getattr(item, "fixturenames", ()):
         reason = f"{NOT_AGNOSTIC}: drives the Python engine directly, not through engine_factory"
-    else:
+    if reason is None:
         return
     gap[item.nodeid].update(outcome="skipped", reason=reason)
     pytest.skip(reason)

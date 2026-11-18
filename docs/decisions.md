@@ -889,10 +889,12 @@ an acceptance suite reaches an engine only through its config directory, API, CL
 the wire.
 - **Which suites run on Rust is decided by the binary, not a list in the tests.** Suites
   name the PLC drivers they poll (`@pytest.mark.drivers("ab_pccc")`); `opencap-engine drivers`
-  prints `{"implemented": [...], "not_implemented": [...]}` (the schema's `KNOWN_DRIVERS`
-  split by `opencap_drivers::IMPLEMENTED`), and `tests/conftest.py` skips a suite as
-  `driver not ported: <names>` when one is missing. Porting a driver turns its suite on with
-  no test change. This subcommand has no Python counterpart (Python implements every driver).
+  prints the schema's `KNOWN_DRIVERS` in three lists: `implemented` (compiled in,
+  `opencap_drivers::compiled_in()`), `not_compiled_in` (a driver crate exists but its Cargo
+  feature is off, #100) and `not_implemented` (no crate yet). `tests/conftest.py` skips a suite
+  as `driver not ported: <names>`, or `driver not compiled in: <names>`, when one is missing.
+  Porting a driver turns its suite on with no test change. This subcommand has no Python
+  counterpart (Python implements every driver).
 - **A suite that does not use `engine_factory` is skipped on Rust as "not engine-agnostic"**,
   so it can never silently test the Python engine in a Rust job. Today that is
   `test_ui_browser.py` (the Python web UI against a fake poller), and the serial, S7/MC and

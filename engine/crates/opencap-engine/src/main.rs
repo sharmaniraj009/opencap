@@ -153,11 +153,20 @@ async fn cmd_identity(config_dir: &Path, device_id: &str) -> Result<i32> {
     Ok(0)
 }
 
-/// `{"implemented": [...], "not_implemented": [...]}`, both in the schema's order.
+/// Which of the schema's drivers (`KNOWN_DRIVERS`, in its order) this build can poll:
+/// `implemented` (compiled in), `not_compiled_in` (a crate exists, its Cargo feature is off),
+/// `not_implemented` (no Rust crate yet).
 fn drivers_json() -> serde_json::Value {
-    let (implemented, missing): (Vec<&str>, Vec<&str>) =
-        opencap_core::config::KNOWN_DRIVERS.iter().partition(|d| opencap_drivers::IMPLEMENTED.contains(d));
-    serde_json::json!({ "implemented": implemented, "not_implemented": missing })
+    let compiled = opencap_drivers::compiled_in();
+    let has_crate = |d: &str| opencap_drivers::DRIVERS.iter().any(|e| e.name == d);
+    let pick = |f: &dyn Fn(&str) -> bool| -> Vec<&str> {
+        opencap_core::config::KNOWN_DRIVERS.iter().copied().filter(|d| f(d)).collect()
+    };
+    serde_json::json!({
+        "implemented": pick(&|d| compiled.contains(&d)),
+        "not_compiled_in": pick(&|d| has_crate(d) && !compiled.contains(&d)),
+        "not_implemented": pick(&|d| !has_crate(d)),
+    })
 }
 
 async fn shutdown_signal() -> &'static str {
@@ -288,16 +297,16 @@ mod tests {
         let names = |k: &str| -> Vec<String> {
             v[k].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
         };
-        let (implemented, missing) = (names("implemented"), names("not_implemented"));
-        assert!(implemented.contains(&"modbus_tcp".to_string()), "{v}");
-        let mut all: Vec<String> = implemented.iter().chain(&missing).cloned().collect();
+        let implemented = names("implemented");
+        let expected: Vec<String> = opencap_drivers::compiled_in().iter().map(|s| s.to_string()).collect();
+        assert_eq!(implemented, expected, "{v}");
+        let mut all: Vec<String> =
+            implemented.iter().chain(&names("not_compiled_in")).chain(&names("not_implemented")).cloned().collect();
         all.sort();
         let mut known: Vec<String> = opencap_core::config::KNOWN_DRIVERS.iter().map(|s| s.to_string()).collect();
         known.sort();
-        assert_eq!(all, known);
-        // A driver the build implements but the schema does not know would vanish from the list.
-        for d in opencap_drivers::IMPLEMENTED {
-            assert!(opencap_core::config::KNOWN_DRIVERS.contains(&d), "{d} is not in KNOWN_DRIVERS");
-        }
+        assert_eq!(all, known, "every known driver in exactly one list");
+        #[cfg(feature = "driver-modbus-tcp")]
+        assert!(implemented.contains(&"modbus_tcp".to_string()), "{v}");
     }
 }

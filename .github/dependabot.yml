@@ -1,0 +1,17 @@
+# Dependabot keeps the commit-SHA pins in .github/workflows/ current (#79): one grouped PR a
+# week that bumps each action's SHA and the "# vX.Y.Z" comment next to it.
+# dtolnay/rust-toolchain is pinned to a commit of its `stable` branch, which has no release
+# tags, so Dependabot leaves it alone; refresh it by hand with
+#   git ls-remote https://github.com/dtolnay/rust-toolchain refs/heads/stable
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "infra"
+    labels: ["infra"]

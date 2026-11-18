@@ -21,7 +21,7 @@ Every block is one "batch read in word units" (command 0401, subcommand 0000, or
 iQ-R): bit devices are read 16 points per word with the head on a 16-point boundary. A block
 spans at most `max_words` (MC 3E limit: 960 words per request).
 
-pymcprotocol 0.3.0 facts this module is built on (docs/decisions.md D-033..D-036):
+pymcprotocol 0.3.0 facts this module is built on (docs/decisions.md D-053..D-056):
 - `Type3E._recv()` is a single `recv(4096)`. A reply split across TCP segments is decoded
   short, and `int.from_bytes(b"")` is 0, so the missing words read as 0. The subclass reads
   exactly one 3E frame (header, then the length it announces), and the driver checks that
@@ -100,7 +100,7 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
 class McParams:
     """Typed view of `Device.params` for melsec_mc. Unknown keys are ignored."""
 
-    plc_type: str = "Q"                 # pymcprotocol plctype: wire format and device codes (D-034)
+    plc_type: str = "Q"                 # pymcprotocol plctype: wire format and device codes (D-054)
     protocol: str = "tcp"
     first_word_low: bool = True
     frame: str = "3E"

@@ -1,4 +1,4 @@
-"""MELSEC MC address parser: Kepware "Mitsubishi Ethernet" Q Series syntax (docs/decisions.md D-033).
+"""MELSEC MC address parser: Kepware "Mitsubishi Ethernet" Q Series syntax (docs/decisions.md D-053).
 
 One test per address form used or allowed by the KEPServer project: word devices (`D0000002`),
 bit devices (`B0000`), hex vs decimal numbering, bits in words, bit devices read as words,

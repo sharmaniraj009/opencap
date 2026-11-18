@@ -360,7 +360,7 @@ picks by catalog prefix. Stock pycomm3 `SLCDriver` works against it unmodified.
 
 ## S7 and MELSEC MC drivers
 
-### D-028 s7 driver on python-snap7 3.5 (pure Python)
+### D-048 s7 driver on python-snap7 3.5 (pure Python)
 - **Library:** python-snap7 3.x is a pure-Python S7comm stack (1.x wrapped the C library and
   has a different API), so the extra is pinned `python-snap7>=3.5,<4`. It installs on any Python
   without a native library.
@@ -389,7 +389,7 @@ picks by catalog prefix. Stock pycomm3 `SLCDriver` works against it unmodified.
   type and byte order. A refused SZL is reported as `<name>_error`; identity never raises.
 - `opencap.logsetup` keeps the `snap7` logger at WARNING (it logs every connect at INFO).
 
-### D-029 S7 addresses: Kepware syntax, widths, byte order
+### D-049 S7 addresses: Kepware syntax, widths, byte order
 Source: Kepware "Siemens TCP/IP Ethernet" help, *Standard S7-300/400/1200/1500 Item Syntax* and
 *Legacy* pages, and *Addressing Options*.
 - **Forms:** `<area><type><byte>` for I/E, Q/A, M/F (`MD232`, `MW10`, `MB7`, `IREAL8`, `MDI4`),
@@ -420,7 +420,7 @@ Source: Kepware "Siemens TCP/IP Ethernet" help, *Standard S7-300/400/1200/1500 I
   (Kepware lists 0..15 for X without saying which byte they address; the reason names the byte
   and bit to use), a value ending past byte 65535, DB 0.
 
-### D-030 S7 link type, TSAP, rack and slot
+### D-050 S7 link type, TSAP, rack and slot
 The remote TSAP is `connection type << 8 | rack << 5 | slot`; the local TSAP is 0x0100. Kepware
 documents the Link Type options PC (applications, the default), OP and PG, but not their values
 in `project.json`; every S7 device in the sample export says 3. **Assumed:** the value is the
@@ -430,7 +430,7 @@ hand edits. **Confirm on site** with `opencap identity`; a CPU that refuses the 
 closes the connection during the COTP handshake (seen as `connect failed`), and `link_type: 1`
 (PG) is the fallback to try. The simulator checks rack/slot and records the connection type.
 
-### D-031 S7 planner and the negotiated PDU
+### D-051 S7 planner and the negotiated PDU
 - PLAN §5.1: merge per (area, DB) when the gap is at most `max_gap` (16 bytes) and the block stays
   within `max_pdu` − 18 bytes (12 header + 2 parameter + 4 item header). Timers and counters
   merge in elements (2 bytes each, gap 8). Items larger than one PDU are `bad_config` at plan time.
@@ -446,7 +446,7 @@ closes the connection during the COTP handshake (seen as `connect failed`), and 
   CPU returns there is **not confirmed**). In simulation: a 900-byte block planned for 960 and
   negotiated at 480 is read as 462 + 438 bytes.
 
-### D-032 S7 simulator
+### D-052 S7 simulator
 `tests/helpers/s7_sim.py` wraps python-snap7's own `snap7.server.Server`, which the stock snap7
 client talks to unmodified (`tests/unit/test_s7_sim.py`). It adds the rack/slot TSAP check
 (no connection confirm otherwise), configurable PDU negotiation with oversize refusal, refusal
@@ -459,7 +459,7 @@ the STRING length byte, the split size or the timer/counter offsets each fails t
 Not simulated: S7-1200/1500 optimized blocks and PUT/GET protection (their codes are injected),
 real SZL contents (snap7's server reports a fixed CPU 315-2 PN/DP), routing, multi-var reads.
 
-### D-033 melsec_mc driver on pymcprotocol 0.3.0 (MC protocol 3E frame, binary)
+### D-053 melsec_mc driver on pymcprotocol 0.3.0 (MC protocol 3E frame, binary)
 - **One block = one "batch read in word units"** (command 0401, subcommand 0000; 0002 for
   `plc_type: iQ-R`) through a small `pymcprotocol.Type3E` subclass (`mc_client_class()`), run on
   the channel's single-thread executor. Its hooks are pinned by tests/unit/test_melsec_io.py.
@@ -491,7 +491,7 @@ real SZL contents (snap7's server reports a fixed CPU 315-2 PN/DP), routing, mul
   `cpu_type`, `cpu_code`, or `cpu_type_error` when the PLC refuses it (A series, FX3U and some
   Ethernet modules do not support 0101).
 
-### D-034 MELSEC addresses, value mapping and `plc_type`
+### D-054 MELSEC addresses, value mapping and `plc_type`
 - **Syntax = Kepware "Mitsubishi Ethernet" Q Series Address Descriptions** (case-insensitive,
   leading zeros allowed). Bit devices: X, Y, DX, DY, B, SB in **hex**; M, SM, L, F, V, TS, TC, SS,
   SC, CS, CC in decimal. Word devices: D, SD, R, TN, SN, CN in decimal; W, SW and **ZR in hex**
@@ -531,7 +531,7 @@ real SZL contents (snap7's server reports a fixed CPU 315-2 PN/DP), routing, mul
   does not write it yet. The id string's `:Nzzz:XXX` network/PC numbers are also not imported
   (D-010 reports them); set `params.network` / `params.pc` by hand if a site uses them.
 
-### D-035 MELSEC block planner and MC 3E limits
+### D-055 MELSEC block planner and MC 3E limits
 - Per device, items sorted by start word; an item joins the open block when it is on the same
   device, starts at most `max_gap` (default 16) words after the block end, and the span stays
   within `max_words` (default and cap **960 words**, the 3E limit for batch read in word units;
@@ -542,7 +542,7 @@ real SZL contents (snap7's server reports a fixed CPU 315-2 PN/DP), routing, mul
 - Identical items (same device, words, dtype, bit…) are read and decoded once and served to every
   tag name (as D-006). An item larger than `max_words` is `bad_config` at plan time.
 
-### D-036 MELSEC error mapping
+### D-056 MELSEC error mapping
 - Refused, reset, broken pipe, peer close (also mid-frame), UDP ICMP port unreachable →
   `ConnectionLost` (socket closed). No reply within `timeout_ms` → socket closed, `CommError`.
   A malformed reply (wrong subheader, length mismatch, wrong word count) → socket closed, `CommError`.
@@ -556,7 +556,7 @@ real SZL contents (snap7's server reports a fixed CPU 315-2 PN/DP), routing, mul
 - pymcprotocol failing to build a request (device not supported for the `plc_type`, number too
   large for the frame) before anything is sent → `BlockConfigError`.
 
-### D-037 MC 3E simulator for MELSEC tests
+### D-057 MC 3E simulator for MELSEC tests
 `tests/helpers/mc_sim.py` is an asyncio MC 3E server on TCP and UDP (same port number), binary and
 ASCII frames, Q and iQ-R device specs. It serves batch read in word and bit units (0401/0000–0003),
 random read (0403), read CPU model (0101) and loopback (0619); stock pymcprotocol works against it
@@ -571,7 +571,7 @@ unmodified. Device memory uses roughly a Q CPU's default sizes (D 12,288, M 8,19
   driver's code. Mutating the driver's word order, bit numbering, hex/decimal radix, string byte
   order or int16 masking makes the round-trip tests fail (mutation-checked).
 
-### D-038 S7 and MELSEC simulated acceptance, and what is left for real hardware
+### D-058 S7 and MELSEC simulated acceptance, and what is left for real hardware
 `tests/integration/test_s7_melsec_acceptance.py` (`-m acceptance`, ~30 s) runs 11 simulated
 PLCs through the whole poller and MQTT: 6 S7 CPUs (big and little endian; KEPServer's PDU 960
 negotiated to 480, so an 800-byte block is read as 462 + 338 bytes, and kept at 960, one request;
@@ -584,10 +584,10 @@ follow the PLC; powering one S7 and one MELSEC PLC off demotes only that device,
 logs `device.stats`; no simulator sees a write.
 
 **Still to do on real hardware**
-- S7: values match KEPServer on a real site; the link-type enum (D-030); the negotiated PDU and
-  `max_pdu` per CPU; counters BCD and timers S5TIME (D-029); what a CPU returns for a missing DB,
-  an optimized DB, PUT/GET disabled and an oversize read (D-028, D-031).
+- S7: values match KEPServer on a real site; the link-type enum (D-050); the negotiated PDU and
+  `max_pdu` per CPU; counters BCD and timers S5TIME (D-049); what a CPU returns for a missing DB,
+  an optimized DB, PUT/GET disabled and an oversize read (D-048, D-051).
 - MELSEC: values match KEPServer (in particular `D0000002` float32 with `first_word_low`);
-  `opencap identity` confirms model 5 is a Q-family CPU and `plc_type: Q` works (D-034); which end
-  codes a real CPU returns for a missing or too-short device (D-036); TCP or UDP and the
+  `opencap identity` confirms model 5 is a Q-family CPU and `plc_type: Q` works (D-054); which end
+  codes a real CPU returns for a missing or too-short device (D-056); TCP or UDP and the
   network/PC numbers in use on site.

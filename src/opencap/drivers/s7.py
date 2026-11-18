@@ -6,7 +6,7 @@ check and the error tables. I/O parts: `S7Driver.connect/read/close/identity`. E
 runs on the channel's single-thread executor; snap7 is reached through `s7_client_class()`, a
 small `snap7.client.Client` subclass whose hooks are pinned by tests/unit/test_s7_io.py.
 
-Addresses (Kepware syntax, case-insensitive; docs/decisions.md D-029)
+Addresses (Kepware syntax, case-insensitive; docs/decisions.md D-049)
     <area><type><byte>[.bit | .len][[rows][cols]]   area I/E, Q/A, M/F
     <area><byte>.<bit>                              bit, e.g. M10.3, I0.0
     DB<n>,<type><byte>[...]                         e.g. DB100,D04  DB1,REAL8  DB1,X5.6  DB1,STRING0.20
@@ -68,7 +68,7 @@ AREA_CODES: dict[str, int] = {"I": 0x81, "Q": 0x82, "M": 0x83, "DB": 0x84, "C": 
 WORD_LEN = {"byte": 0x02, "counter": 0x1C, "timer": 0x1D}    # S7 transport sizes used for reads
 TC_AREAS = frozenset({"T", "C"})
 
-# Kepware Link Type -> S7 connection type (first byte of the remote TSAP). D-030.
+# Kepware Link Type -> S7 connection type (first byte of the remote TSAP). D-050.
 CONNECTION_TYPES = {"PG": 1, "OP": 2, "PC": 3, "BASIC": 3, "S7BASIC": 3}
 CONNECTION_TYPE_NAMES = {1: "PG", 2: "OP", 3: "PC (S7 basic)"}
 DEFAULT_CONNECTION_TYPE = 3   # Kepware default "PC"
@@ -153,7 +153,7 @@ class S7Params:
 
     @property
     def connection_type(self) -> int:
-        """S7 connection type for the remote TSAP: 1 PG, 2 OP, 3 PC/S7 basic (D-030)."""
+        """S7 connection type for the remote TSAP: 1 PG, 2 OP, 3 PC/S7 basic (D-050)."""
         lt = self.link_type
         if lt is None:
             return DEFAULT_CONNECTION_TYPE

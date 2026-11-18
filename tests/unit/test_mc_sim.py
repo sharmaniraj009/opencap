@@ -1,6 +1,6 @@
 """The MC 3E simulator against stock pymcprotocol 0.3.0 (unmodified `Type3E`).
 
-Also pins two pymcprotocol behaviours the driver works around (docs/decisions.md D-033):
+Also pins two pymcprotocol behaviours the driver works around (docs/decisions.md D-053):
 its single `recv(4096)` decodes a reply split across TCP segments as zeros, and its ASCII mode
 writes the numbers of hex devices as decimal digits.
 """

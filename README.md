@@ -70,11 +70,11 @@ confirmed), `overrides.yaml` (hand fixes). Secrets come from environment variabl
 
 1. `opencap identity "SITE S7/PLC"` — CPU module and order code (SZL), firmware, run/stop, and
    the PDU the CPU negotiated (`pdu_negotiated`). If it is below `pdu_requested`, set
-   `params.max_pdu` to it in `overrides.yaml` so blocks are planned to fit (D-031). A connect
+   `params.max_pdu` to it in `overrides.yaml` so blocks are planned to fit (D-051). A connect
    that fails during the ISO handshake may mean the link type: try `params.link_type: 1` (PG),
-   D-030.
+   D-050.
 2. `opencap identity "SITE MELSEC/STP"` — CPU model from "read CPU model". It confirms that the
-   importer's `plc_type: Q` guess talks to this PLC (D-034); check `protocol` (TCP/UDP) too.
+   importer's `plc_type: Q` guess talks to this PLC (D-054); check `protocol` (TCP/UDP) too.
 3. `opencap read ...` — compare with KEPServer's Quick Client, especially S7 timers/counters
    (ms / BCD) and MELSEC 32-bit values (`first_word_low`).
 

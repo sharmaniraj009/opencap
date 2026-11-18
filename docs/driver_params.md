@@ -48,8 +48,8 @@ KEPServer keys are shown without the driver prefix where obvious.
 |---|---|---|---|
 | `rack` | int | 0 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_RACK` (0..7) |
 | `slot` | int | 1 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_CPU_SLOT` (0..31) |
-| `max_pdu` | int | 480 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_MAX_PDU` (240..960; PDU requested at connect and used to plan blocks of at most `max_pdu` − 18 bytes; a smaller negotiated PDU splits reads, D-031) |
-| `link_type` | int \| str \| null | null | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_300_400_1200_1500_LINK_TYPE` (TSAP connection type: 1 = PG, 2 = OP, 3 = PC; also `"PG"`/`"OP"`/`"PC"`; null = 3, Kepware's default "PC"; enum values assumed, D-030) |
+| `max_pdu` | int | 480 | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_MAX_PDU` (240..960; PDU requested at connect and used to plan blocks of at most `max_pdu` − 18 bytes; a smaller negotiated PDU splits reads, D-051) |
+| `link_type` | int \| str \| null | null | `siemens_tcpip_ethernet.DEVICE_S7_COMMUNICATIONS_300_400_1200_1500_LINK_TYPE` (TSAP connection type: 1 = PG, 2 = OP, 3 = PC; also `"PG"`/`"OP"`/`"PC"`; null = 3, Kepware's default "PC"; enum values assumed, D-050) |
 | `byte_order_big` | bool | true | `siemens_tcpip_ethernet.DEVICE_ADDRESSING_BYTE_ORDER` (false = Kepware "Little Endian": the bytes of every 16/32/64-bit value reversed; not applied to timers, counters, strings) |
 | `max_gap` | int | 16 | — (unused bytes allowed between merged tags; timers/counters: `max_gap` / 2 elements) |
 | `nonnormal_float` | "zero" \| "unmodified" | "zero" | — (NaN/Inf/denormal REAL/LREAL; Kepware's channel default "Replace with Zero"; the importer writes it for modbus_tcp only) |
@@ -57,7 +57,7 @@ KEPServer keys are shown without the driver prefix where obvious.
 ## melsec_mc
 | key | type | default | KEPServer source |
 |---|---|---|---|
-| `plc_type` | "Q" \| "L" \| "QnA" \| "iQ-L" \| "iQ-R" | "Q" | `mitsubishi_ethernet.DEVICE_CPU` / `DEVICE_MODEL` (importer writes "Q", a guess; only "iQ-R" changes the frames, D-034) |
+| `plc_type` | "Q" \| "L" \| "QnA" \| "iQ-L" \| "iQ-R" | "Q" | `mitsubishi_ethernet.DEVICE_CPU` / `DEVICE_MODEL` (importer writes "Q", a guess; only "iQ-R" changes the frames, D-054) |
 | `protocol` | "tcp" \| "udp" | "tcp" | `mitsubishi_ethernet.DEVICE_IP_PROTOCOL` (0 = UDP, 1 = TCP) |
 | `first_word_low` | bool | true | `mitsubishi_ethernet.DEVICE_FIRST_WORD_LOW` (word order of every 32/64-bit value) |
 | `frame` | "3E" | "3E" | — (MC protocol 3E frame, binary; nothing else is supported) |

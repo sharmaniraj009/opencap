@@ -745,3 +745,30 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
 - A browser smoke test (`tests/ui/browser_smoke.js`, run by `tests/integration/test_ui_browser.py`,
   marker `acceptance`) drives Chromium through every page at desktop and phone width and fails on any
   script error or CSP violation; it is skipped where Node.js and Playwright are not installed.
+
+## Rust engine: API parity with #63
+
+### D-062 Named tokens, read-only open mode and auth before the body in `opencap-api` (#82)
+- **Config:** `api.tokens`, `api.audit_log` and `api.cors_origins` load in Rust (`ApiToken`, `Role`), with the
+  same checks and messages as `ApiCfg` (non-empty `name`/`token_env`, "default" reserved, duplicate names). A
+  `poller.yaml` written for the Python engine with named tokens is no longer refused by `deny_unknown_fields`.
+  `audit_log` and `cors_origins` are accepted and unused: the Rust engine has no config API and sends no CORS
+  headers yet.
+- **Roles and open mode as `auth.py`:** `token_env` is the admin "default"; `viewer` may use GET/HEAD only, so
+  `POST /reload` and `POST .../read-once` need `admin`. A listed token whose env var is unset, or two tokens with
+  the same secret, stop the start with Python's message. With no token the API still starts only on a loopback
+  bind (D-019) and is now read-only (the viewer "anonymous") and answers only loopback `Host` names (DNS
+  rebinding). 403 and 401 texts are Python's; 401 carries `WWW-Authenticate: Bearer`.
+- **Guard:** an axum middleware in front of every route and the fallback, with `guard.py`'s open paths. It
+  authenticates from the headers before any body byte is read, refuses a `Content-Length` over 1 MiB with 413 at
+  once, and then reads the body with the 1 MiB cap. Unknown paths need a token (401 before 404), as in Python.
+- **Deliberate difference:** Rust reads every request body up front (at most 1 MiB, after auth), so a chunked
+  body over the cap gets 413 on any route. Python counts only the bodies a route reads, and its legacy routes
+  read none, so there such a body is ignored. Both refuse an oversized `Content-Length`. None of the Rust routes
+  takes a body, so buffering costs nothing and keeps the cap in one place.
+- **Dependency:** `http-body-util` 0.1 (MIT) becomes a direct dependency of `opencap-api` to tell a body over the
+  cap from a broken connection. It was already in the lock file through axum; `tower-http` was not added.
+- **Tests:** `opencap-api` unit tests (roles, open mode, rebinding, 401 before the body, 413 by length and by
+  chunks, start-up errors); `tests/integration/test_rust_engine_api.py` runs the open-mode, rebinding, role,
+  401-before-body and 413 checks against both engines: Python through ASGI with `tests/helpers/fake_poller.py`,
+  Rust as the binary. The reload test now gives the engine a token.

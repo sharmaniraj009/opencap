@@ -178,8 +178,23 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
     }
     configure_logging(&loaded.poller.log_level);
     let api_cfg = loaded.poller.api.clone();
-    let token = opencap_api::token_from_env(&api_cfg.token_env);
-    opencap_api::check_bind(&api_cfg.bind, token.as_deref(), &api_cfg.token_env).map_err(anyhow::Error::msg)?;
+    let specs: Vec<opencap_api::TokenSpec> = api_cfg
+        .tokens
+        .iter()
+        .map(|t| opencap_api::TokenSpec {
+            name: t.name.clone(),
+            role: match t.role {
+                opencap_core::config::Role::Admin => opencap_api::Role::Admin,
+                opencap_core::config::Role::Viewer => opencap_api::Role::Viewer,
+            },
+            token_env: t.token_env.clone(),
+        })
+        .collect();
+    let auth = opencap_api::Auth::new(opencap_api::token_from_env(&api_cfg.token_env), &specs, |name| {
+        opencap_api::token_from_env(name)
+    })
+    .map_err(anyhow::Error::msg)?;
+    opencap_api::check_bind(&api_cfg.bind, &auth, &api_cfg.token_env).map_err(anyhow::Error::msg)?;
     let port = u16::try_from(api_cfg.port).context("api.port out of range")?;
     let listener = opencap_api::bind(&api_cfg.bind, port)
         .await
@@ -190,7 +205,7 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
     poller.start().await?;
     let view: Arc<dyn opencap_api::EngineView> = poller.clone();
     let (api_stop_tx, api_stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let api = tokio::spawn(opencap_api::serve(listener, opencap_api::router(view, token), async move {
+    let api = tokio::spawn(opencap_api::serve(listener, opencap_api::router(view, auth), async move {
         let _ = api_stop_rx.await;
     }));
     info!(bind = %api_cfg.bind, port = api_cfg.port, health = %poller.health()["status"], "api_started");

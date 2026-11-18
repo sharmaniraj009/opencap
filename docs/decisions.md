@@ -772,3 +772,24 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   chunks, start-up errors); `tests/integration/test_rust_engine_api.py` runs the open-mode, rebinding, role,
   401-before-body and 413 checks against both engines: Python through ASGI with `tests/helpers/fake_poller.py`,
   Rust as the binary. The reload test now gives the engine a token.
+
+### D-063 Rust config models: the shared fixtures and a cross-language comparison (#39)
+- **Hand-written, not generated:** the serde types stay hand-written (`typify` output would need the same
+  validators, messages and `IndexMap` ordering added by hand). Drift is caught by data instead:
+  `tests/conformance/config/compare.py` runs the Rust dumper (`opencap-core` example `config_dump`) and the
+  Python models over every fixture. A valid fixture must give the same document with every default filled in
+  (`model_dump(mode="json")` against serde) and, for `devices`, the same resolved channels and warnings from
+  `load_config`; an invalid one must be refused by both. A field missing on one side shows as "only in
+  Python/Rust" for every model that appears in a valid fixture. A mutation check (one Rust default changed)
+  fails it. CI runs it in the `conformance` job.
+- **Rust test over the fixtures:** `engine/crates/opencap-core/tests/config_conformance.rs` loads every valid
+  fixture and refuses every invalid one with the fixture's `expected_error`. serde words one error
+  differently: pydantic's "Extra inputs are not permitted" is serde's "unknown field".
+- **Errors name the field:** serde errors now carry the location in pydantic's spelling
+  (`channels.0.devices.0.port: invalid type: ...`) through `serde_path_to_error` 0.1 (MIT OR Apache-2.0,
+  already in the lock file through axum). Before, a wrong type said only "invalid type".
+- **`overrides.yaml` `serial_ports`** (COM port -> gateway, D-037) loads in Rust. It is accepted and
+  unused until the serial drivers are ported (#47).
+- **New fixtures:** `poller_api_tokens` (valid) and the invalid `poller_api_tokens_duplicate_names`,
+  `poller_api_tokens_reserved_name` (semantic: the schema accepts them) and `poller_api_token_bad_role`.
+

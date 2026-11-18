@@ -233,9 +233,10 @@ device's map entry) → default topic with `mqtt.topic_prefix` (D-028). Models a
 serde types with `deny_unknown_fields` (= pydantic `extra="forbid"`) and the same defaults
 and validators (unique tag names, unique device ids, topic prefix rules). Warnings
 (unknown ids, stubs, unmapped devices, shared topics/SubDeviceIds) have the **same text**,
-which the `check` parity test compares. When the JSON Schema of
-[ADR-0003](../adr/0003-shared-config-schema.md) lands (#2), #39 replaces the hand-written types
-(or adds a drift test) and runs the shared config fixtures.
+which the `check` parity test compares. The types stay hand-written (D-063): every fixture of
+[ADR-0003](../adr/0003-shared-config-schema.md) in `tests/conformance/config/` is loaded by both
+engines, and `tests/conformance/config/compare.py` checks in CI that the Rust and Python models
+make the same documents of them (every default filled in) and resolve the same devices.
 
 ### 2.9 Where Rust differs from Python on purpose
 

@@ -11,7 +11,8 @@ acceptance suites are the specification this engine is tested against.
 Status: first vertical slice (milestone M2). Modbus TCP, MQTT with store-and-forward, the
 admin API and `check`/`read` pass the Python Phase 1 acceptance suite. Every other driver is
 reported as "not implemented yet in the Rust engine" (or "not compiled in" when its crate
-exists but its Cargo feature is off) and its devices are skipped, never polled. The engine is **read-only** toward PLCs: the driver trait has no write method.
+exists but its Cargo feature is off) and its devices are skipped, never polled. Modbus RTU (serial
+line and RTU over TCP) passes the Python RTU simulator suite (`tests/integration/test_rust_engine_rtu.py`). The engine is **read-only** toward PLCs: the driver trait has no write method.
 
 ## Build and run
 
@@ -39,7 +40,9 @@ requests to `localhost` (D-062).
 |---|---|
 | `opencap-core` | config models + loader (same schema and layering as `src/opencap/config/`), value model, tag store and change-event bus (ADR-0005), health, scheduler, driver trait, registry, channel worker, metrics, Python-compatible formatting |
 | `opencap-drivers` | the driver registry: one static table (`DRIVERS`), one Cargo feature per driver crate, the driver factory |
+| `opencap-serial` | serial lines: line settings, endpoints (`transport`), shared lines, local echo, TCP and local serial streams (tokio-serial) |
 | `drivers/modbus_tcp` (`opencap-driver-modbus-tcp`) | Modbus TCP: address parser, block planner, decoder, tokio-modbus I/O |
+| `drivers/modbus_rtu` (`opencap-driver-modbus-rtu`) | Modbus RTU on a serial line or RTU over TCP: the Modbus TCP planner/decoder, tokio-modbus RTU framing |
 | `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
 | `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity`, `drivers` |
@@ -84,7 +87,7 @@ Conformance against the Python reference (from the repository root, after `cargo
 ```bash
 .venv/bin/pytest tests/unit/test_payload_golden.py tests/integration/test_rust_engine_cli.py \
                  tests/integration/test_rust_engine_outbox.py tests/integration/test_rust_engine_api.py \
-                 tests/integration/test_engine_harness.py
+                 tests/integration/test_engine_harness.py tests/integration/test_rust_engine_rtu.py
 OPENCAP_ENGINE=rust .venv/bin/pytest -m acceptance -ra     # every acceptance suite, Rust engine
 ```
 

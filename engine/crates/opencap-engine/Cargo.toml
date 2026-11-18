@@ -17,8 +17,9 @@ path = "src/main.rs"
 # `default` = every driver that exists; e.g. a Modbus-only build:
 #   cargo build -p opencap-engine --no-default-features --features driver-modbus-tcp
 [features]
-default = ["driver-modbus-tcp"]
+default = ["driver-modbus-tcp", "driver-modbus-rtu"]
 driver-modbus-tcp = ["opencap-drivers/driver-modbus-tcp"]
+driver-modbus-rtu = ["opencap-drivers/driver-modbus-rtu"]
 
 [dependencies]
 opencap-core.workspace = true

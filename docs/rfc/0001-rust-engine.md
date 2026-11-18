@@ -301,6 +301,8 @@ oss-reuse.md.
 | Body cap in the API guard (reads and drains the body frame by frame) | http-body-util 0.1.5 | MIT ([LICENSE](https://docs.rs/crate/http-body-util/0.1.5/source/LICENSE)) | hyper project; already in the lock through axum (D-062) | Adopt |
 | Field paths in config errors (pydantic-style `loc`) | serde_path_to_error 0.1.20 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/serde_path_to_error/0.1.20/source/LICENSE-MIT)) | dtolnay; already in the lock through axum (D-063) | Adopt |
 | Licence gate | cargo-deny 0.21 | MIT OR Apache-2.0 (manifest) | standard | Test-only (CI) |
+| Modbus RTU framing (#47) | tokio-modbus 0.17 `rtu` feature | MIT OR Apache-2.0 (lock) | same crate as Modbus TCP | Adopt |
+| Local serial ports (#47) | tokio-serial 5.5.0 + mio-serial 5.0.7, on serialport 4.10.1 | MIT ([LICENSE](https://docs.rs/crate/tokio-serial/5.5.0/source/LICENSE)); serialport MPL-2.0 ([LICENSE.txt](https://docs.rs/crate/serialport/4.10.1/source/LICENSE.txt)), unmodified (lock) | serialport-rs project; default features off (no libudev) | Adopt (D-066) |
 
 `cargo deny check licenses` over the whole dependency graph passes with the allow-list
 MIT, Apache-2.0 (incl. LLVM exception), BSD-2/3, ISC, Zlib, Unicode-3.0 (`engine/deny.toml`);

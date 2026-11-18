@@ -1,0 +1,26 @@
+[package]
+name = "opencap-driver-modbus-rtu"
+description = "opencap engine driver (read-only): Modbus RTU on a serial line or RTU frames over TCP"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencap-core.workspace = true
+opencap-driver-modbus-tcp.workspace = true
+opencap-serial.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-modbus = { workspace = true, features = ["rtu"] }
+tracing.workspace = true
+
+[dev-dependencies]
+rand.workspace = true
+
+[lints]
+workspace = true

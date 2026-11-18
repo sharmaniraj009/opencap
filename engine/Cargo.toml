@@ -6,6 +6,7 @@ members = [
     "crates/opencap-north",
     "crates/opencap-api",
     "crates/opencap-engine",
+    "crates/opencap-serial",
     "drivers/*",                      # one crate per driver (#67): see README "How to add a driver crate"
 ]
 
@@ -23,6 +24,8 @@ opencap-core = { path = "crates/opencap-core" }
 opencap-drivers = { path = "crates/opencap-drivers", default-features = false }   # drivers chosen by opencap-engine features
 opencap-north = { path = "crates/opencap-north" }
 opencap-api = { path = "crates/opencap-api" }
+opencap-serial = { path = "crates/opencap-serial" }
+opencap-driver-modbus-tcp = { path = "drivers/modbus_tcp" }
 
 anyhow = "1"
 async-trait = "0.1"
@@ -48,6 +51,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util"] }
 tokio-modbus = { version = "0.17", default-features = false, features = ["tcp"] }
 tokio-util = { version = "0.7", default-features = false }
+tokio-serial = { version = "5.4", default-features = false }   # MIT; serialport is MPL-2.0 (unmodified, ADR-0007), no libudev
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }

@@ -14,13 +14,13 @@ never committed) uses; tier 2 is what most KEPServerEX installations use; tier 3
 | Tier | Protocol | KEPServerEX driver | opencap status |
 |---|---|---|---|
 | 1 | Modbus TCP | Modbus TCP/IP Ethernet | done (Python) |
-| 1 | Modbus RTU/ASCII serial, RTU over TCP | Modbus Serial | flight (`serial`) |
+| 1 | Modbus RTU/ASCII serial, RTU over TCP | Modbus Serial | done (Python, #62) |
 | 1 | Allen-Bradley Logix / Micro800 (CIP symbolic) | ControlLogix Ethernet, Micro800 Ethernet | done (Python) |
 | 1 | Allen-Bradley SLC/MicroLogix/PLC-5 (PCCC over EtherNet/IP) | ControlLogix Ethernet (model 23) | done (Python) |
-| 1 | Allen-Bradley DF1 serial | DF1 | flight (`serial`) |
-| 1 | Siemens S7-300/400/1200/1500 (S7comm) | Siemens TCP/IP Ethernet | flight (`s7-melsec`) |
-| 1 | Mitsubishi MC protocol (3E/4E) | Mitsubishi Ethernet | flight (`s7-melsec`) |
-| 1 | OPC UA client | OPC UA Client | flight (`opcua`) |
+| 1 | Allen-Bradley DF1 serial | DF1 | done (Python, #62) |
+| 1 | Siemens S7-300/400/1200/1500 (S7comm) | Siemens TCP/IP Ethernet | flight (#60, takeover #73) |
+| 1 | Mitsubishi MC protocol (3E/4E) | Mitsubishi Ethernet | flight (#60, takeover #73) |
+| 1 | OPC UA client | OPC UA Client | flight (#61, takeover #74) |
 | 2 | Omron FINS (UDP/TCP) | Omron FINS Ethernet | planned M5 |
 | 2 | BACnet/IP | BACnet/IP | planned M5 |
 | 2 | DNP3 master (TCP/serial) | DNP Client Ethernet/Serial | planned M5 |
@@ -99,7 +99,7 @@ retention. Local historian: query API for trends in the UI.
 ### FR-8 Servers for SCADA
 | Server | Status |
 |---|---|
-| OPC UA server (security policies, users, certificates, subscriptions, browse) | flight (`opcua`) |
+| OPC UA server (security policies, users, certificates, subscriptions, browse) | flight (#61, takeover #74) |
 | MQTT / Sparkplug B (see FR-7) | MQTT done, Sparkplug planned M3 |
 | Modbus TCP server (register map over the tag store, read function codes only) | planned M3 |
 | OPC DA 2.05a/3.0 server (Windows, COM) | planned M5, RFC + owner decision on OPC Foundation components |
@@ -115,8 +115,10 @@ retention. Local historian: query API for trends in the UI.
 - Project export, validation (`opencap check`, done), hot reload of changed channels only
   (done), config revisions with rollback (planned).
 - Configuration REST API: CRUD for channels, devices, tags, north agents and plug-ins, with
-  optimistic concurrency (flight `web-ui`; contract in 03 §3.6).
-- Web UI (flight `web-ui`), desktop app for Linux and Windows (planned M4), Quick Client
+  optimistic concurrency (done for channels, devices, tags, map and overrides, #63; contract in
+  03 §3.6 and `api/openapi.json`, #88; north agents and plug-ins planned).
+- Web UI (done, #63), desktop app for Linux and Windows (shell done, #87; installers with a
+  bundled engine planned M4, #58), Quick Client
   equivalent (live values, demand read), CLI (done).
 
 ### FR-10 Diagnostics

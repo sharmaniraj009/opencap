@@ -43,3 +43,17 @@ side as commands, still sharing the UI).
 - `api.cors_origins` exists for the desktop shell (#27), which loads the engine's `/ui/`. The
   engine runs as a system service by default (amendment above). The desktop app keeps the
   token in the OS keychain.
+
+## As built (#87, 2026-11-18)
+- `desktop/` is its own Cargo workspace (not part of `engine/`). It is a launcher window plus one native window per
+  engine that loads `<engine>/ui/` directly. It does not bundle the UI, so every engine version shows its own UI.
+  (b) remote nodes and (c) profiles and keychain are built; (a) the bundled sidecar engine is #58.
+- Health and token checks run from Rust (`ureq`, no redirects, timeout), so the engine needs no CORS entry for the
+  desktop app. `api.cors_origins` stays for other origins.
+- Security: capabilities cover only the launcher window (`core:default` plus the app's commands, no shell, filesystem or
+  HTTP plugin). Engine windows are remote origins and get no IPC: Tauri 2.12 refuses app commands from a remote
+  origin without a `remote` capability, and `tauri` is pinned to that minor version. An engine window cannot
+  navigate off its origin. The token is written to `sessionStorage` only when the page's origin matches. Tokens
+  are bound to the address they were saved for (`token_origin`), so changing a profile's address drops the token.
+- Installers: deb, AppImage and an unsigned MSI built in CI with `--locked`. The MSI downloads WebView2 only when it
+  is missing. Offline-capable installers are part of #58. The `desktop/` licence gate is #90.

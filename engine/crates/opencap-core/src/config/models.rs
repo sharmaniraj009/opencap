@@ -230,8 +230,8 @@ fn d_30000() -> i64 {
 }
 
 /// Drivers the Python reference engine knows (its `DriverName` literal, same order).
-pub const KNOWN_DRIVERS: [&str; 8] =
-    ["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client", "modbus_rtu", "ab_df1"];
+pub const KNOWN_DRIVERS: [&str; 9] =
+    ["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client", "modbus_rtu", "ab_df1", "simulator"];
 
 /// pydantic's message shape for the `DriverName` literal.
 pub fn driver_name_error(value: &str) -> String {

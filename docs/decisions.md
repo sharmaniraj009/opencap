@@ -1211,3 +1211,24 @@ asyncua's once-a-second clock task first (private attribute, guarded), which sav
 - **Timing flake:** the panicking-`on_cycle` test waits on the call counter with a 10 s deadline instead of a fixed 300 ms sleep.
 - **Verification:** 100 consecutive `cargo test -p opencap-core --test worker` runs with 8 busy loops on 4 cores: 0 failures
   (was ~4/25). Command: start `sh -c 'while :; do :; done'` x8, then loop the test.
+
+### D-066 Simulator driver: time base, determinism and grammar (#12)
+- **Expected:** a KEPServerEX-style Simulator whose waveforms start when the device starts, with KEPServerEX's
+  own address syntax and writable memory registers.
+- **Did:** `simulator` computes every value from the address and the read time, in **whole milliseconds since
+  `params.epoch`** (default the Unix epoch), not since connect. Two engines, or two runs, reading at the same
+  instant return the same values, which is what a side-by-side shadow run needs (M4), and a reload or
+  reconnect does not restart a waveform. `RANDOM` uses SplitMix64 indexed by the period number (random access,
+  no state, trivially portable), not Python's Mersenne Twister. Integer tags round half away from zero
+  (Rust `f64::round`); `RAMP` uses exact integer arithmetic when low, high and step are integer literals,
+  otherwise a 1e-9 epsilon so a float step that divides the span still reaches `high`. `COUNTER` is the only
+  stateful function: it counts good reads per driver instance (reset by a reload). The grammar is opencap's
+  own (`RAMP(period_ms, low, high[, step])`, ...), not KEPServerEX's (`RAMP(Rate, Lo, Hi, Increment)` with
+  register types); the importer keeps excluding KEPServerEX Simulator devices.
+- **Why:** determinism across engines and restarts is worth more for demos, UI tests and conformance than
+  "starts at low". Read-only (ADR-0008): memory registers `K<n>` return the value in `params.memory` and
+  nothing can change them. The formulas are in `docs/driver_params.md` (simulator) and pinned by
+  `tests/conformance/simulator/vectors.json` for the Rust port.
+- **Fault switches** (`fail_connect`, `fail_every_n_reads`, `latency_ms`, `bad_decode_tags`) act inside the
+  driver, so the worker's own retry, timeout and demotion paths run unchanged; latency at or above
+  `timeout_ms` fails the read after `timeout_ms`, like a silent device.

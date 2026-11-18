@@ -142,6 +142,7 @@ reference implementation.
 | `opcua_client` | OPC UA (subscriptions) | any OPC UA server | OPC UA Client | `opcua` (asyncua) | ✅ done (field check to do) |
 | `modbus_rtu` | Modbus RTU (serial, or RTU over TCP) | serial Modbus slaves | Modbus RTU Serial (configured by hand) | `modbus` (+ `serial` for a local port) | ✅ done |
 | `ab_df1` | Allen-Bradley DF1 full duplex | SLC 500, MicroLogix | Allen-Bradley DF1 | none (+ `serial` for a local port) | ✅ done |
+| `simulator` | none: values computed from the address | demos, the UI, desktop tests, benchmarks | Simulator (its devices are not imported) | none | ✅ done |
 | OPC UA server | OPC UA (north side) | SCADA/HMI clients | KEPServerEX's OPC UA server | `opcua` (asyncua) | ✅ done, off by default (hardening: #28) |
 
 Addresses and data types:
@@ -177,6 +178,12 @@ Addresses and data types:
   `params.username_env` / `password_env`. A password is never sent over security policy `None`
   unless `params.allow_insecure_password: true`. Write, call and node-management services are
   refused inside the driver, even though the library offers them.
+- **Simulator:** `RAMP(period_ms, low, high[, step])`, `SINE(period_ms, low, high[, phase_deg])`,
+  `RANDOM(period_ms, low, high[, seed])`, `SQUARE(period_ms, low, high)`, `CONST(value)`,
+  memory registers `K<n>` (`params.memory`), `TIME`, `COUNTER`. No network; deterministic for a
+  given clock, `params.epoch` and seed, so both engines return the same values at the same
+  instant. Fault switches `fail_connect`, `fail_every_n_reads`, `latency_ms` and
+  `bad_decode_tags` make every quality visible in a demo (D-066).
 
 ### OPC UA server for SCADA
 

@@ -773,9 +773,37 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   body over the cap gets 413 on any route. Python counts only the bodies a route reads, and its legacy routes
   read none, so there such a body is ignored. Both refuse an oversized `Content-Length`. None of the Rust routes
   takes a body, so buffering costs nothing and keeps the cap in one place.
+- **No body without a token (lead's note on #84):** the open paths (`/health`, `/metrics`, `/api/v1/auth-info`,
+  the UI paths) and `OPTIONS` skip authentication, so they read no body either: any body there gets 413 at once,
+  unread and undrained. An anonymous caller cannot make the server buffer or drain anything; drain only ever runs
+  for an authenticated caller. Python ignores such a body instead (no open route reads one).
+- **Host names (lead's note on #84):** open mode answers exactly Python's `LOOPBACK_HOSTS` (`127.0.0.1`,
+  `localhost`, `::1`); other 127/8 names are refused, as in Python. The start-up bind check still accepts any
+  loopback address, as Python's `_is_loopback` does.
 - **Dependency:** `http-body-util` 0.1 (MIT) becomes a direct dependency of `opencap-api` to read the body frame by
   frame under the cap and to drain it. It was already in the lock file through axum; `tower-http` was not added.
 - **Tests:** `opencap-api` unit tests (roles, open mode, rebinding, 401 before the body, 413 by length and by
   chunks, start-up errors); `tests/integration/test_rust_engine_api.py` runs the open-mode, rebinding, role,
   401-before-body and 413 checks against both engines: Python through ASGI with `tests/helpers/fake_poller.py`,
   Rust as the binary. The reload test now gives the engine a token.
+
+### D-063 Rust config models: the shared fixtures and a cross-language comparison (#39)
+- **Hand-written, not generated:** the serde types stay hand-written (`typify` output would need the same
+  validators, messages and `IndexMap` ordering added by hand). Drift is caught by data instead:
+  `tests/conformance/config/compare.py` runs the Rust dumper (`opencap-core` example `config_dump`) and the
+  Python models over every fixture. A valid fixture must give the same document with every default filled in
+  (`model_dump(mode="json")` against serde) and, for `devices`, the same resolved channels and warnings from
+  `load_config`; an invalid one must be refused by both. A field missing on one side shows as "only in
+  Python/Rust" for every model that appears in a valid fixture. A mutation check (one Rust default changed)
+  fails it. CI runs it in the `conformance` job.
+- **Rust test over the fixtures:** `engine/crates/opencap-core/tests/config_conformance.rs` loads every valid
+  fixture and refuses every invalid one with the fixture's `expected_error`. serde words one error
+  differently: pydantic's "Extra inputs are not permitted" is serde's "unknown field".
+- **Errors name the field:** serde errors now carry the location in pydantic's spelling
+  (`channels.0.devices.0.port: invalid type: ...`) through `serde_path_to_error` 0.1 (MIT OR Apache-2.0,
+  already in the lock file through axum). Before, a wrong type said only "invalid type".
+- **`overrides.yaml` `serial_ports`** (COM port -> gateway, D-037) loads in Rust. It is accepted and
+  unused until the serial drivers are ported (#47).
+- **New fixtures:** `poller_api_tokens` (valid) and the invalid `poller_api_tokens_duplicate_names`,
+  `poller_api_tokens_reserved_name` (semantic: the schema accepts them) and `poller_api_token_bad_role`.
+

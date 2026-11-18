@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use axum::body::Body;
+use axum::body::{Body, HttpBody};
 use axum::extract::{Path, Request, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -53,9 +53,15 @@ pub trait EngineView: Send + Sync + 'static {
 
 pub const METRICS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
+/// A loopback bind address (Python `server._is_loopback`): `localhost` or any loopback IP,
+/// all of 127.0.0.0/8 included.
 pub fn is_loopback(host: &str) -> bool {
     host == "localhost" || host.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
+
+/// The `Host` names open mode answers (Python `auth.LOOPBACK_HOSTS`): exactly these, so the
+/// check is the same in both engines (the bind check above is wider, as in Python).
+pub const LOOPBACK_HOSTS: [&str; 3] = ["127.0.0.1", "localhost", "::1"];
 
 /// Python `create_app()`'s start-up rule.
 pub fn check_bind(bind: &str, auth: &Auth, token_env: &str) -> Result<(), String> {
@@ -158,7 +164,7 @@ impl Auth {
         let safe = matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
         if self.is_open() {
             let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
-            if !is_loopback(&host_name(host)) {
+            if !LOOPBACK_HOSTS.contains(&host_name(host).as_str()) {
                 return Err(detail(
                     StatusCode::FORBIDDEN,
                     "no API token is configured: only requests to localhost are answered",
@@ -236,17 +242,31 @@ pub fn is_open_path(path: &str) -> bool {
 
 /// Python `ApiGuard`: authenticate from the headers before a single body byte is read, then
 /// cap the body: a `Content-Length` over the cap, or a chunked body passing it, gets 413 and
-/// the rest is drained, never kept (see [`drain`]). Runs in front of every route and the
-/// fallback.
+/// the rest is drained, never kept (see [`drain`]). The open paths and `OPTIONS` (no token)
+/// take no body at all: any body is refused at once, unread. Runs in front of every route and
+/// the fallback.
 async fn guard(State(st): St, req: Request, next: Next) -> Response {
     let (parts, mut body) = req.into_parts();
-    if !is_open_path(parts.uri.path()) && parts.method != Method::OPTIONS {
-        if let Err(refused) = st.auth.principal(&parts.method, &parts.headers) {
-            return refused;
+    let declared = parts
+        .headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok());
+    if is_open_path(parts.uri.path()) || parts.method == Method::OPTIONS {
+        // no token here, so no body is read either: an anonymous caller cannot make the
+        // server buffer or drain anything
+        let has_body = declared.is_some_and(|n| n > 0)
+            || parts.headers.contains_key(header::TRANSFER_ENCODING)
+            || (!body.is_end_stream() && body.size_hint().exact() != Some(0));
+        if has_body {
+            return closing(detail(StatusCode::PAYLOAD_TOO_LARGE, "this request takes no body"));
         }
+        return next.run(Request::from_parts(parts, Body::empty())).await;
     }
-    let length = parts.headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok());
-    if let Some(declared) = length.and_then(|v| v.trim().parse::<u64>().ok()).filter(|n| *n > MAX_BODY as u64) {
+    if let Err(refused) = st.auth.principal(&parts.method, &parts.headers) {
+        return refused;
+    }
+    if let Some(declared) = declared.filter(|n| *n > MAX_BODY as u64) {
         if declared <= DRAIN_MAX {
             drain(body).await;
         }
@@ -268,9 +288,13 @@ async fn guard(State(st): St, req: Request, next: Next) -> Response {
     next.run(Request::from_parts(parts, Body::from(bytes))).await
 }
 
-/// 413, closing the connection (its unread body cannot be skipped).
+/// 413 for a body over the cap, closing the connection.
 fn too_large() -> Response {
-    let mut resp = detail(StatusCode::PAYLOAD_TOO_LARGE, format!("request body larger than {MAX_BODY} bytes"));
+    closing(detail(StatusCode::PAYLOAD_TOO_LARGE, format!("request body larger than {MAX_BODY} bytes")))
+}
+
+/// `Connection: close`: the request's unread body cannot be skipped, so the connection ends.
+fn closing(mut resp: Response) -> Response {
     resp.headers_mut().insert(header::CONNECTION, header::HeaderValue::from_static("close"));
     resp
 }
@@ -525,6 +549,10 @@ mod tests {
         for host in ["127.0.0.1:8080", "localhost:8080", "[::1]:8080", "LOCALHOST"] {
             assert_eq!(call_host(&a, "GET", "/channels", None, host).await.0, StatusCode::OK, "{host}");
         }
+        // exactly Python's LOOPBACK_HOSTS: other 127/8 names and look-alikes are refused
+        for host in ["127.0.0.2:8080", "localhost.evil.example", "0.0.0.0:8080"] {
+            assert_eq!(call_host(&a, "GET", "/channels", None, host).await.0, StatusCode::FORBIDDEN, "{host}");
+        }
         // DNS rebinding: a foreign page reaching the loopback API sends its own host name
         let (code, body) = call_host(&a, "GET", "/channels", None, "evil.example:8080").await;
         assert_eq!(code, StatusCode::FORBIDDEN);
@@ -637,6 +665,38 @@ mod tests {
         let resp = send_body(&a, "/reload", Some("s3cret"), Body::from_stream(endless), Some(declared)).await;
         assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn open_paths_and_options_take_no_body() {
+        let (a, _) = app();
+        let req = |method: &str, path: &str, body: Body, length: Option<usize>| {
+            let mut r = Request::builder().method(method).uri(path).header("Host", "127.0.0.1");
+            if let Some(n) = length {
+                r = r.header("Content-Length", n.to_string());
+            }
+            r.body(body).unwrap()
+        };
+        assert_eq!(
+            a.clone().oneshot(req("GET", "/health", Body::empty(), None)).await.unwrap().status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            a.clone().oneshot(req("GET", "/health", Body::empty(), Some(0))).await.unwrap().status(),
+            StatusCode::OK
+        );
+        // a body on an open path or OPTIONS is refused at once and never read: the stream
+        // below never ends, so reading it would hang (the clock is paused)
+        for (method, path, length) in
+            [("GET", "/health", Some(5)), ("GET", "/metrics", None), ("OPTIONS", "/reload", Some(3))]
+        {
+            let endless = futures_util::stream::pending::<Result<Vec<u8>, std::io::Error>>();
+            let started = tokio::time::Instant::now();
+            let resp = a.clone().oneshot(req(method, path, Body::from_stream(endless), length)).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE, "{method} {path}");
+            assert_eq!(resp.headers()[header::CONNECTION], "close");
+            assert_eq!(started.elapsed(), Duration::ZERO);
+        }
     }
 
     #[test]

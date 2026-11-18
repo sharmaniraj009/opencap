@@ -101,8 +101,36 @@ fn py_type_name(v: &Json) -> &'static str {
 }
 
 fn model<T: DeserializeOwned>(what: &Path, value: Json) -> Result<T, ConfigError> {
-    serde_json::from_value(value)
-        .map_err(|e| invalid(format!("{}: {}", what.display(), explain_yaml11_bool(e.to_string()))))
+    from_json(value).map_err(|e| invalid(format!("{}: {e}", what.display())))
+}
+
+/// Deserialize with the failing field's location in front, as pydantic reports it
+/// (`channels.0.devices.0.port: invalid type: ...`), so the message names what to fix.
+pub fn from_json<T: DeserializeOwned>(value: Json) -> Result<T, String> {
+    serde_path_to_error::deserialize(value).map_err(|e| {
+        let msg = explain_yaml11_bool(e.inner().to_string());
+        let path = py_path(e.path());
+        if path.is_empty() {
+            msg
+        } else {
+            format!("{path}: {msg}")
+        }
+    })
+}
+
+/// pydantic's `loc` spelling: dotted, list indexes as plain numbers (`tags.1.dtype`).
+fn py_path(path: &serde_path_to_error::Path) -> String {
+    use serde_path_to_error::Segment;
+    let parts: Vec<String> = path
+        .iter()
+        .filter_map(|seg| match seg {
+            Segment::Seq { index } => Some(index.to_string()),
+            Segment::Map { key } => Some(key.clone()),
+            Segment::Enum { variant } => Some(variant.clone()),
+            Segment::Unknown => None,
+        })
+        .collect();
+    parts.join(".")
 }
 
 /// YAML 1.1 spellings PyYAML reads as booleans; serde_yaml_ng (YAML 1.2) reads them as strings.
@@ -309,8 +337,7 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
                 }
             }
             dev.insert("publish".into(), Json::Object(publish));
-            let mut new: Device =
-                serde_json::from_value(Json::Object(dev)).map_err(|e| invalid(format!("{}: {e}", device.id)))?;
+            let mut new: Device = from_json(Json::Object(dev)).map_err(|e| invalid(format!("{}: {e}", device.id)))?;
             new.validate().map_err(invalid)?;
             if new.publish.topic.is_none() {
                 new.publish.topic = Some(default_topic(&new, &poller.mqtt.topic_prefix));

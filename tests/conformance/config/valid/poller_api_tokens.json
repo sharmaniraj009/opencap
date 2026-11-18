@@ -1,0 +1,15 @@
+{
+  "document": "poller",
+  "data": {
+    "api": {
+      "bind": "192.0.2.30",
+      "port": 8080,
+      "tokens": [
+        {"name": "ops", "role": "admin", "token_env": "OPENCAP_TOKEN_OPS"},
+        {"name": "wall-screen", "token_env": "OPENCAP_TOKEN_SCREEN"}
+      ],
+      "audit_log": "data/audit.jsonl",
+      "cors_origins": ["http://tauri.localhost"]
+    }
+  }
+}

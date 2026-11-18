@@ -723,11 +723,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "opencap-drivers"
+name = "opencap-driver-modbus-tcp"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "chrono",
  "indexmap",
  "opencap-core",
  "rand",
@@ -736,6 +735,14 @@ dependencies = [
  "tokio",
  "tokio-modbus",
  "tracing",
+]
+
+[[package]]
+name = "opencap-drivers"
+version = "0.1.0"
+dependencies = [
+ "opencap-core",
+ "opencap-driver-modbus-tcp",
 ]
 
 [[package]]

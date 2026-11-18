@@ -13,6 +13,13 @@ publish.workspace = true
 name = "opencap-engine"
 path = "src/main.rs"
 
+# One feature per driver crate (engine/drivers/<name>), forwarded to the registry crate.
+# `default` = every driver that exists; e.g. a Modbus-only build:
+#   cargo build -p opencap-engine --no-default-features --features driver-modbus-tcp
+[features]
+default = ["driver-modbus-tcp"]
+driver-modbus-tcp = ["opencap-drivers/driver-modbus-tcp"]
+
 [dependencies]
 opencap-core.workspace = true
 opencap-drivers.workspace = true

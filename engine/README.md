@@ -10,8 +10,8 @@ acceptance suites are the specification this engine is tested against.
 
 Status: first vertical slice (milestone M2). Modbus TCP, MQTT with store-and-forward, the
 admin API and `check`/`read` pass the Python Phase 1 acceptance suite. Every other driver is
-reported as "not implemented yet in the Rust engine" and its devices are skipped, never
-polled. The engine is **read-only** toward PLCs: the driver trait has no write method.
+reported as "not implemented yet in the Rust engine" (or "not compiled in" when its crate
+exists but its Cargo feature is off) and its devices are skipped, never polled. The engine is **read-only** toward PLCs: the driver trait has no write method.
 
 ## Build and run
 
@@ -37,10 +37,31 @@ requests to `localhost` (D-062).
 | Crate | Contents |
 |---|---|
 | `opencap-core` | config models + loader (same schema and layering as `src/opencap/config/`), value model, cache, health, scheduler, driver trait, registry, channel worker, metrics, Python-compatible formatting |
-| `opencap-drivers` | `modbus_tcp` (address parser, block planner, decoder, tokio-modbus I/O) and the driver factory |
+| `opencap-drivers` | the driver registry: one static table (`DRIVERS`), one Cargo feature per driver crate, the driver factory |
+| `drivers/modbus_tcp` (`opencap-driver-modbus-tcp`) | Modbus TCP: address parser, block planner, decoder, tokio-modbus I/O |
 | `opencap-north` | SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
 | `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity` |
+
+## Drivers and Cargo features
+
+Each driver is its own crate in `drivers/<name>`, compiled in by the feature `driver-<name>`
+of `opencap-engine` (`default` = every driver that exists). A build without a driver still
+knows its name: `check` reports `driver '<name>' is not compiled in` and the device is never
+polled. A Modbus-only build: `cargo build -p opencap-engine --no-default-features --features driver-modbus-tcp`.
+
+### How to add a driver crate
+
+1. `drivers/<name>/Cargo.toml`: copy `drivers/modbus_tcp/Cargo.toml`, set `name = "opencap-driver-<name>"`;
+   depend on `opencap-core` and your protocol crate only (licence per ADR-0007). `drivers/*` is already a workspace member.
+2. Implement `opencap_core::driver::Driver` (pure `plan()`, one-attempt `read()`, no write path).
+3. `crates/opencap-drivers/Cargo.toml`: `opencap-driver-<name> = { path = "../../drivers/<name>", optional = true }`,
+   feature `driver-<name> = ["dep:opencap-driver-<name>"]`, and add it to `default`.
+4. `crates/opencap-drivers/src/lib.rs`: one `DriverEntry` in `DRIVERS` (`#[cfg(feature = ...)]` on `create`).
+5. `crates/opencap-engine/Cargo.toml`: `driver-<name> = ["opencap-drivers/driver-<name>"]`, add it to `default`.
+6. Tests: unit tests in `drivers/<name>/tests/`; conformance vectors in `../tests/conformance/<driver>/`;
+   the simulator in `../tests/helpers/<proto>_sim.py`, driven against the binary by `../tests/integration/`.
+7. `cargo test -p opencap-drivers` (with and without `--no-default-features`) checks the table against the features.
 
 ## Tests
 

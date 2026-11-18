@@ -1,6 +1,6 @@
 //! Port of tests/unit/test_modbus_address.py (Kepware Modbus Ethernet semantics).
 
-use opencap_drivers::modbus_tcp::{parse_address, ModbusParams};
+use opencap_driver_modbus_tcp::{parse_address, ModbusParams};
 use serde_json::json;
 
 fn default() -> ModbusParams {

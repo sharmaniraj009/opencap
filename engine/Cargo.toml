@@ -6,6 +6,7 @@ members = [
     "crates/opencap-north",
     "crates/opencap-api",
     "crates/opencap-engine",
+    "drivers/*",                      # one crate per driver (#67): see README "How to add a driver crate"
 ]
 
 [workspace.package]
@@ -19,7 +20,7 @@ publish = false            # not published to crates.io; internal path dependenc
 
 [workspace.dependencies]
 opencap-core = { path = "crates/opencap-core" }
-opencap-drivers = { path = "crates/opencap-drivers" }
+opencap-drivers = { path = "crates/opencap-drivers", default-features = false }   # drivers chosen by opencap-engine features
 opencap-north = { path = "crates/opencap-north" }
 opencap-api = { path = "crates/opencap-api" }
 

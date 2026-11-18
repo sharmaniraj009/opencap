@@ -1211,3 +1211,45 @@ asyncua's once-a-second clock task first (private attribute, guarded), which sav
 - **Timing flake:** the panicking-`on_cycle` test waits on the call counter with a 10 s deadline instead of a fixed 300 ms sleep.
 - **Verification:** 100 consecutive `cargo test -p opencap-core --test worker` runs with 8 busy loops on 4 cores: 0 failures
   (was ~4/25). Command: start `sh -c 'while :; do :; done'` x8, then loop the test.
+
+### D-066 Modbus RTU in the Rust engine: tokio-modbus RTU over an `opencap-serial` line (#47)
+- **Layout.** `engine/drivers/modbus_rtu` (`opencap-driver-modbus-rtu`, feature `driver-modbus-rtu`) is its own
+  crate (#67) and reuses `opencap-driver-modbus-tcp` for everything above the wire: params, parser, planner,
+  decoder, exception mapping, identity objects (`plan_tags`, `values_from_reply`, `identity_from_objects` were
+  pulled out of `ModbusTcpDriver`, behaviour unchanged). A test checks that RTU plans equal TCP plans on random
+  tags, so the Modbus conformance vectors (#3, #40) cover both transports. Line handling that DF1 (#53) will
+  share lives in `engine/crates/opencap-serial`: `SerialSettings` and `endpoint_for` with Python's checks and
+  messages, the shared-line pool, `LocalEcho`, and the TCP / local serial streams.
+- **Wire.** tokio-modbus' RTU client (`rtu` feature) over a TCP stream (RTU over TCP) or a `tokio-serial` port.
+  Only FC01-04 and FC43/14 are sent: the source scan and a test that a block with FC 5/6/15/16/22/23 is refused
+  before it reaches the line guard this (ADR-0008).
+- **Error mapping as D-036.** Timeout -> CommError "no reply within N ms", plus "socket closed (close_on_timeout)"
+  when the line is closed (default). A frame with a bad CRC is dropped by tokio-modbus' framer (it resynchronises
+  byte by byte), so a corrupted reply is silence and ends in that timeout, as with pymodbus. A unit id nobody
+  serves is silence too. Exceptions 01/02/03 -> BlockConfigError, others -> CommError, the line stays open.
+  Transport error -> ConnectionLost, the line is closed for every unit.
+- **Deviation: a reply from another unit id, or with another function code** (tokio-modbus reports a header or
+  function-code mismatch; pymodbus waits on and times out) is a CommError at once, and with `close_on_timeout`
+  the line is closed: RTU has no transaction id, so the stream is out of step and late bytes must go.
+- **Shared lines (D-033).** One connection per (driver, transport, host or device path, port). The pool is per
+  process (Python: per event loop); the engine has one tokio runtime. Leases carry the connection's generation:
+  after a unit drops the line, the others see "not connected" until they reconnect. The last lease dropped
+  closes the line (also when a driver is dropped without `close()`). The line's lock is the per-line I/O lock
+  and keeps the inter-frame gap (`inter_frame_ms`, default 3.5 characters, at least 1.75 ms).
+- **Local serial ports.** `tokio-serial` 5.5 (MIT) on `serialport` 4.10 (MPL-2.0, used unmodified, ADR-0007; added
+  to `engine/deny.toml`), default features off, so no libudev. Ports open exclusively (TIOCEXCL + flock on Unix),
+  in a blocking task bounded by `timeout_ms`. `serialport` depends on `unescaper` (MIT OR GPL-3.0-only): taken
+  under MIT. Windows: the library itself prefixes `\\.\`, so a configured `\\.\COM12` is opened as `COM12`; on
+  Linux a `COMn` name gets an error that says to use the device path or `serial_ports`.
+- **Not supported by the Rust serial library, valid in the config:** mark/space parity and 1.5 stop bits (the port
+  cannot be opened; the error names the setting). RFC 2217 is not offered for modbus_rtu (as in Python).
+- **Tests.** `tests/integration/test_rust_engine_rtu.py`: `check -v` and `read` identical to Python over RTU on TCP
+  and over a pty; silent unit, unknown unit id, exceptions 02/06 and a corrupted CRC (a noisy gateway in front of
+  the simulator) give the same qualities in both engines; the whole engine (`engine_factory`, acceptance) polls
+  two units on one line and one behind a tty, follows value changes, demotes only the powered-off gateway's units
+  and resumes them, and sends only reads. `drivers/modbus_rtu/tests/rtu_slave.rs` runs the fault paths, line
+  sharing, the gap and identity against an independent RTU slave in `cargo test` (also on Windows).
+- **Follow-up (not in this issue's files):** the Rust config loader does not yet apply `overrides.yaml`
+  `serial_ports` or disable devices still at `transport: unmapped` (Python loader step 5, D-037). Until it does,
+  a Rust engine reports such a device's connect error ("COM4 is not mapped ...") instead of skipping it with a
+  warning. Configure Rust-engine RTU devices with `transport: tcp|serial` directly.

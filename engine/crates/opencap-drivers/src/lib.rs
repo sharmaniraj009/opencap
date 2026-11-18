@@ -30,14 +30,24 @@ pub struct DriverEntry {
 }
 
 /// Every driver crate that exists, compiled in or not. Add one entry per crate.
-pub static DRIVERS: &[DriverEntry] = &[DriverEntry {
-    name: "modbus_tcp",
-    feature: "driver-modbus-tcp",
-    #[cfg(feature = "driver-modbus-tcp")]
-    create: Some(|d| Ok(Box::new(opencap_driver_modbus_tcp::ModbusTcpDriver::new(d)?))),
-    #[cfg(not(feature = "driver-modbus-tcp"))]
-    create: None,
-}];
+pub static DRIVERS: &[DriverEntry] = &[
+    DriverEntry {
+        name: "modbus_tcp",
+        feature: "driver-modbus-tcp",
+        #[cfg(feature = "driver-modbus-tcp")]
+        create: Some(|d| Ok(Box::new(opencap_driver_modbus_tcp::ModbusTcpDriver::new(d)?))),
+        #[cfg(not(feature = "driver-modbus-tcp"))]
+        create: None,
+    },
+    DriverEntry {
+        name: "modbus_rtu",
+        feature: "driver-modbus-rtu",
+        #[cfg(feature = "driver-modbus-rtu")]
+        create: Some(|d| Ok(Box::new(opencap_driver_modbus_rtu::ModbusRtuDriver::new(d)?))),
+        #[cfg(not(feature = "driver-modbus-rtu"))]
+        create: None,
+    },
+];
 
 /// Driver names this build can poll, in table order.
 pub fn compiled_in() -> Vec<&'static str> {

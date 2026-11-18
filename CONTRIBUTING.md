@@ -110,7 +110,22 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   anything the reviewer must look at.
 - Add the `needs-review` label to the PR and to the issue.
 - CI must be green. Run the fast suite locally; also run `pytest -m acceptance` if you
-  touched the core, a driver, north or the config loader (CI runs acceptance nightly).
+  touched the core, a driver, north or the config loader.
+- Which checks run when. A push to a branch other than `main` runs nothing by itself; its
+  pull request runs the checks, so nothing runs twice.
+
+  | Workflow | Pull request | Push to `main` | Nightly / manual |
+  |---|---|---|---|
+  | CI: tests (Python 3.12, 3.13), wheel and container image | always | always | |
+  | CI: `acceptance-pr` (Python 3.12, 8 s outage) | when the PR touches `src/opencap/`, `tests/helpers/`, `tests/integration/`, `tests/conftest.py` or `pyproject.toml` | | |
+  | CI: acceptance (Python 3.12, 3.13) | | | nightly, and on manual dispatch |
+  | Rust engine: fmt, clippy, test, deny, conformance, Windows | when it touches `engine/`, `src/`, `tests/`, `config/` or `pyproject.toml` | same paths | manual dispatch |
+  | Licences: Python and Rust gates | always | always | |
+  | desktop: build and bundle | when it touches `desktop/` | same paths | manual dispatch |
+
+  A skipped `acceptance-pr` shows as skipped on the PR; the job's log in "changed paths"
+  says why. The path lists live in `.github/workflows/ci.yml` (job `changes`) and in each
+  workflow's `paths:`.
 - Tests must exercise behaviour, not just lines: a driver against its simulator, a planner
   against vectors, a fault path by switching on the simulator's fault.
 - A test with a wall-clock bound (a cadence, a gap, a timeout under ~1 s) uses the `no_gc`

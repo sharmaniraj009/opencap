@@ -459,6 +459,11 @@ pub struct Overrides {
     pub channels: IndexMap<String, IndexMap<String, bool>>,
     #[serde(default)]
     pub devices: IndexMap<String, DeviceOverride>,
+    /// KEPServer COM port -> where opencap reaches that line (serial drivers with
+    /// `transport: unmapped`): `"COM112": "192.0.2.50:4001"` (raw TCP gateway),
+    /// `"rfc2217://host:port"`, `"/dev/ttyUSB0"`.
+    #[serde(default)]
+    pub serial_ports: IndexMap<String, String>,
 }
 
 // --- poller.yaml ------------------------------------------------------------------

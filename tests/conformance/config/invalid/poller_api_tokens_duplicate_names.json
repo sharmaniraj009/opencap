@@ -1,0 +1,13 @@
+{
+  "document": "poller",
+  "expected_error": "duplicate names",
+  "semantic": true,
+  "data": {
+    "api": {
+      "tokens": [
+        {"name": "ops", "role": "admin", "token_env": "OPENCAP_TOKEN_A"},
+        {"name": "ops", "token_env": "OPENCAP_TOKEN_B"}
+      ]
+    }
+  }
+}

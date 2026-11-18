@@ -22,5 +22,6 @@ sortedcontainers = { licence = "Apache-2.0", reason = "classifier 'Apache Softwa
 # Dev/test-only tools (installed by the `dev` extra, never shipped). Strong copyleft is tolerated here
 # only if installed in CI and never vendored (ADR-0007); non-commercial and unknown never.
 [test_only]
-packages = ["pytest", "pytest-asyncio", "httpx", "amqtt", "pip-licenses", "prettytable", "iniconfig", "pluggy", "pygments"]
+packages = ["pytest", "pytest-asyncio", "httpx", "amqtt", "pip-licenses", "prettytable", "iniconfig", "pluggy", "pygments",
+            "fins-driver"]   # fins-driver: MIT, validates tests/helpers/fins_sim.py (#13)
 extra_ids = []

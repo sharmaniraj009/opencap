@@ -1,0 +1,17 @@
+{
+ "format": 1,
+ "area": "modbus/decode",
+ "description": "1-D and 2-D arrays.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"u16-array","description":"A uint16 array.","input":{"params":{},"tags":[{"name":"X","address":"400001[3]","dtype":"uint16"}],"reply":{"registers":[1,2,3]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"int","v":"1"},{"t":"int","v":"2"},{"t":"int","v":"3"}]}}}},
+  {"id":"i16-array-2d","description":"A [2][2] int16 array, row by row.","input":{"params":{},"tags":[{"name":"X","address":"400001[2][2]","dtype":"int16"}],"reply":{"registers":[1,2,3,65535]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"list","v":[{"t":"int","v":"1"},{"t":"int","v":"2"}]},{"t":"list","v":[{"t":"int","v":"3"},{"t":"int","v":"-1"}]}]}}}},
+  {"id":"f32-array","description":"A float32 array, default word order.","input":{"params":{},"tags":[{"name":"X","address":"400001[2]","dtype":"float32"}],"reply":{"registers":[0,16256,0,16384]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"float","v":"1.0"},{"t":"float","v":"2.0"}]}}}},
+  {"id":"f32-array-2d","description":"A [2][3] float32 array.","input":{"params":{},"tags":[{"name":"X","address":"400001[2][3]","dtype":"float32"}],"reply":{"registers":[0,16256,0,16384,0,16448,0,49024,0,16128,0,17096]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"list","v":[{"t":"float","v":"1.0"},{"t":"float","v":"2.0"},{"t":"float","v":"3.0"}]},{"t":"list","v":[{"t":"float","v":"-1.0"},{"t":"float","v":"0.5"},{"t":"float","v":"100.0"}]}]}}}},
+  {"id":"u32-array-fwh","description":"A uint32 array with first_word_low off.","input":{"params":{"first_word_low":false},"tags":[{"name":"X","address":"400001[2]","dtype":"uint32"}],"reply":{"registers":[1,0,65535,65535]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"int","v":"65536"},{"t":"int","v":"4294967295"}]}}}},
+  {"id":"i64-array","description":"An int64 array.","input":{"params":{},"tags":[{"name":"X","address":"400001[2]","dtype":"int64"}],"reply":{"registers":[1,0,0,0,65534,65535,65535,65535]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"int","v":"1"},{"t":"int","v":"-2"}]}}}},
+  {"id":"f64-array-swapped","description":"A float64 array with every order flipped.","input":{"params":{"byte_order_big":false,"first_word_low":false,"first_dword_low":false},"tags":[{"name":"X","address":"400001[2]","dtype":"float64"}],"reply":{"registers":[47423,39321,39321,39577,51647,39321,39321,39577]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"float","v":"0.1"},{"t":"float","v":"-0.2"}]}}}},
+  {"id":"array-1","description":"A [1] array is a one-element list, not a scalar.","input":{"params":{},"tags":[{"name":"X","address":"400001[1]","dtype":"int16"}],"reply":{"registers":[65535]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"int","v":"-1"}]}}}},
+  {"id":"i16-array-byte-swapped","description":"An int16 array with swapped bytes.","input":{"params":{"byte_order_big":false},"tags":[{"name":"X","address":"400001[3]","dtype":"int16"}],"reply":{"registers":[256,65535,128]}},"expected":{"values":{"X":{"t":"list","v":[{"t":"int","v":"1"},{"t":"int","v":"-1"},{"t":"int","v":"-32768"}]}}}}
+ ]
+}

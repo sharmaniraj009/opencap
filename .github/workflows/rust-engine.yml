@@ -7,6 +7,7 @@ name: Rust engine
 
 on:
   push:
+    branches: [main]          # other branches run through their pull request (#38)
     paths: ["engine/**", "src/**", "tests/**", "config/**", "pyproject.toml", ".github/workflows/rust-engine.yml"]
   pull_request:
     paths: ["engine/**", "src/**", "tests/**", "config/**", "pyproject.toml", ".github/workflows/rust-engine.yml"]

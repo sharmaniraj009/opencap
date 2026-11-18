@@ -1,0 +1,16 @@
+{
+ "format": 1,
+ "area": "modbus/plan",
+ "description": "Tags at the same address are one wire item (D-006).",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"aliases-one-item","description":"Two names at the same address and type are one wire item served to both.","input":{"params":{},"tags":[{"name":"FLOW","address":"400133","dtype":"float32"},{"name":"FLOW_COPY","address":"400133","dtype":"float32"},{"name":"W","address":"400136","dtype":"uint16"}]},"expected":{"blocks":[{"fc":3,"start":132,"count":4,"tags":["FLOW","FLOW_COPY","W"]}],"invalid":{}}},
+  {"id":"five-and-six-digit-alias","description":"400001 and 40001 are the same register: one block, both names.","input":{"params":{},"tags":[{"name":"SIX","address":"400001","dtype":"uint16"},{"name":"FIVE","address":"40001","dtype":"uint16"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":1,"tags":["FIVE","SIX"]}],"invalid":{}}},
+  {"id":"same-address-different-type","description":"Same address, different dtype: two items, one block.","input":{"params":{},"tags":[{"name":"U","address":"400001","dtype":"uint16"},{"name":"I","address":"400001","dtype":"int16"},{"name":"F","address":"400001","dtype":"float32"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":2,"tags":["F","I","U"]}],"invalid":{}}},
+  {"id":"three-aliases-spacing","description":"Spelling differences (spaces) do not create separate items.","input":{"params":{},"tags":[{"name":"A","address":"400010","dtype":"uint16"},{"name":"B","address":" 400010","dtype":"uint16"},{"name":"C","address":"400010 ","dtype":"uint16"}]},"expected":{"blocks":[{"fc":3,"start":9,"count":1,"tags":["A","B","C"]}],"invalid":{}}},
+  {"id":"same-bit-aliases","description":"The same .b bit under two names.","input":{"params":{},"tags":[{"name":"RUN","address":"400001.4","dtype":"bool"},{"name":"RUN2","address":"400001.4","dtype":"bool"},{"name":"STOP","address":"400001.5","dtype":"bool"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":1,"tags":["RUN","RUN2","STOP"]}],"invalid":{}}},
+  {"id":"same-coil-aliases","description":"The same coil under two names, plus a neighbour.","input":{"params":{},"tags":[{"name":"C","address":"000010","dtype":"bool"},{"name":"C_ALIAS","address":"00010","dtype":"bool"},{"name":"N","address":"000011","dtype":"bool"}]},"expected":{"blocks":[{"fc":1,"start":9,"count":2,"tags":["C","C_ALIAS","N"]}],"invalid":{}}},
+  {"id":"disabled-alias","description":"A disabled alias is left out of the block's tag list.","input":{"params":{},"tags":[{"name":"ON","address":"400001","dtype":"uint16"},{"name":"OFF","address":"400001","dtype":"uint16","enabled":false}]},"expected":{"blocks":[{"fc":3,"start":0,"count":1,"tags":["ON"]}],"invalid":{}}},
+  {"id":"all-disabled","description":"Only disabled tags: no blocks, nothing invalid.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16","enabled":false},{"name":"B","address":"000001","dtype":"bool","enabled":false}]},"expected":{"blocks":[],"invalid":{}}}
+ ]
+}

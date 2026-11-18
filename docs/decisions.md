@@ -826,6 +826,41 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   marked `deprecated` (rules in `api/README.md`). `info.version` is `1.0.0`.
 - **Licences:** no new dependency; `jsonschema` (MIT) was already a dev dependency and validates the contract.
 
+### D-066 Engine-agnostic acceptance suites and the Rust port gap (#42)
+Builds on #64's harness (`engine_factory`, `OPENCAP_ENGINE_BIN`, names kept). ADR-0014 §3:
+an acceptance suite reaches an engine only through its config directory, API, CLI, log and
+the wire.
+- **Which suites run on Rust is decided by the binary, not a list in the tests.** Suites
+  name the PLC drivers they poll (`@pytest.mark.drivers("ab_pccc")`); `opencap-engine drivers`
+  prints the schema's `KNOWN_DRIVERS` in three lists: `implemented` (compiled in,
+  `opencap_drivers::compiled_in()`), `not_compiled_in` (a driver crate exists but its Cargo
+  feature is off, #100) and `not_implemented` (no crate yet). `tests/conftest.py` skips a suite
+  as `driver not ported: <names>`, or `driver not compiled in: <names>`, when one is missing.
+  Porting a driver turns its suite on with no test change. This subcommand has no Python
+  counterpart (Python implements every driver).
+- **A suite that does not use `engine_factory` is skipped on Rust as "not engine-agnostic"**,
+  so it can never silently test the Python engine in a Rust job. Today that is
+  `test_ui_browser.py` (the Python web UI against a fake poller), and the serial, S7/MC and
+  OPC UA suites once their drivers are ported: converting them is part of each port.
+- **Port gap report:** with `--engine=rust`, the run ends with a "Rust port gap" section and,
+  when `$GITHUB_STEP_SUMMARY` is set, a Markdown table of every acceptance suite (drivers,
+  passed/failed/skipped, reason). The `acceptance-rust` job installs every driver extra so that
+  no suite disappears through a module-level `importorskip` before it can be listed.
+- **Phase 2 converted; Phase 3 written.** Phase 2 now reads topics from `engine.loaded`
+  instead of the Python registry, runs `identity` through `engine.cli()` (the Python CLI or
+  `opencap-engine identity`), and checks `device.stats` through `engine.log_events()` (structlog
+  capture in the Python adapter; JSON lines on the binary's stdout, where tracing's `message`
+  is structlog's `event`). It needed no `is_python` guard. There was no Phase 3 acceptance
+  suite (only driver-level tests), so `test_phase3_acceptance.py` is new: 12 SLC/MicroLogix
+  PLCs over three file-directory layouts through the whole engine, file-directory rejection
+  checked on the wire (no typed read of the missing file), the directory read once per
+  connection, power cycle, `identity`, no write attempt.
+- **The Python adapter now serves the API** in every suite (Phase 2 used `serve_api=False`),
+  on a free port, as the Rust engine always does.
+- **CI:** Phase 1 on the debug binary moved out of the `conformance` job into `acceptance-rust`
+  (release build, every suite); the workflow also runs nightly at 02:41 UTC. The Python
+  acceptance run stays in `ci.yml` (nightly, Python 3.12 and 3.13).
+
 ## S7 and MELSEC MC drivers
 
 ### D-048 s7 driver on python-snap7 3.5 (pure Python)

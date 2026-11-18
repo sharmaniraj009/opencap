@@ -49,7 +49,8 @@ from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.helpers.s7_sim import S7Sim, load, make_s7_tags  # noqa: E402
 from tests.integration.test_melsec_sim import expected as mc_expected  # noqa: E402
 
-pytestmark = pytest.mark.acceptance
+# --engine=rust: skipped as "driver not ported" until the binary implements s7, melsec_mc
+pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("s7", "melsec_mc")]
 
 S7_TAGS = 60
 INTERVAL_MS = 2000

@@ -32,7 +32,7 @@ from tests.helpers.configdir import write_config
 from tests.helpers.modbus_sim import free_port, make_sim_devices, start_sims, stop_sims
 from tests.helpers.netcut import NetCut
 
-pytestmark = pytest.mark.acceptance
+pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("modbus_tcp")]
 
 N_DEVICES = 30
 TAGS_PER_DEVICE = 53

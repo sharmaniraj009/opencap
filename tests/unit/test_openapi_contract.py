@@ -45,6 +45,13 @@ def test_every_operation_is_typed(spec):
     open_paths = {"/health", "/metrics", "/api/v1/auth-info"}
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
+            if "x-websocket" in op:             # an upgrade: 101, then the messages of x-websocket
+                assert "101" in op["responses"] and "401" in op["responses"], (method, path)
+                for key in ("client_messages", "server_messages"):
+                    for ref in op["x-websocket"][key]["oneOf"]:
+                        assert ref["$ref"].split("/")[-1] in spec["components"]["schemas"], (path, ref)
+                assert op["operationId"], (method, path)
+                continue
             ok = [c for c in op["responses"] if c.startswith("2")]
             assert ok, (method, path)
             content = op["responses"][ok[0]].get("content", {})
@@ -142,6 +149,30 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
     assert go("patch", DEV_PATH, {"retries": 1}, {**ADMIN, "If-Match": "0000000000000000"}).status_code == 412
     assert go("patch", DEV_PATH, {"port": "x"}, admin_w(c)).status_code == 422
     assert go("post", f"{V1}/channels", {"name": "SITE MODBUS"}, admin_w(c)).status_code == 409
+
+    # the live feed: refused upgrades answer as documented, an accepted one speaks x-websocket
+    import base64
+
+    from starlette.testclient import WebSocketDenialResponse
+
+    xws = spec["paths"][f"{V1}/ws"]["get"]["x-websocket"]
+    server_messages = {**xws["server_messages"], "components": spec["components"]}
+    for kw in ({}, {"subprotocols": ["other"]}, {"headers": {**VIEWER, "Origin": "http://evil.example"}}):
+        try:
+            with c.websocket_connect(f"{V1}/ws", **kw):
+                raise AssertionError(f"upgrade accepted: {kw}")
+        except WebSocketDenialResponse as refused:
+            seen.add(_validate(spec, "get", f"{V1}/ws", refused))
+    token = base64.urlsafe_b64encode(VIEWER["Authorization"].split()[1].encode()).decode().rstrip("=")
+    with c.websocket_connect(f"{V1}/ws", subprotocols=["opencap.v1", "opencap.bearer." + token]) as ws:
+        ws.send_text(json.dumps({"subscribe": {"devices": [DEV]}}))
+        for _ in range(2):
+            jsonschema.validate(json.loads(ws.receive_text()), server_messages)
+
+    class _Upgraded:
+        status_code, content = 101, b""
+
+    seen.add(_validate(spec, "get", f"{V1}/ws", _Upgraded()))
 
     documented = {f"{m} {p}" for p, ops in spec["paths"].items() for m in ops}
     missing = documented - seen

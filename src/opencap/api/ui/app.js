@@ -52,6 +52,22 @@
     });
   }
 
+  // Live values: the WebSocket /api/v1/ws (protocol opencap.v1). A browser cannot set headers on a
+  // WebSocket, so the token goes in the subprotocol "opencap.bearer.<base64url(token)>"; the server
+  // answers with "opencap.v1" and never echoes it.
+  var LIVE_PATH = "/api/v1/ws";
+  function b64url(text) {
+    var bytes = new TextEncoder().encode(text), bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function openLive() {
+    var origin = BASE || (location.protocol + "//" + location.host);
+    var protocols = ["opencap.v1"], token = readToken();
+    if (token) protocols.push("opencap.bearer." + b64url(token));
+    return new WebSocket(origin.replace(/^http/, "ws") + LIVE_PATH, protocols);
+  }
+
   function enc(s) { return encodeURIComponent(String(s)); }
   function encId(id) { return String(id).split("/").map(encodeURIComponent).join("/"); }   // "<channel>/<device>"
 
@@ -111,6 +127,7 @@
     href: href,
     deviceHref: function (id) { return href("device", id); },
     editHref: function (id) { return href("edit", id); },
+    quickHref: function (id) { return href("quick", id); },
     channelHref: function (name) { return "#/channel/" + enc(name); },
     isAdmin: function () { return Alpine.store("app").role === "admin"; },
     canEdit: function () { var s = Alpine.store("app"); return s.role === "admin" && s.writable; },
@@ -385,6 +402,203 @@
         },
         invalidRows: function () { var inv = (this.plan && this.plan.invalid) || {}; return Object.keys(inv).sort().map(function (k) { return { name: k, reason: inv[k] }; }); },
         blockRows: function () { return (this.plan && this.plan.block_plan) || []; },
+      });
+    });
+
+    // ------------------------------------------------------------ Quick Client (live values)
+    var QUICK_ROWS = 1000;          // rows rendered at once; the filter narrows the rest
+    Alpine.data("quickView", function () {
+      // the socket and the row index live outside Alpine's reactive state (a proxied WebSocket breaks)
+      var sock = null, index = {}, retry = null, failures = 0, everOpen = false, closing = false, stopPoll = null;
+      return Object.assign({}, helpers, {
+        channels: [], q: "", tq: "", id: "", rows: [], loaded: false, version: 0, unavailable: "", error: "",
+        devError: "", busy: false, readNote: "", mode: "connecting", now: Date.now(), config: {},
+        init: function () {
+          var self = this;
+          routed(this, this.select);
+          this.loadDevices();
+          this._stop = poll(function () { self.loadDevices(); }, 10000);
+          this._clock = setInterval(function () { self.now = Date.now(); }, 1000);
+          this.select();
+          this.connect();
+        },
+        destroy: function () {
+          closing = true;
+          unrouted(this);
+          clearInterval(this._clock);
+          if (retry) clearTimeout(retry);
+          if (stopPoll) stopPoll();
+          if (sock) sock.close();
+          sock = null;
+        },
+        // --- devices
+        loadDevices: function () {
+          var self = this;
+          call("GET", "/api/v1/status").then(function (d) { self.channels = d.channels || []; self.devError = ""; })
+            .catch(function (e) { self.devError = e.message; });
+        },
+        tree: function () {
+          var q = this.q.trim().toLowerCase(), out = [];
+          this.channels.forEach(function (ch) {
+            var devices = ch.devices.filter(function (d) { return !q || d.id.toLowerCase().indexOf(q) !== -1; });
+            if (devices.length) out.push({ name: ch.name, devices: devices });
+          });
+          return out;
+        },
+        deviceName: function (d, ch) { return d.id.indexOf(ch.name + "/") === 0 ? d.id.slice(ch.name.length + 1) : d.id; },
+        stateDot: function (s) { return "dot state-" + (s || "offline"); },
+        select: function () {
+          var r = Alpine.store("app").route;
+          if (r.name !== "quick") return;
+          this.id = r.arg; this.rows = []; index = {}; this.loaded = false; this.version = 0;
+          this.unavailable = ""; this.error = ""; this.readNote = ""; this.config = {};
+          if (!this.id) { this.subscribe(); return; }
+          var self = this, id = this.id;
+          // address and type from the configuration (best effort: the feed works without it)
+          call("GET", "/api/v1/devices/" + encId(id) + "/tags").then(function (t) {
+            if (self.id !== id) return;
+            var cfg = {};
+            (t.tags || []).forEach(function (tag) { cfg[tag.name] = tag; });
+            self.config = cfg;
+            self.rows.forEach(function (row) { self.describe(row); });
+          }).catch(function () { /* no config directory, or not in the config */ });
+          this.subscribe();
+          if (this.mode === "polling") this.pollOnce();
+        },
+        describe: function (row) {
+          var c = this.config[row.tag];
+          row.address = c ? c.address : ""; row.dtype = c ? c.dtype : "";
+        },
+        // --- the socket
+        connect: function () {
+          var self = this;
+          if (closing) return;
+          try { sock = openLive(); } catch (e) { this.fallback(); return; }
+          this.mode = "connecting";
+          sock.onopen = function () { everOpen = true; failures = 0; self.mode = "live"; self.subscribe(); };
+          sock.onmessage = function (ev) {
+            var m;
+            try { m = JSON.parse(ev.data); } catch (e) { return; }
+            self.receive(m);
+          };
+          sock.onclose = function () {
+            sock = null;
+            if (closing) return;
+            failures += 1;
+            // never opened three times in a row: this engine has no live feed; poll the REST API instead
+            if (!everOpen && failures >= 3) { self.fallback(); return; }
+            self.mode = "connecting";
+            retry = setTimeout(function () { retry = null; self.connect(); }, Math.min(15000, 1000 * Math.pow(2, failures - 1)));
+          };
+        },
+        subscribe: function () {
+          if (!sock || sock.readyState !== 1) return;
+          sock.send(JSON.stringify({ subscribe: { devices: this.id ? [this.id] : [] } }));
+        },
+        receive: function (m) {
+          if (m.type === "error") { this.error = m.detail; return; }
+          if (m.device !== this.id) return;
+          if (m.type === "unavailable") { this.unavailable = m.detail; this.rows = []; index = {}; this.loaded = true; return; }
+          if (m.type === "snapshot") { this.unavailable = ""; this.version = m.version; this.replace(m.changes); return; }
+          if (m.type === "changes" && m.version > this.version) {
+            this.version = m.version;
+            var self = this;
+            m.changes.forEach(function (c) { self.apply(c.tag, c); });
+          }
+        },
+        replace: function (list) {
+          var self = this, now = Date.now();
+          var rows = list.map(function (c) {
+            var old = index[c.tag];
+            var row = { tag: c.tag, value: c.value, quality: c.quality, ts: c.source_ts, updates: old ? old.updates : 0,
+                        changedAt: 0, address: "", dtype: "" };
+            if (old && (old.value !== c.value || old.quality !== c.quality || old.ts !== c.source_ts)) { row.updates += 1; row.changedAt = now; }
+            self.describe(row);
+            return row;
+          });
+          rows.sort(function (a, b) { return a.tag < b.tag ? -1 : (a.tag > b.tag ? 1 : 0); });
+          this.rows = rows;
+          index = {};
+          this.rows.forEach(function (r) { index[r.tag] = r; });    // the reactive rows
+          this.loaded = true;
+        },
+        apply: function (tag, tv) {
+          var row = index[tag];
+          if (!row) return;
+          if (row.value === tv.value && row.quality === tv.quality && row.ts === tv.source_ts) return;
+          row.value = tv.value; row.quality = tv.quality; row.ts = tv.source_ts;
+          row.updates += 1; row.changedAt = Date.now();
+        },
+        // --- REST fallback (an engine without /api/v1/ws)
+        fallback: function () {
+          var self = this;
+          this.mode = "polling";
+          if (stopPoll) return;
+          this.pollOnce();
+          stopPoll = poll(function () { self.pollOnce(); }, 2000);
+        },
+        pollOnce: function () {
+          var self = this, id = this.id;
+          if (!id) return;
+          call("GET", "/api/v1/devices/" + encId(id) + "/values").then(function (v) {
+            if (self.id !== id) return;
+            self.unavailable = "";
+            var list = Object.keys(v).map(function (k) { return { tag: k, value: v[k].value, quality: v[k].quality, source_ts: v[k].source_ts }; });
+            if (!self.loaded || list.length !== self.rows.length) self.replace(list);
+            else list.forEach(function (c) { self.apply(c.tag, c); });
+          }).catch(function (e) {
+            if (self.id !== id) return;
+            if (e.status === 404) { self.unavailable = e.message; self.rows = []; index = {}; self.loaded = true; } else self.error = e.message;
+          });
+        },
+        modeText: function () { return this.mode === "live" ? "live" : (this.mode === "polling" ? "polling every 2 s" : "connecting…"); },
+        modeClass: function () { return "badge mode-" + this.mode; },
+        modeTitle: function () {
+          if (this.mode === "polling") return "The live feed (/api/v1/ws) is not available from this server: values are read with GET …/values every 2 s.";
+          return this.mode === "live" ? "Connected to the live feed" : "Connecting to the live feed";
+        },
+        // --- demand read
+        readDisabled: function () { return this.busy || !!this.unavailable; },
+        readNow: function () {
+          var self = this, id = this.id;
+          this.busy = true; this.readNote = "";
+          call("POST", "/api/v1/devices/" + encId(id) + "/read-once").then(function (v) {
+            if (self.id !== id) return;
+            Object.keys(v).forEach(function (k) { self.apply(k, v[k]); });
+            self.readNote = "Read now at " + new Date().toLocaleTimeString();
+          }).catch(function (e) { shellFlash("Read now failed: " + e.message, "error"); }).then(function () { self.busy = false; });
+        },
+        // --- table
+        shown: function () {
+          var q = this.tq.trim().toLowerCase();
+          var list = q ? this.rows.filter(function (r) { return r.tag.toLowerCase().indexOf(q) !== -1 || (r.address || "").toLowerCase().indexOf(q) !== -1; }) : this.rows;
+          return list.length > QUICK_ROWS ? list.slice(0, QUICK_ROWS) : list;
+        },
+        shownNote: function () {
+          var q = this.tq.trim().toLowerCase(), n = this.rows.length;
+          if (q) n = this.rows.filter(function (r) { return r.tag.toLowerCase().indexOf(q) !== -1 || (r.address || "").toLowerCase().indexOf(q) !== -1; }).length;
+          return n > QUICK_ROWS ? "Showing " + QUICK_ROWS + " of " + n + " tags: filter to see the others." : "";
+        },
+        countsText: function () {
+          var counts = {}, parts = [];
+          this.rows.forEach(function (r) { counts[r.quality] = (counts[r.quality] || 0) + 1; });
+          parts.push(this.rows.length + " tags");
+          ["good", "bad_comm", "bad_config", "bad_decode", "stale"].forEach(function (q) { if (counts[q]) parts.push(counts[q] + " " + q); });
+          return parts.join(" · ");
+        },
+        rowClass: function (r) { return this.now - r.changedAt < 1500 ? "changed" : ""; },
+        valueClass: function (r) { return "num" + (r.quality === "good" ? "" : " old-value"); },
+        tsText: function (r) { return r.ts ? String(r.ts).replace("T", " ").replace(/(\.\d{3})\d*/, "$1") : "never"; },
+        ageSeconds: function (r) { var t = r.ts ? Date.parse(r.ts) : NaN; return isNaN(t) ? null : Math.max(0, (this.now - t) / 1000); },
+        age: function (r) {
+          var s = this.ageSeconds(r);
+          if (s === null) return "—";
+          if (s < 60) return Math.floor(s) + " s";
+          if (s < 3600) return Math.floor(s / 60) + " min";
+          if (s < 172800) return Math.floor(s / 3600) + " h";
+          return Math.floor(s / 86400) + " d";
+        },
+        ageClass: function (r) { var s = this.ageSeconds(r); return "small nowrap" + (s !== null && s > 60 ? " age-old" : ""); },
       });
     });
 

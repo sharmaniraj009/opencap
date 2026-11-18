@@ -140,6 +140,29 @@ label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--t
 #tag-create { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
 .inline-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 10px; }
 
+/* Quick Client */
+.quick { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.quick-tree { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; max-height: 75vh; overflow-y: auto; }
+.quick-tree input[type=search] { width: 100%; margin-bottom: 6px; }
+.quick-channel-name { font-weight: 600; font-size: 0.85em; color: var(--muted); margin: 8px 4px 2px; word-break: break-word; }
+.quick-tree ul { list-style: none; margin: 0; padding: 0; }
+.quick-tree li a { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; color: var(--text); word-break: break-word; }
+.quick-tree li a[aria-current] { background: var(--info-bg); font-weight: 600; }
+.quick-tree li a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }
+.dot.state-ok { background: var(--ok); } .dot.state-offline { background: var(--bad); } .dot.state-demoted { background: var(--warn); }
+.quick-main { min-width: 0; }
+.quick-title { margin: 0; word-break: break-word; }
+.quick-main .banner { border-radius: var(--radius); }
+#quick-values code { word-break: normal; overflow-wrap: normal; }
+td.old-value { color: var(--muted); }
+td.age-old { color: var(--warn); }
+tr.changed td { background: var(--info-bg); transition: background 0.6s; }
+#quick-mode.badge { font-size: 0.85em; }
+.mode-live { background: var(--ok-bg); color: var(--ok); }
+.mode-polling { background: var(--warn-bg); color: var(--warn); }
+.mode-connecting { background: var(--code-bg); color: var(--muted); }
+
 /* phones: tables marked .responsive become stacked cards */
 @media (max-width: 640px) {
   :root { --gutter: 12px; }
@@ -157,5 +180,8 @@ label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--t
   table.responsive tr.group td { background: none; padding-left: 0; }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-form, .grid-form fieldset { grid-template-columns: 1fr; }
+  .quick { grid-template-columns: 1fr; }
+  .quick-tree { max-height: 40vh; }
+  #quick-values .opt { display: none; }
   .inline-form { flex-direction: column; align-items: stretch; }
 }

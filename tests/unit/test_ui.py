@@ -16,7 +16,7 @@ from opencap.api.server import UI_DIR, create_app
 from tests.helpers.fake_poller import ConfigPoller
 from tests.unit.test_config_api import ENV, api_cfg, make_config
 
-VIEWS = ("login", "dashboard", "device", "config", "channel", "edit", "check", "import", "audit")
+VIEWS = ("login", "dashboard", "device", "quick", "config", "channel", "edit", "check", "import", "audit")
 ALPINE = "vendor/alpine-csp-3.17.5.min.js"
 
 
@@ -41,11 +41,12 @@ def test_page_has_every_view_and_the_vendored_framework(client):
     page = c.get("/ui/").text
     for view in VIEWS:
         assert f'id="view-{view}"' in page, view
-    for link in ("#/dashboard", "#/config", "#/import", "#/audit"):
+    for link in ("#/dashboard", "#/quick", "#/config", "#/import", "#/audit"):
         assert f'href="{link}"' in page
     for element in ('id="pending"', 'id="device-form"', 'id="tags-body"', 'id="tag-create"', 'id="map-form"',
                     'id="override-form"', 'id="import-form"', 'name="token"', 'type="search"', "Read once",
-                    "Live values", "Block plan", "bad_config tags", "Identity", "Reload now"):
+                    "Live values", "Block plan", "bad_config tags", "Identity", "Reload now",
+                    'id="quick-values"', 'id="quick-mode"', "Read now", "Filter tags", "Updates"):
         assert element in page, element
     assert page.index('src="app.js"') < page.index(f'src="{ALPINE}"')   # components registered first
 
@@ -102,6 +103,24 @@ def test_ui_uses_only_the_public_api(client):
         prefix = prefix.split("?", 1)[0]
         assert prefix.startswith("/api/v1/"), arg
         assert any(r == prefix.rstrip("/") or r.startswith(prefix) for r in routes), prefix
+    # the one other way out: the live-values WebSocket, opened in openLive() on /api/v1/ws
+    assert js.count("new WebSocket(") == 1
+    live_path = re.search(r'var LIVE_PATH = "([^"]+)"', js).group(1)
+    assert live_path == "/api/v1/ws" and live_path in routes
+    assert "XMLHttpRequest" not in js and "EventSource" not in js and "sendBeacon" not in js
+
+
+def test_quick_client_speaks_the_live_protocol():
+    """The Quick Client subscribes with the documented message, sends the token only in the
+    subprotocol (base64url), falls back to polling GET .../values, and demand-reads with read-once."""
+    js = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    assert '["opencap.v1"]' in js and '"opencap.bearer." + b64url(token)' in js
+    assert "JSON.stringify({ subscribe: { devices:" in js
+    for kind in ('"snapshot"', '"changes"', '"unavailable"', '"error"'):
+        assert f"m.type === {kind}" in js, kind
+    assert "m.version > this.version" in js                       # stale batches are ignored
+    quick = js[js.index('Alpine.data("quickView"'):js.index("// ------------------------------------------------------------ config overview")]
+    assert '"/values"' in quick and '"/read-once"' in quick and "fallback" in quick
 
 
 def test_ui_never_offers_a_plc_write():

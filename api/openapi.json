@@ -1530,13 +1530,241 @@
         ],
         "title": "WriteResult",
         "type": "object"
+      },
+      "WsChange": {
+        "additionalProperties": true,
+        "properties": {
+          "quality": {
+            "title": "Quality",
+            "type": "string"
+          },
+          "source_ts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Ts"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "value": {
+            "default": null,
+            "description": "non-finite floats are sent as \"NaN\", \"Infinity\", \"-Infinity\"",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "tag",
+          "quality"
+        ],
+        "title": "WsChange",
+        "type": "object"
+      },
+      "WsError": {
+        "additionalProperties": true,
+        "description": "The server could not use a client message; the connection stays open.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "type": {
+            "pattern": "^error$",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "detail"
+        ],
+        "title": "WsError",
+        "type": "object"
+      },
+      "WsSubscribe": {
+        "additionalProperties": true,
+        "description": "Client to server: the only message a client sends.",
+        "properties": {
+          "subscribe": {
+            "$ref": "#/components/schemas/WsSubscription"
+          }
+        },
+        "required": [
+          "subscribe"
+        ],
+        "title": "WsSubscribe",
+        "type": "object"
+      },
+      "WsSubscribed": {
+        "additionalProperties": true,
+        "properties": {
+          "conflate_ms": {
+            "title": "Conflate Ms",
+            "type": "integer"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/WsTagRef"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "pattern": "^subscribed$",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "devices",
+          "tags",
+          "conflate_ms"
+        ],
+        "title": "WsSubscribed",
+        "type": "object"
+      },
+      "WsSubscription": {
+        "additionalProperties": true,
+        "description": "What a connection receives. Each `subscribe` replaces the previous subscription.",
+        "properties": {
+          "devices": {
+            "description": "device ids: every tag of each",
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "tags": {
+            "description": "single tags (of devices not in `devices`)",
+            "items": {
+              "$ref": "#/components/schemas/WsTagRef"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "title": "WsSubscription",
+        "type": "object"
+      },
+      "WsTagRef": {
+        "additionalProperties": true,
+        "properties": {
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device",
+          "tag"
+        ],
+        "title": "WsTagRef",
+        "type": "object"
+      },
+      "WsUnavailable": {
+        "additionalProperties": true,
+        "description": "The device is not polled (unknown, its channel disabled, or not reloaded yet). Stays\nsubscribed: a `snapshot` follows when it is polled again.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "type": {
+            "pattern": "^unavailable$",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "device",
+          "detail"
+        ],
+        "title": "WsUnavailable",
+        "type": "object"
+      },
+      "WsValues": {
+        "additionalProperties": true,
+        "description": "`snapshot`: every subscribed tag of the device, replacing what the client holds for it (sent after\neach `subscribe`, when a device comes back, and to a client that fell behind). `changes`: what\nchanged since the previous message for the device. At most one per device per `conflate_ms`.",
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/WsChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "subscribed tags the device does not have (snapshot)",
+            "title": "Missing"
+          },
+          "type": {
+            "description": "\"snapshot\" or \"changes\"",
+            "pattern": "^(snapshot|changes)$",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "description": "change counter of the device's values; grows within a connection",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "device",
+          "version",
+          "changes"
+        ],
+        "title": "WsValues",
+        "type": "object"
       }
     }
   },
   "info": {
     "description": "Admin and configuration API of opencap (contract: api/README.md).",
     "title": "opencap",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7080,6 +7308,99 @@
           }
         },
         "summary": "Whoami"
+      }
+    },
+    "/api/v1/ws": {
+      "get": {
+        "description": "WebSocket upgrade: the Quick Client feed (#31). Authenticated in the handshake with the REST API's tokens: `Authorization: Bearer <token>`, or for browsers the subprotocol `opencap.bearer.<base64url(token)>` offered next to `opencap.v1`; the server selects `opencap.v1`. A browser `Origin` must be the API's own origin or listed in `api.cors_origins`. The client sends `WsSubscribe`; the server answers `WsSubscribed`, then a `snapshot` of each device and conflated `changes` (at most one message per device per `conflate_ms`), `unavailable` for a device that is not polled, `error` for a message it cannot use. A client that falls behind gets fresh snapshots instead of a backlog.",
+        "operationId": "live_values_ws",
+        "parameters": [
+          {
+            "description": "`opencap.v1`, optionally `opencap.bearer.<base64url(token)>`",
+            "in": "header",
+            "name": "Sec-WebSocket-Protocol",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols: a WebSocket speaking `opencap.v1` (JSON text frames)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "subprotocols offered without `opencap.v1`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "origin not allowed, or open mode reached through a non-loopback host name"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "too many live connections"
+          }
+        },
+        "summary": "Live values (WebSocket)",
+        "tags": [
+          "live"
+        ],
+        "x-websocket": {
+          "client_messages": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WsSubscribe"
+              }
+            ]
+          },
+          "conflate_ms": 250,
+          "server_messages": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WsSubscribed"
+              },
+              {
+                "$ref": "#/components/schemas/WsValues"
+              },
+              {
+                "$ref": "#/components/schemas/WsUnavailable"
+              },
+              {
+                "$ref": "#/components/schemas/WsError"
+              }
+            ]
+          },
+          "subprotocol": "opencap.v1"
+        }
       }
     },
     "/channels": {

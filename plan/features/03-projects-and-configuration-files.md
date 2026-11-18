@@ -58,8 +58,9 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
 - **Requirements:**
   - Every command (`run`, `check`, `read`, `identity`, `import-kep`) takes `--config DIR`.
   - Both engines read the same files with the same layering (D-012, RFC 0001 §2.8).
-- **Acceptance:** `tests/unit/test_loader.py` and `test_rust_engine_cli.py` (identical `check -v`
-  on both engines).
+- **Acceptance:** `tests/unit/test_loader.py`, `test_rust_engine_cli.py` (identical `check -v`
+  on both engines), and `tests/conformance/config/compare.py` (both engines build the same
+  documents from every fixture, #86).
 
 ### PRJ-02 Project file v2: one project document plus node settings (manual p. 144, 155)
 - **What:** One project file holds the whole configuration.
@@ -76,7 +77,8 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
   - The JSON Schema for v2 is generated into `schema/` and has conformance fixtures for both
     engines (ADR-0003).
 - **Acceptance:** Migration fixtures (v1 in, v2 out) in `tests/conformance/config/`. The config
-  API test suite runs against both stores. The Rust engine loads v2 (#39 follow-up).
+  API test suite runs against both stores. The Rust engine loads v2 through the same fixture
+  harness (#86).
 
 ### PRJ-03 Node settings kept apart from the project (manual p. 144)
 - **What:** Global options sit in their own file, which can be copied to another machine.
@@ -86,8 +88,8 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
 - **Status:** Done
 - **Requirements:** `poller.yaml` is optional (missing means defaults). Unknown keys are errors.
   Secrets appear only as env var names.
-- **Acceptance:** `tests/unit/test_models.py` and `test_loader.py`. Config fixtures in
-  `tests/conformance/config/`.
+- **Acceptance:** `tests/unit/test_models.py` and `test_loader.py`. The config fixtures in
+  `tests/conformance/config/` are loaded by both engines (#86).
 
 ### PRJ-04 Start a new, empty project (manual p. 144–145)
 - **What:** File › New opens an empty project to configure and save.
@@ -222,8 +224,8 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
     named.
   - The importer reports KEPServerEX names that break a rule.
   - The messages are identical in both engines.
-- **Acceptance:** Valid and invalid fixtures in `tests/conformance/config/`, passing in Python and
-  Rust (#39). API 422 tests.
+- **Acceptance:** Valid and invalid fixtures in `tests/conformance/config/`, loaded by both
+  engines and compared by `compare.py` (the harness from #86). API 422 tests.
 
 ### PRJ-14 The channel is the unit of parallel execution (manual p. 166–167)
 - **What:** Each channel is its own execution path. Devices on one channel take turns, so
@@ -273,85 +275,69 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
   override: the name moves to a second simulator and the next reconnect reaches it. Both engines.
 
 ### PRJ-17 Dynamic tag addressing from clients (manual p. 150–151, 170–171)
-- **What:** A client item `Channel.Device.<address>` creates a temporary tag without
-  configuration. An optional `@<type>` and/or `,<rate ms>` suffix overrides the default type and
-  rate, other clients cannot browse these tags, and the device-level `_Error` item reports device
-  health.
-- **Decision:** Defer to M5 (FR-2): off by default, because it lets any client create load on a
-  PLC. When it is built, it follows the KEPServerEX syntax. Plan 06 owns the tag model, and plan 07
-  owns `_Error`.
+- **What:** The how-to explains that a client can name `Channel.Device.<address>` directly. The
+  server then makes a temporary tag with the driver's default type for that address, unless an
+  `@<type>` suffix sets another. A rate suffix exists only for non-OPC (DDE) clients. A client
+  cannot browse tags another client created, and a device-level `_Error` item tells a client
+  whether the device communicates.
+- **Decision:** Defer to M5 (FR-2): the feature itself is TAG-13 in plan 06, off by default
+  because it lets any client create load on a PLC. This row holds the how-to's rules for when it
+  is built. The `@<type>` override is adopted. The rate suffix is not offered (DDE is out,
+  ADR-0009; OPC UA clients ask for a sampling interval instead). `_Error` is plan 07 (SYS-08).
 - **Status:** Not started
 - **Requirements:**
-  - The per-device setting `dynamic_tags: false` (default) and a cap `dynamic_tags_max` (default
-    100) apply.
-  - `<address>[@<dtype>][,<rate_ms>]` and `<address>@<rate_ms>` are parsed. The rate is floored by
-    `min_scan_ms`, and the address is validated by the driver's `plan()` before anything goes on
-    the wire.
-  - Dynamic tags are never written to the project, never browsable, and are dropped when no
-    client uses them for 60 s.
-- **Acceptance:** OPC UA L1 test (#29) with a simulator. Parser vectors in both engines.
+  - Item ids `<address>` and `<address>@<dtype>` are parsed with one parser in both engines. The
+    dtype names accept the KEPServerEX spellings (`Word`, `DWord`, `Float`, …) and map them to
+    opencap dtypes.
+  - Without `@<dtype>`, the driver's default dtype for the address is used. An address or dtype
+    the driver's `plan()` refuses is rejected (`Bad_NodeIdUnknown` or
+    `Bad_ConfigurationError`) and logged. It never reaches the wire.
+  - A dynamic tag is visible only to the session that created it.
+- **Acceptance:** Parser vectors (KEPServerEX spellings, bad suffixes) in both engines. The OPC UA
+  test of TAG-13 with the Modbus simulator.
 
-### PRJ-18 Serial devices behind terminal servers (manual p. 171–172)
+### PRJ-18 Serial devices behind terminal servers: the encapsulation how-to (manual p. 171–172)
 - **What:** "Ethernet Encapsulation" reaches serial devices through terminal servers that turn
-  TCP/IP into serial. The channel's serial settings are then unused, and each device gets an IP
-  address, a port and a protocol.
+  TCP/IP into serial. The channel's serial settings are then unused, each device gets the terminal
+  server's IP address, port and protocol, and the terminal server's own serial port must match the
+  device. Unsolicited drivers listen on a channel-level port instead.
 - **Decision:** Adapt: `params.transport: tcp` (raw TCP to a serial-over-TCP gateway) or `rfc2217`
-  (COM-port control). Devices on one line share one connection (D-033). UDP encapsulation and
-  unsolicited (listening) drivers are not offered, because opencap only polls.
+  (COM-port control). Devices on one line share one connection (D-033). This is the channel
+  feature CH-11 in plan 04, and importing KEPServerEX's encapsulation settings is CH-12 (Not
+  started). Unsolicited (listening) drivers are not offered, because opencap only polls.
 - **Status:** Done
 - **Requirements:**
   - `ab_df1` and `modbus_rtu` support `transport: tcp` (and `rfc2217` for `ab_df1`), with host and
     port of the gateway.
   - `overrides.yaml` `serial_ports` maps a KEPServerEX COM port to a gateway once for every device
     on it.
+  - `docs/driver_params.md` ("Serial lines") tells the engineer that the gateway owns baud rate and
+    parity, which must match the device.
 - **Acceptance:** `tests/integration/test_serial_acceptance.py`, `test_ab_df1_sim.py` and
   `test_modbus_rtu_sim.py`. `tests/unit/test_serial_transport.py`.
 
-### PRJ-19 Import KEPServerEX Ethernet Encapsulation settings (manual p. 171–172)
-- **What:** In the exported project, a channel whose connection type is Ethernet Encapsulation
-  carries the terminal server's IP address, port and protocol on each device.
-- **Decision:** Adapt: the importer maps those settings straight to `transport: tcp` with host and
-  port, instead of importing the device as `unmapped` and waiting for a `serial_ports` entry.
-- **Status:** Not started
-- **Requirements:**
-  - For serial drivers that the importer maps (`ab_df1` today, `modbus_rtu` once it has a mapper),
-    an encapsulated channel gives `transport: tcp` with the device's encapsulation IP and port.
-  - Encapsulation over UDP is imported **disabled**, with a problem line in the summary.
-  - The key names are confirmed against a real export (owner), and the summary lists the devices
-    mapped this way.
-- **Acceptance:** Importer unit tests with a synthetic export fragment (192.0.2.x addresses). A
-  `real_project` test when a site has such a channel.
-
-### PRJ-20 Non-normalized floats in the Modbus drivers (manual p. 172–174)
-- **What:** A channel setting decides whether NaN, ±infinity and denormal IEEE-754 values reach
-  clients unchanged or as zero.
-- **Decision:** Adopt: `params.nonnormal_float: zero | unmodified`, default `zero` (the KEPServerEX
-  default), imported from the channel setting. In `unmodified` mode, NaN or ±infinity cannot go
-  into the JSON payload, so the tag is reported in `BadTags` there. OPC UA will carry the value as
-  is.
+### PRJ-19 Non-normalized floating-point values: the how-to (manual p. 172–174)
+- **What:** The how-to defines which IEEE-754 values count as non-normalized: NaN (quiet and
+  signalling), ±infinity and denormals, with their 32- and 64-bit bit ranges. It also explains the
+  channel setting that passes them through or replaces them with zero, and notes that a
+  signalling NaN is quietened before it reaches a client.
+- **Decision:** Adopt: `params.nonnormal_float: zero | unmodified`, default `zero`, imported from
+  the channel setting. The property, and its extension to every float-decoding driver, is CH-04
+  in plan 04. In `unmodified` mode, NaN or ±infinity cannot be a JSON number, so SubDevice JSON
+  lists the tag in `BadTags`. OPC UA will carry the value, and whether a NaN's payload bits survive
+  is not guaranteed.
 - **Status:** Done
-- **Requirements:** 32- and 64-bit values with an all-ones exponent, or a zero exponent with a
-  non-zero mantissa, become `0.0` in `zero` mode. They are decoded unchanged in `unmodified` mode.
-  This holds in `modbus_tcp`/`modbus_rtu` (Python) and in Rust `modbus_tcp`.
-- **Acceptance:** `tests/unit/test_modbus_decode.py`, the Rust `modbus_tcp/decode.rs` unit tests,
-  and the importer test of the channel key.
-
-### PRJ-21 Non-normalized floats in every driver (manual p. 172–174)
-- **What:** The setting applies to every driver that reads IEEE-754 values.
-- **Decision:** Adopt: one shared helper and one set of vectors, used by every driver that decodes
-  floats (AB Logix/PCCC, S7, MELSEC, DF1, OPC UA client, and the Rust ports), so `nonnormal_float`
-  means the same everywhere.
-- **Status:** Not started
 - **Requirements:**
-  - `nonnormal_float` is accepted by every driver that decodes float32/float64, with the same
-    default and the same importer mapping.
-  - Vectors cover both widths: quiet and signalling NaN of both signs, the indeterminate value,
-    ±infinity, the smallest and largest denormals, and the smallest normal. Each vector gives the
-    expected result in both modes.
-- **Acceptance:** `tests/conformance/decode/nonnormal.json` passes in both engines. Each driver's
-  simulator suite includes one NaN case.
+  - 32- and 64-bit values with an all-ones exponent, or with a zero exponent and a non-zero
+    mantissa, become `0.0` in `zero` mode and decode unchanged in `unmodified` mode. This holds in
+    `modbus_tcp`/`modbus_rtu` (Python) and in Rust `modbus_tcp`.
+  - The decode vectors (CH-04, #3) take one case from each bit range the how-to lists, in both
+    widths: quiet and signalling NaN of both signs, the indeterminate value, ±infinity, the
+    smallest and largest denormal of each sign, and the smallest normal.
+- **Acceptance:** `tests/unit/test_modbus_decode.py`, the Rust `modbus_tcp/decode.rs` unit tests,
+  and the importer test of the channel key. The shared decode vectors once #3 lands.
 
-### PRJ-22 Choosing network cables (manual p. 168)
+### PRJ-20 Choosing network cables (manual p. 168)
 - **What:** Advice on patch versus crossover cables.
 - **Decision:** Out of scope: hardware advice, not software behaviour. Modern ports detect the cable
   type automatically.
@@ -365,10 +351,11 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
   KEPServerEX's default project), or keep refusing and point at `opencap init`?
 - **Encrypted export (PRJ-10):** is there a real need to move projects between sites encrypted, or
   are file permissions and the transport channel enough?
-- **Encapsulation keys (PRJ-19):** the owner's export has no encapsulated channel today (the DF1
-  sites use virtual COM ports). Is the importer mapping worth doing before a site needs it?
-- **Milestones:** PRJ-13 is placed in M2 (config contract for both engines). PRJ-04, 15, 16, 19 and
-  21 have no milestone yet.
+- **Overlap with plans 04 and 06:** PRJ-17/18/19 are the how-to view of TAG-13, CH-11/CH-12 and
+  CH-04. Keep these rows as how-to trackers, or drop them and keep only the plan 04/06 rows in the
+  checklist?
+- **Milestones:** PRJ-13 is placed in M2 (config contract for both engines). PRJ-04, 15 and 16 have
+  no milestone yet.
 
 ## Checklist rows
 | ID | Feature | Decision | Status | Issue/PR | Milestone |
@@ -389,9 +376,7 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
 | PRJ-14 | The channel is the unit of parallel execution | Adopt | Done | D-015 | M1 |
 | PRJ-15 | Optimisation hints in `opencap check` | Adapt | Not started | — | — |
 | PRJ-16 | Re-resolve host names on every connect | Adapt | Not started | — | — |
-| PRJ-17 | Dynamic tag addressing from clients | Defer | Not started | — | M5 |
-| PRJ-18 | Serial devices behind terminal servers | Adapt | Done | #62, D-033 | M1 |
-| PRJ-19 | Import Ethernet Encapsulation settings | Adapt | Not started | — | — |
-| PRJ-20 | Non-normalized floats in the Modbus drivers | Adopt | Done | — | M1 |
-| PRJ-21 | Non-normalized floats in every driver | Adopt | Not started | — | — |
-| PRJ-22 | Choosing network cables | Out of scope | Out of scope | — | — |
+| PRJ-17 | Dynamic tag addressing from clients (how-to rules) | Defer | Not started | TAG-13 | M5 |
+| PRJ-18 | Serial devices behind terminal servers (encapsulation how-to) | Adapt | Done | #62, D-033, CH-11 | M1 |
+| PRJ-19 | Non-normalized floating-point values (how-to) | Adopt | Done | CH-04 | M1 |
+| PRJ-20 | Choosing network cables | Out of scope | Out of scope | — | — |

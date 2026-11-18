@@ -11,7 +11,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 |---|---:|---:|---:|---:|---:|---:|
 | [01 Runtime and process modes](features/01-runtime-and-process-modes.md) | 13 | 9 | 0 | 3 | 1 | 0 |
 | [02 Client interfaces](features/02-client-interfaces.md) | 20 | 1 | 2 | 6 | 5 | 6 |
-| [03 Projects and configuration files](features/03-projects-and-configuration-files.md) | 22 | 10 | 0 | 2 | 8 | 2 |
+| [03 Projects and configuration files](features/03-projects-and-configuration-files.md) | 20 | 10 | 0 | 2 | 6 | 2 |
 | [04 Channels](features/04-channels.md) | 16 | 5 | 0 | 1 | 8 | 2 |
 | [05 Devices](features/05-devices.md) | 18 | 8 | 0 | 2 | 7 | 1 |
 | [06 Tags, tag groups and the alias map](features/06-tags-groups-aliases.md) | 16 | 9 | 0 | 0 | 6 | 1 |
@@ -20,11 +20,11 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 | [09 Administration and security](features/09-administration-and-security.md) | 23 | 8 | 0 | 8 | 5 | 2 |
 | [10 Configuration API](features/10-configuration-api.md) | 35 | 14 | 0 | 6 | 13 | 2 |
 | [11 Store and forward](features/11-store-and-forward.md) | 20 | 10 | 0 | 2 | 7 | 1 |
-| [12 Diagnostics](features/12-diagnostics.md) | 13 | 3 | 0 | 0 | 9 | 1 |
+| [12 Diagnostics](features/12-diagnostics.md) | 13 | 3 | 0 | 2 | 7 | 1 |
 | [13 iFIX](features/13-ifix.md) | 12 | 2 | 0 | 3 | 5 | 2 |
 | [14 UI and tools](features/14-ui-and-tools.md) | 20 | 6 | 1 | 7 | 4 | 2 |
 | [15 Event log messages](features/15-event-log-messages.md) | 54 | 10 | 0 | 13 | 22 | 9 |
-| **Total** | **299** | **95** | **3** | **61** | **106** | **34** |
+| **Total** | **297** | **95** | **3** | **63** | **102** | **34** |
 
 ## [01 Runtime and process modes](features/01-runtime-and-process-modes.md)
 
@@ -83,12 +83,10 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - [x] **PRJ-14** The channel is the unit of parallel execution (Adopt · Done · D-015 · M1)
 - [ ] **PRJ-15** Optimisation hints in `opencap check` (Adapt · Not started)
 - [ ] **PRJ-16** Re-resolve host names on every connect (Adapt · Not started)
-- [ ] **PRJ-17** Dynamic tag addressing from clients (Defer · Not started · M5)
-- [x] **PRJ-18** Serial devices behind terminal servers (Adapt · Done · #62, D-033 · M1)
-- [ ] **PRJ-19** Import Ethernet Encapsulation settings (Adapt · Not started)
-- [x] **PRJ-20** Non-normalized floats in the Modbus drivers (Adopt · Done · M1)
-- [ ] **PRJ-21** Non-normalized floats in every driver (Adopt · Not started)
-- ~~PRJ-22 Choosing network cables~~ (Out of scope · Out of scope)
+- [ ] **PRJ-17** Dynamic tag addressing from clients (how-to rules) (Defer · Not started · TAG-13 · M5)
+- [x] **PRJ-18** Serial devices behind terminal servers (encapsulation how-to) (Adapt · Done · #62, D-033, CH-11 · M1)
+- [x] **PRJ-19** Non-normalized floating-point values (how-to) (Adopt · Done · CH-04 · M1)
+- ~~PRJ-20 Choosing network cables~~ (Out of scope · Out of scope)
 
 ## [04 Channels](features/04-channels.md)
 
@@ -263,15 +261,15 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 
 - [x] **DIAG-01** Server- and driver-level diagnostics at a glance (Adapt · Done · #63, #64, #84 · M1)
 - [x] **DIAG-02** Structured event stream (Adapt · Done · D-023, D-030 · M1)
-- [ ] **DIAG-03** Event-log store with retention (Adapt · Not started · M5)
-- [ ] **DIAG-04** Event-log API and viewer (Adapt · Not started · M5)
+- [ ] **DIAG-03** Event-log store with retention (Adapt · Planned (#56) · #56, ADM-11 · M5)
+- [ ] **DIAG-04** Event-log viewer (Adapt · Not started · ADM-11 · M5)
 - [ ] **DIAG-05** North protocol trace capture (Adapt · Not started · M5)
 - [ ] **DIAG-06** Trace viewer (Adapt · Not started · M5)
 - [ ] **DIAG-07** OPC UA service trace content (Adapt · Not started · #74, #29 · M5)
 - [ ] **DIAG-08** OPC DA method trace (Defer · Not started · #18 · M5)
 - ~~DIAG-09 OPC HDA diagnostics~~ (Out of scope · Out of scope)
 - [x] **DIAG-10** Communication statistics per channel and device (Adapt · Done · M1)
-- [ ] **DIAG-11** Frame capture on demand (Adapt · Not started · #56 · M5)
+- [ ] **DIAG-11** Frame capture on demand (Adapt · Planned (#56) · #56 · M5)
 - [ ] **DIAG-12** Communication diagnostics viewer (Adapt · Not started · M5)
 - [ ] **DIAG-13** Refused-write diagnostics (Adapt · Not started · #29, #52 · M3)
 
@@ -301,7 +299,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - [ ] **UI-07** Address help per driver (Adapt · Not started)
 - [ ] **UI-08** Pick tags from the project (tag picker) (Adapt · Not started)
 - [ ] **UI-09** Browse a device and add its tags (Adapt · Planned (#11) · #11)
-- [ ] **UI-10** Generate many tags from a pattern (Adapt · Not started · #10)
+- [ ] **UI-10** Generate many tags from a pattern (dialog) (Adapt · Not started · TAG-09, #12)
 - [x] **UI-11** Tag scaling in the editor (JSON) (Adapt · Done · #63 · M1)
 - [ ] **UI-12** Scaling form with a live preview (Adapt · Not started · #3)
 - [x] **UI-13** Save, apply and export from the UI (Adapt · Done · #63 · M1)

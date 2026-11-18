@@ -182,29 +182,29 @@ Desktop interaction is needed only for DDE-type interfaces (manual p. 164).
 
 ### UI-10 Generate many tags from a pattern (manual p. 152–154)
 - **What:** Build tag names and addresses from static text, numeric ranges (base, start, end,
-  step) and text lists. A preview marks valid and invalid tags, names can be edited, and the
-  result can be added as a group.
-- **Decision:** Adapt: a generator in the device editor and the CLI. It expands a pattern into
-  draft tags, validates them with the driver (dry run), then posts them as one list. Plan 06 covers
-  the generation properties, and CSV import (#10) is the bulk alternative.
+  step) and text lists. A preview marks valid and invalid tags, names and start values can be
+  edited, and the result can be added as a group.
+- **Decision:** Adapt: a generator dialog in the device editor, over the generator of TAG-09 in
+  plan 06: its template format, `opencap tags generate` and
+  `POST /api/v1/devices/{id}/tags:generate?dry_run=true`. This row is the UI flow only. CSV import
+  (#10) is the bulk alternative.
 - **Status:** Not started
 - **Requirements:**
-  - The pattern language supports literal text, `{n:start..end:step[:width][:base]}` (decimal,
-    octal, hex) and `{list:a|b|c}`, for both names and addresses.
-  - The preview lists each tag with ok, or the driver's reason, and a duplicate-name check. Only
-    valid tags can be generated.
-  - An optional group prefix is applied (v1: `Group.` in the name; v2: a real group). A limit of
-    10,000 tags per run applies.
-  - `opencap tags generate --device ID --pattern … [--dry-run]` gives the same result from the CLI.
-- **Acceptance:** Expansion vectors shared by UI tests and the CLI. API test for the bulk post (all
-  or nothing). UI smoke test.
+  - The dialog edits a TAG-09 template: name prefix and counter, address parts (static text,
+    numeric range with base and step, text sequence), dtype, scan rate and optional group.
+  - **Preview** calls the dry run and lists every tag with ok, or the driver's reason. Duplicate
+    names are marked. Names and start values can be changed before generating.
+  - **Generate** applies the same template (`dry_run=false`, `If-Match`) and adds only valid tags,
+    in one audited change. Afterwards the tag table shows the new tags.
+- **Acceptance:** UI smoke test with the simulator driver (#12): preview shows invalid addresses,
+  and generate adds exactly the valid ones. Generator vectors and API tests are TAG-09's.
 
 ### UI-11 Tag scaling in the editor (manual p. 155)
 - **What:** Set linear or square-root scaling with raw and scaled ranges, clamps, scaled data type
   and units.
 - **Decision:** Adapt: `scale` is edited as JSON in the tag row, checked by the `Scale` model, and
-  shown as text in the table. The scaled data type is dropped (opencap delivers engineering values
-  as floats, D-010).
+  shown as text in the table. The scaled data type is dropped today (engineering values are floats,
+  D-010). TAG-11 in plan 06 proposes `scale.dtype`. Scaling behaviour itself is TAG-10.
 - **Status:** Done
 - **Requirements:** `type` (`linear`/`sqrt`), `raw_lo`, `raw_hi`, `eng_lo`, `eng_hi`, `clamp_lo`,
   `clamp_hi`, `negate` and `units` are accepted and validated. A raw span of zero is refused.
@@ -269,7 +269,8 @@ Desktop interaction is needed only for DDE-type interfaces (manual p. 164).
 - **Decision:** Adapt: a Quick Client page over the WebSocket feed `/api/v1/ws` (03 §3.6, #31).
   Watch lists stand in for groups, with an update rate (never faster than the tag's scan), an
   absolute deadband and pause/resume. Items come from the tag picker (UI-08), and both timestamps
-  are shown (ADR-0006).
+  are shown (ADR-0006). ADM-05 in plan 09 is the same Quick Client, seen from the administration
+  menu.
 - **Status:** Planned (#31)
 - **Requirements:**
   - The WebSocket subscribes to a device or a tag list and receives change events (value,
@@ -341,7 +342,7 @@ Desktop interaction is needed only for DDE-type interfaces (manual p. 164).
 | UI-07 | Address help per driver | Adapt | Not started | — | — |
 | UI-08 | Pick tags from the project (tag picker) | Adapt | Not started | — | — |
 | UI-09 | Browse a device and add its tags | Adapt | Planned (#11) | #11 | — |
-| UI-10 | Generate many tags from a pattern | Adapt | Not started | #10 | — |
+| UI-10 | Generate many tags from a pattern (dialog) | Adapt | Not started | TAG-09, #12 | — |
 | UI-11 | Tag scaling in the editor (JSON) | Adapt | Done | #63 | M1 |
 | UI-12 | Scaling form with a live preview | Adapt | Not started | #3 | — |
 | UI-13 | Save, apply and export from the UI | Adapt | Done | #63 | M1 |

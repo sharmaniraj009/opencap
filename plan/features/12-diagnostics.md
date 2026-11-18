@@ -33,11 +33,13 @@ event messages are catalogued in plan 15.
   names (`device.offline`, `device.demoted`, `device.resumed`, `config_reloaded`, `reload_failed`,
   `mqtt_disconnected`, `saf_dropped_oldest`, …), a `device.stats` summary every 5 min (D-023), and
   a `device.request` line per request at `DEBUG` (block, result, attempt; no frame bytes).
-- **Not yet:** an event-log store, API or UI view (planned in 02 §2.4 and 04 §4.3 as a bounded ring
-  buffer plus JSONL file; board backlog "Diagnostics"), frame capture (FR-10, board backlog), and
-  protocol traces for north servers. The OPC UA server is in flight (#61 → #74, hardening #28). OPC
-  DA comes only through a Windows bridge (RFC 0004, #18). OPC HDA is out of scope (01 "Out of
-  scope"). System and diagnostic tags are plan 07 (#22, Rust #56).
+- **Not yet:** an event-log store, API or UI view (planned in 02 §2.4 and 04 §4.5 as a bounded ring
+  buffer plus JSONL file; settings in plan 09 ADM-11), frame capture (FR-10), and protocol traces
+  for north servers. RFC 0001 §3.4 assigns system tags, the event log and comm capture to #56
+  (Rust), and the board backlog lists comm frame capture and the event log under "Diagnostics".
+  The OPC UA server is in flight (#61 → #74, hardening #28). OPC DA comes only through a Windows
+  bridge (RFC 0004, #18). OPC HDA is out of scope (01 "Out of scope"). System and diagnostic tags
+  are plan 07 (#22, Rust #56).
 
 ## Features
 
@@ -74,36 +76,37 @@ event messages are catalogued in plan 15.
 - **What:** The event log keeps events (and diagnostic captures) so they can be viewed later. It
   can persist to disk, and the manual warns that its extended persistence mode can use a lot of
   disk.
-- **Decision:** Adapt: an in-process bounded ring buffer (fast "last N events") plus an
-  append-only JSONL file with size-based rotation (02 §2.4, 04 §4.3). The audit log stays
-  separate (D-043). Persistence-mode settings are in plan 09.
-- **Status:** Not started
+- **Decision:** Adapt: an in-process bounded ring buffer plus an append-only JSONL file with
+  size-based rotation (02 §2.4, 04 §4.5). The audit log stays separate (D-043). The settings keys,
+  their ranges and the admin-only clear are ADM-11 in plan 09. This row is the store's behaviour.
+  RFC 0001 §3.4 assigns event log, comm capture and system tags to #56 for the Rust engine.
+- **Status:** Planned (#56)
 - **Requirements:**
-  - `event_log.memory_events` (default 10,000) keeps the newest events in memory.
-    `event_log.path` (default `data/events.jsonl`) holds events at `event_log.min_level` (default
-    INFO) and above, rotated at `event_log.max_bytes` (default 16 MiB) with `event_log.keep_files`
-    (default 4) old files.
-  - Writing an event never blocks polling. If the file cannot be written, the event stays in
-    memory and the failure is counted (`event_log_write_errors_total`).
-  - Events in the file survive a restart, and the ring buffer is refilled from the file tail at
-    start.
-- **Acceptance:** Unit tests for rotation, the memory bound and a write failure. A conformance
-  fixture of the JSONL line format, read by both engines.
+  - The store uses ADM-11's keys (`event_log.mode`, `event_log.max_records`, `event_log.path`,
+    `event_log.max_file_bytes`, `event_log.retain_days`) and their defaults.
+  - Writing an event never blocks polling. If the file cannot be written, events stay in memory,
+    `/health` says so, and `event_log_write_errors_total` rises.
+  - In file mode, entries survive a restart and the ring buffer is refilled from the newest file
+    at start.
+  - One line format for both engines: UTC time, level, source, event name (the log event's name),
+    message and fields.
+- **Acceptance:** Unit tests for rotation, the memory bound and a write failure. Golden JSONL lines
+  read by both engines (ADR-0014).
 
-### DIAG-04 Event-log API and viewer (manual p. 233–236)
+### DIAG-04 Event-log viewer (manual p. 233–236)
 - **What:** View events live or historically, pause the view, search and filter.
-- **Decision:** Adapt: an API route and an **Events** page in the web UI (and so in the desktop
-  app, ADR-0010).
+- **Decision:** Adapt: an **Events** page in the web UI (and so in the desktop app, ADR-0010), on
+  the `GET /api/v1/events` route of ADM-11.
 - **Status:** Not started
 - **Requirements:**
-  - `GET /api/v1/events?level=&source=&device=&q=&since=&until=&limit=` (viewer role) reads memory
-    and files, newest first. `GET /api/v1/events?follow=true` (or the WebSocket of #31) streams new
-    events.
-  - The Events page has filters for level, source (channel, device, north agent, API), time range
-    and free text. It also has live/paused toggling, autoscroll that stops when a row is selected,
-    and export of the filtered rows as JSONL.
-  - Deleting events is not offered from the UI. Retention is by rotation only, and the audit log
-    is never deletable.
+  - `GET /api/v1/events` (viewer) takes the filters `level`, `source`, `device`, `q` (free text),
+    `since`, `until` and `limit`, and returns newest first. New events stream over the WebSocket
+    of #31.
+  - The Events page has those filters and live/paused toggling: capture continues while the view
+    is paused. Autoscroll stops when a row is selected, and the filtered rows can be exported as
+    JSONL.
+  - Clearing the log is ADM-11's admin-only action. The page offers it to admins only, with a
+    confirmation, and the clear itself is recorded.
 - **Acceptance:** API tests (filters, roles) on both engines. A UI smoke test for the Events page at
   desktop and phone width.
 
@@ -112,7 +115,8 @@ event messages are catalogued in plan 15.
   parameters and result. Capture is switched on per client interface.
 - **Decision:** Adapt: an opt-in, time-limited trace per north server (OPC UA first, then the
   Modbus server and others), stored as events with source `north.<server>.trace`. Capture slows
-  the server, so it is never on by default.
+  the server, so it is never on by default. The always-on metrics per interface are IF-18 in plan
+  02.
 - **Status:** Not started
 - **Requirements:**
   - Capture is off by default. It is started and stopped by an admin API action
@@ -201,8 +205,10 @@ event messages are catalogued in plan 15.
   while capture is enabled.
 - **Decision:** Adapt: an opt-in, rate-limited, time-limited capture per channel or device (FR-10),
   kept in a bounded buffer in memory. It is written to disk only when exported. Drivers report
-  frames through one hook in the channel worker, so every driver gets it.
-- **Status:** Not started
+  frames through one hook in the channel worker, so every driver gets it. Rust: #56 (RFC 0001
+  §3.4). ADM-11 in plan 09 proposes a config key (`diagnostics.comm_capture`) that writes its own
+  file. This row proposes a runtime action that ends by itself instead (see Open questions).
+- **Status:** Planned (#56)
 - **Requirements:**
   - `POST /api/v1/diagnostics/channels/{channel}/capture` (admin, audited) takes an optional device
     filter, a duration (default 5 min, max 30 min) and a buffer size (default 2,000 frames, max
@@ -255,6 +261,10 @@ event messages are catalogued in plan 15.
   or have its own? Should log shippers read `events.jsonl` or stdout?
 - **Values in north traces (DIAG-05):** off by default, as proposed, or allowed for viewer-role
   tokens?
+- **Capture switches (DIAG-05/11 vs IF-18/ADM-11):** this plan proposes runtime admin actions that
+  end by themselves. Plan 02 IF-18 proposes a `<interface>.diagnostics` config key applied by
+  reload, and plan 09 ADM-11 a `diagnostics.comm_capture` key. One model should be picked for both
+  north traces and comm capture.
 - **Frame capture on serial lines (DIAG-11):** may capture also record timing gaps (inter-frame
   silence) for RTU and DF1 troubleshooting?
 
@@ -263,14 +273,14 @@ event messages are catalogued in plan 15.
 |---|---|---|---|---|---|
 | DIAG-01 | Server- and driver-level diagnostics at a glance | Adapt | Done | #63, #64, #84 | M1 |
 | DIAG-02 | Structured event stream | Adapt | Done | D-023, D-030 | M1 |
-| DIAG-03 | Event-log store with retention | Adapt | Not started | — | M5 |
-| DIAG-04 | Event-log API and viewer | Adapt | Not started | — | M5 |
+| DIAG-03 | Event-log store with retention | Adapt | Planned (#56) | #56, ADM-11 | M5 |
+| DIAG-04 | Event-log viewer | Adapt | Not started | ADM-11 | M5 |
 | DIAG-05 | North protocol trace capture | Adapt | Not started | — | M5 |
 | DIAG-06 | Trace viewer | Adapt | Not started | — | M5 |
 | DIAG-07 | OPC UA service trace content | Adapt | Not started | #74, #29 | M5 |
 | DIAG-08 | OPC DA method trace | Defer | Not started | #18 | M5 |
 | DIAG-09 | OPC HDA diagnostics | Out of scope | Out of scope | — | — |
 | DIAG-10 | Communication statistics per channel and device | Adapt | Done | — | M1 |
-| DIAG-11 | Frame capture on demand | Adapt | Not started | #56 | M5 |
+| DIAG-11 | Frame capture on demand | Adapt | Planned (#56) | #56 | M5 |
 | DIAG-12 | Communication diagnostics viewer | Adapt | Not started | — | M5 |
 | DIAG-13 | Refused-write diagnostics | Adapt | Not started | #29, #52 | M3 |

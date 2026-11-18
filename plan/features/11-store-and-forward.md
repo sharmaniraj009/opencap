@@ -31,7 +31,7 @@ separate Windows service provides the datastore to the components that need it (
 - `saf.*` is a restart-only setting: `GET /api/v1/project/pending` reports it (D-039).
 - Planned: one outbox per durable agent (`data/outbox/<agent>.sqlite`) arrives with Sparkplug
   (#51). The "outage covered" formula is in `docs/architecture/04-scale-reliability.md` §4.1,
-  and the per-agent backlog metric names are in §4.3. The ThingWorx native interface is out of
+  and the per-agent backlog metric names are in §4.5. The ThingWorx native interface is out of
   scope (FR-8, ADR-0009).
 
 ## Features
@@ -97,10 +97,11 @@ separate Windows service provides the datastore to the components that need it (
   - If the outbox file cannot be opened at start or later, the engine still polls and serves the
     API. The agent keeps a bounded in-memory queue (`saf.memory_max_messages`, default 10,000,
     oldest dropped first and counted) and retries the open every 30 s.
-  - Each failure logs `saf_open_failed` once per minute, with the path and the OS error. `/health`
-    shows `saf_state: "unavailable"`, and a `saf_available` gauge reads 0.
+  - Each failure logs `saf.open_failed` (ERROR: `path`, `reason`) at most once a minute. A
+    corrupt file is moved aside, never deleted (`saf.corrupt`, plan 15 LOG-36). `/health` shows
+    `saf_ok: false` with `saf_problem: "unavailable"`, and a `saf_available` gauge reads 0.
   - When the open succeeds, the in-memory messages go into the outbox in order before new ones,
-    and `saf_state` returns to `"ok"`.
+    and `saf_ok` returns to true.
 - **Acceptance:** Integration test with an unwritable directory that later becomes writable: no
   message lost below the memory cap, order kept, events and gauge as specified. Both engines.
 
@@ -130,8 +131,9 @@ separate Windows service provides the datastore to the components that need it (
   - Below the reserve, the outbox is treated as full: the oldest rows are dropped to make room.
     If the outbox is empty, the new message is dropped. These drops are counted in
     `saf_dropped_disk_total`.
-  - While the disk is low, the engine logs `saf_disk_low` at most once a minute, and `/health`
-    shows `saf_disk_low: true`.
+  - While the disk is low, the engine logs `saf.disk_low` at most once a minute, and `/health`
+    shows `saf_ok: false` with `saf_problem: "disk_low"`. A write that fails anyway is
+    `saf.write_failed` (LOG-36).
 - **Acceptance:** Unit test with an injected free-space function. Dual-engine unit tests share
   the vectors (free space, sizes → kept/dropped ids).
 
@@ -233,7 +235,7 @@ separate Windows service provides the datastore to the components that need it (
 ### SAF-14 Backlog bytes, age and capacity (manual p. 53–55)
 - **What:** The manual's tags report the current store size, the space left against the
   configured maximum, the usable disk space after the reserve, and full flags.
-- **Decision:** Adapt: per-agent metrics and API fields with the names planned in 04 §4.3, plus
+- **Decision:** Adapt: per-agent metrics and API fields with the names planned in 04 §4.5, plus
   "outage covered" from live rates (ADR-0011).
 - **Status:** Not started
 - **Requirements:**
@@ -287,7 +289,8 @@ separate Windows service provides the datastore to the components that need it (
 - **Status:** Done
 - **Requirements:** The events `saf_reopened` (messages, bytes), `saf_dropped_oldest` (dropped,
   max_bytes, up_to_id, queued; at most once a minute) and `saf_not_wal` (journal_mode) are emitted
-  as JSON log lines. New events from SAF-03/04/06 follow the same rules.
+  as JSON log lines. The new events of SAF-03/04/06 (`saf.open_failed`, `saf.disk_low`, and
+  LOG-36's `saf.write_failed` and `saf.corrupt`) follow the same rules.
 - **Acceptance:** The Rust outbox (`opencap-north/src/saf.rs`) emits the same event names
   (RFC 0001 §2.9). Add `structlog.testing.capture_logs` tests for the three events: none pin
   them yet.
@@ -324,6 +327,10 @@ separate Windows service provides the datastore to the components that need it (
 - **Status:** Out of scope
 
 ## Open questions
+- **Disk-low policy (SAF-06 vs LOG-36):** SAF-06 proposes dropping the oldest rows when free disk
+  falls below the reserve, which keeps the file from growing. Plan 15 LOG-36 says no queued
+  message may be deleted beyond the configured cap when the disk is full, so new messages would be
+  lost instead. One rule should be picked.
 - **Drop policy:** opencap drops the oldest data when full, and KEPServerEX drops the newest.
   Should `saf.full_policy: drop_oldest | drop_newest` be offered per agent, for consumers that
   need the oldest data (e.g. billing)?

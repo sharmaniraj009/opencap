@@ -1,0 +1,21 @@
+{
+ "format": 1,
+ "area": "scaling",
+ "description": "Clamps and negate.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"clamp-lo","description":"clamp_lo holds a value below the range at the low end.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":true,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"int","v":"-50"}},"expected":{"value":{"t":"float","v":"0.0"}}},
+  {"id":"clamp-hi","description":"clamp_hi holds a value above the range at the high end.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":true,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"int","v":"150"}},"expected":{"value":{"t":"float","v":"10.0"}}},
+  {"id":"clamp-inside","description":"Clamps do not change a value inside the range.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":true,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"int","v":"42"}},"expected":{"value":{"t":"float","v":"4.2"}}},
+  {"id":"clamp-lo-only","description":"Only clamp_lo: above the range still extrapolates.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":true,"clamp_hi":false,"negate":false,"units":null},"raw":{"t":"int","v":"150"}},"expected":{"value":{"t":"float","v":"15.0"}}},
+  {"id":"clamp-hi-only","description":"Only clamp_hi: below the range still extrapolates.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":false,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"int","v":"-50"}},"expected":{"value":{"t":"float","v":"-5.0"}}},
+  {"id":"clamp-inverted-lo","description":"Inverted engineering range: clamps use the sorted limits (low side).","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":10.0,"eng_hi":0.0,"clamp_lo":true,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"int","v":"150"}},"expected":{"value":{"t":"float","v":"0.0"}}},
+  {"id":"clamp-inverted-hi","description":"Inverted engineering range: clamps use the sorted limits (high side).","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":10.0,"eng_hi":0.0,"clamp_lo":true,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"int","v":"-50"}},"expected":{"value":{"t":"float","v":"10.0"}}},
+  {"id":"negate","description":"negate flips the sign of the scaled value.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":false,"clamp_hi":false,"negate":true,"units":null},"raw":{"t":"int","v":"30"}},"expected":{"value":{"t":"float","v":"-3.0"}}},
+  {"id":"negate-after-clamp","description":"negate applies after the clamp.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":false,"clamp_hi":true,"negate":true,"units":null},"raw":{"t":"int","v":"500"}},"expected":{"value":{"t":"float","v":"-10.0"}}},
+  {"id":"negate-zero","description":"negate of 0.0 is -0.0 (the payload later writes it as 0.0).","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":false,"clamp_hi":false,"negate":true,"units":null},"raw":{"t":"int","v":"0"}},"expected":{"value":{"t":"float","v":"-0.0"}}},
+  {"id":"negate-sqrt","description":"negate with square root.","input":{"scale":{"type":"sqrt","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":false,"clamp_hi":false,"negate":true,"units":null},"raw":{"t":"int","v":"64"}},"expected":{"value":{"t":"float","v":"-8.0"}}},
+  {"id":"clamp-inf","description":"+Inf raw is clamped to eng_hi.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":true,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"float","v":"inf"}},"expected":{"value":{"t":"float","v":"10.0"}}},
+  {"id":"clamp-neg-inf","description":"-Inf raw is clamped to eng_lo.","input":{"scale":{"type":"linear","raw_lo":0.0,"raw_hi":100.0,"eng_lo":0.0,"eng_hi":10.0,"clamp_lo":true,"clamp_hi":true,"negate":false,"units":null},"raw":{"t":"float","v":"-inf"}},"expected":{"value":{"t":"float","v":"0.0"}}}
+ ]
+}

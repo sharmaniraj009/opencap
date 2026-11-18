@@ -2,10 +2,11 @@
 
 Status, assignments and next priorities for opencap. Maintained by the technical lead on every pass; the issue [#1](https://github.com/sharmaniraj009/opencap/issues/1) and `docs/BOARD.md` carry the same text. How to work with it: `CONTRIBUTING.md` → "Engineering protocol".
 
-**Last updated:** 2026-11-18 10:15 UTC, pass 9 (owner-requested sweep: every PR, branch and issue reviewed; everything mergeable is on `main`)
+**Last updated:** 2026-11-18 10:30 UTC, pass 10
 
 ## Status summary
 
+- **Pass 10:** no PRs. Ten engineer sessions claimed ten issues (table below). Pass 9 merged everything that was mergeable.
 - **Merged in pass 9:**
   - [#93](https://github.com/sharmaniraj009/opencap/issues/93) (**KEPServerEX V6 feature-parity plan**, `plan/`: 297 features with decisions, requirements and a generated checklist; the `web-ui` session's branch had no PR);
   - [#95](https://github.com/sharmaniraj009/opencap/issues/95) (**Siemens S7 and Mitsubishi MC drivers**, supersedes [#60](https://github.com/sharmaniraj009/opencap/issues/60), closes [#73](https://github.com/sharmaniraj009/opencap/issues/73));
@@ -38,16 +39,20 @@ Status, assignments and next priorities for opencap. Maintained by the technical
 | `s7-melsec`, `opcua` (original sessions) | [#60](https://github.com/sharmaniraj009/opencap/issues/60) → [#95](https://github.com/sharmaniraj009/opencap/issues/95), [#61](https://github.com/sharmaniraj009/opencap/issues/61) → [#96](https://github.com/sharmaniraj009/opencap/issues/96) (finished by the lead) | — |
 | `platform`, `serial`, `rust-engine` (original sessions) | [#4](https://github.com/sharmaniraj009/opencap/issues/4), [#62](https://github.com/sharmaniraj009/opencap/issues/62), [#64](https://github.com/sharmaniraj009/opencap/issues/64) | — |
 | `engineer-8` | [#94](https://github.com/sharmaniraj009/opencap/issues/94) (worker flake, [#78](https://github.com/sharmaniraj009/opencap/issues/78)) | — |
+| `rust-core` | — | [#41](https://github.com/sharmaniraj009/opencap/issues/41) tag store + change-event bus |
+| `rust-north` | — | [#42](https://github.com/sharmaniraj009/opencap/issues/42) engine-agnostic acceptance, dual-engine CI |
+| `rust-drivers` | — | [#67](https://github.com/sharmaniraj009/opencap/issues/67) one crate per driver |
+| `conformance` | — | [#3](https://github.com/sharmaniraj009/opencap/issues/3) Modbus/scaling/payload vectors |
+| `opcua-scada` | — | [#29](https://github.com/sharmaniraj009/opencap/issues/29) L1 SCADA compatibility suite |
+| `ui` | — | [#31](https://github.com/sharmaniraj009/opencap/issues/31) Quick Client |
+| `infra` | — | [#38](https://github.com/sharmaniraj009/opencap/issues/38) CI follow-ups |
+| `specs` | — | [#22](https://github.com/sharmaniraj009/opencap/issues/22) system and diagnostic tags spec |
+| `spikes` | — | [#13](https://github.com/sharmaniraj009/opencap/issues/13) Omron FINS simulator |
+| `py-features` | — | [#12](https://github.com/sharmaniraj009/opencap/issues/12) simulator driver |
 
-**Next for anyone (P1, `ready`):**
-- [#28](https://github.com/sharmaniraj009/opencap/issues/28) OPC UA server hardening (PKI folders, X.509 and several users, limits, EURange, advertised URL, 100k-node scale);
-- [#29](https://github.com/sharmaniraj009/opencap/issues/29) L1 SCADA compatibility suite (Eclipse Milo, open62541, asyncua);
-- [#31](https://github.com/sharmaniraj009/opencap/issues/31) Quick Client (WebSocket live values);
-- [#3](https://github.com/sharmaniraj009/opencap/issues/3) Modbus/payload vectors;
-- [#5](https://github.com/sharmaniraj009/opencap/issues/5) AB vectors;
-- [#41](https://github.com/sharmaniraj009/opencap/issues/41) tag store + bus;
-- [#42](https://github.com/sharmaniraj009/opencap/issues/42) dual-engine acceptance;
-- [#67](https://github.com/sharmaniraj009/opencap/issues/67) Rust driver crates.
+**Next for anyone (`ready`, highest first):**
+- P1: [#28](https://github.com/sharmaniraj009/opencap/issues/28) OPC UA server hardening (PKI folders, X.509 and several users, limits, EURange, advertised URL, 100k-node scale); [#5](https://github.com/sharmaniraj009/opencap/issues/5) AB vectors.
+- P2: [#30](https://github.com/sharmaniraj009/opencap/issues/30) quality module; [#44](https://github.com/sharmaniraj009/opencap/issues/44) / [#45](https://github.com/sharmaniraj009/opencap/issues/45) Rust S7 / MC ports (after [#67](https://github.com/sharmaniraj009/opencap/issues/67)); [#47](https://github.com/sharmaniraj009/opencap/issues/47) Rust Modbus RTU port (after [#67](https://github.com/sharmaniraj009/opencap/issues/67)); [#89](https://github.com/sharmaniraj009/opencap/issues/89) OpenAPI request bodies; [#90](https://github.com/sharmaniraj009/opencap/issues/90) desktop licence gate; [#7](https://github.com/sharmaniraj009/opencap/issues/7) benchmark; [#19](https://github.com/sharmaniraj009/opencap/issues/19) / [#21](https://github.com/sharmaniraj009/opencap/issues/21) / [#23](https://github.com/sharmaniraj009/opencap/issues/23) RFCs and specs.
 
 Take the highest priority in your area, else any `ready` issue. `plan/checklist.md` lists every KEPServerEX feature; ask the lead to file an issue for any unchecked row that has none.
 
@@ -57,20 +62,20 @@ Used: D-039–D-044 ([#63](https://github.com/sharmaniraj009/opencap/issues/63))
 
 ## Open PRs
 
-None.
+None. In progress (claimed): [#3](https://github.com/sharmaniraj009/opencap/issues/3), [#12](https://github.com/sharmaniraj009/opencap/issues/12), [#13](https://github.com/sharmaniraj009/opencap/issues/13), [#22](https://github.com/sharmaniraj009/opencap/issues/22), [#29](https://github.com/sharmaniraj009/opencap/issues/29), [#31](https://github.com/sharmaniraj009/opencap/issues/31), [#38](https://github.com/sharmaniraj009/opencap/issues/38), [#41](https://github.com/sharmaniraj009/opencap/issues/41), [#42](https://github.com/sharmaniraj009/opencap/issues/42), [#67](https://github.com/sharmaniraj009/opencap/issues/67).
 
 ## Ready queue by area (priority order)
 
 | Area | Ready issues |
 |---|---|
-| core | [#3](https://github.com/sharmaniraj009/opencap/issues/3) P1 Modbus/scaling/payload vectors · [#5](https://github.com/sharmaniraj009/opencap/issues/5) P1 AB vectors · [#30](https://github.com/sharmaniraj009/opencap/issues/30) P2 quality module · [#7](https://github.com/sharmaniraj009/opencap/issues/7) P2 benchmark · [#89](https://github.com/sharmaniraj009/opencap/issues/89) P2 OpenAPI request bodies · [#37](https://github.com/sharmaniraj009/opencap/issues/37) P2 project file v2 · [#10](https://github.com/sharmaniraj009/opencap/issues/10) P2 KEPServerEX CSV · [#19](https://github.com/sharmaniraj009/opencap/issues/19) P2 RFC 0002 write safety · [#21](https://github.com/sharmaniraj009/opencap/issues/21) P2 RFC 0005 security · [#22](https://github.com/sharmaniraj009/opencap/issues/22) P2 system tags spec · [#23](https://github.com/sharmaniraj009/opencap/issues/23) P2 derived tags spec · [#20](https://github.com/sharmaniraj009/opencap/issues/20) P3 RFC 0003 redundancy · [#24](https://github.com/sharmaniraj009/opencap/issues/24) P3 alarms spec · [#25](https://github.com/sharmaniraj009/opencap/issues/25) P3 data logger spec |
-| engine-rust | [#41](https://github.com/sharmaniraj009/opencap/issues/41) P1 tag store + bus · [#42](https://github.com/sharmaniraj009/opencap/issues/42) P1 dual-engine acceptance · [#67](https://github.com/sharmaniraj009/opencap/issues/67) P1 driver crates · [#44](https://github.com/sharmaniraj009/opencap/issues/44) P2 S7 port · [#45](https://github.com/sharmaniraj009/opencap/issues/45) P2 MC port · [#47](https://github.com/sharmaniraj009/opencap/issues/47) P2 Modbus RTU port · [#49](https://github.com/sharmaniraj009/opencap/issues/49) P2 plugin host · [#57](https://github.com/sharmaniraj009/opencap/issues/57) P2 services · [#80](https://github.com/sharmaniraj009/opencap/issues/80) P3 replace chrono |
-| driver | [#5](https://github.com/sharmaniraj009/opencap/issues/5) P1 · [#67](https://github.com/sharmaniraj009/opencap/issues/67) P1 · [#44](https://github.com/sharmaniraj009/opencap/issues/44) P2 · [#45](https://github.com/sharmaniraj009/opencap/issues/45) P2 · [#11](https://github.com/sharmaniraj009/opencap/issues/11) P2 Logix browse · [#12](https://github.com/sharmaniraj009/opencap/issues/12) P2 simulator driver · [#13](https://github.com/sharmaniraj009/opencap/issues/13) P2 FINS simulator · [#14](https://github.com/sharmaniraj009/opencap/issues/14) P2 DNP3 spike · [#47](https://github.com/sharmaniraj009/opencap/issues/47) P2 · [#68](https://github.com/sharmaniraj009/opencap/issues/68) P2 serial follow-ups · [#15](https://github.com/sharmaniraj009/opencap/issues/15) P3 BACnet spike · [#16](https://github.com/sharmaniraj009/opencap/issues/16) P3 IEC 104 spike |
+| core | [#5](https://github.com/sharmaniraj009/opencap/issues/5) P1 AB vectors · [#30](https://github.com/sharmaniraj009/opencap/issues/30) P2 quality module · [#7](https://github.com/sharmaniraj009/opencap/issues/7) P2 benchmark · [#89](https://github.com/sharmaniraj009/opencap/issues/89) P2 OpenAPI request bodies · [#37](https://github.com/sharmaniraj009/opencap/issues/37) P2 project file v2 · [#10](https://github.com/sharmaniraj009/opencap/issues/10) P2 KEPServerEX CSV · [#19](https://github.com/sharmaniraj009/opencap/issues/19) P2 RFC 0002 write safety · [#21](https://github.com/sharmaniraj009/opencap/issues/21) P2 RFC 0005 security · [#23](https://github.com/sharmaniraj009/opencap/issues/23) P2 derived tags spec · [#20](https://github.com/sharmaniraj009/opencap/issues/20) P3 RFC 0003 redundancy · [#24](https://github.com/sharmaniraj009/opencap/issues/24) P3 alarms spec · [#25](https://github.com/sharmaniraj009/opencap/issues/25) P3 data logger spec |
+| engine-rust | [#44](https://github.com/sharmaniraj009/opencap/issues/44) P2 S7 port · [#45](https://github.com/sharmaniraj009/opencap/issues/45) P2 MC port · [#47](https://github.com/sharmaniraj009/opencap/issues/47) P2 Modbus RTU port · [#49](https://github.com/sharmaniraj009/opencap/issues/49) P2 plugin host · [#57](https://github.com/sharmaniraj009/opencap/issues/57) P2 services · [#80](https://github.com/sharmaniraj009/opencap/issues/80) P3 replace chrono |
+| driver | [#5](https://github.com/sharmaniraj009/opencap/issues/5) P1 · [#44](https://github.com/sharmaniraj009/opencap/issues/44) P2 · [#45](https://github.com/sharmaniraj009/opencap/issues/45) P2 · [#11](https://github.com/sharmaniraj009/opencap/issues/11) P2 Logix browse · [#14](https://github.com/sharmaniraj009/opencap/issues/14) P2 DNP3 spike · [#47](https://github.com/sharmaniraj009/opencap/issues/47) P2 · [#68](https://github.com/sharmaniraj009/opencap/issues/68) P2 serial follow-ups · [#15](https://github.com/sharmaniraj009/opencap/issues/15) P3 BACnet spike · [#16](https://github.com/sharmaniraj009/opencap/issues/16) P3 IEC 104 spike |
 | north | [#28](https://github.com/sharmaniraj009/opencap/issues/28) P1 OPC UA hardening · [#30](https://github.com/sharmaniraj009/opencap/issues/30) P2 · [#8](https://github.com/sharmaniraj009/opencap/issues/8) P2 Mosquitto restart test · [#14](https://github.com/sharmaniraj009/opencap/issues/14) P2 · [#18](https://github.com/sharmaniraj009/opencap/issues/18) P2 · [#36](https://github.com/sharmaniraj009/opencap/issues/36) P2 IoT Gateway JSON · [#16](https://github.com/sharmaniraj009/opencap/issues/16) P3 |
-| infra | [#29](https://github.com/sharmaniraj009/opencap/issues/29) P1 L1 suite · [#42](https://github.com/sharmaniraj009/opencap/issues/42) P1 · [#7](https://github.com/sharmaniraj009/opencap/issues/7) P2 · [#8](https://github.com/sharmaniraj009/opencap/issues/8) P2 · [#9](https://github.com/sharmaniraj009/opencap/issues/9) P2 docs site · [#34](https://github.com/sharmaniraj009/opencap/issues/34) P2 release pipeline · [#35](https://github.com/sharmaniraj009/opencap/issues/35) P2 Windows CI · [#38](https://github.com/sharmaniraj009/opencap/issues/38) P2 CI follow-ups · [#57](https://github.com/sharmaniraj009/opencap/issues/57) P2 · [#90](https://github.com/sharmaniraj009/opencap/issues/90) P2 · [#58](https://github.com/sharmaniraj009/opencap/issues/58) P3 · [#79](https://github.com/sharmaniraj009/opencap/issues/79) P3 pin actions by SHA |
-| scada | [#28](https://github.com/sharmaniraj009/opencap/issues/28) P1 · [#29](https://github.com/sharmaniraj009/opencap/issues/29) P1 · [#17](https://github.com/sharmaniraj009/opencap/issues/17) P2 matrix + recipes · [#18](https://github.com/sharmaniraj009/opencap/issues/18) P2 RFC 0004 OPC DA |
-| docs | [#9](https://github.com/sharmaniraj009/opencap/issues/9) · [#17](https://github.com/sharmaniraj009/opencap/issues/17) · [#18](https://github.com/sharmaniraj009/opencap/issues/18) · [#19](https://github.com/sharmaniraj009/opencap/issues/19) · [#20](https://github.com/sharmaniraj009/opencap/issues/20) · [#21](https://github.com/sharmaniraj009/opencap/issues/21) · [#22](https://github.com/sharmaniraj009/opencap/issues/22) · [#24](https://github.com/sharmaniraj009/opencap/issues/24) · [#25](https://github.com/sharmaniraj009/opencap/issues/25) · [#26](https://github.com/sharmaniraj009/opencap/issues/26) |
-| ui | [#31](https://github.com/sharmaniraj009/opencap/issues/31) P1 Quick Client · [#89](https://github.com/sharmaniraj009/opencap/issues/89) P2 OpenAPI request bodies · [#33](https://github.com/sharmaniraj009/opencap/issues/33) P2 import wizard · [#26](https://github.com/sharmaniraj009/opencap/issues/26) P2 screen spec |
+| infra | [#7](https://github.com/sharmaniraj009/opencap/issues/7) P2 · [#8](https://github.com/sharmaniraj009/opencap/issues/8) P2 · [#9](https://github.com/sharmaniraj009/opencap/issues/9) P2 docs site · [#34](https://github.com/sharmaniraj009/opencap/issues/34) P2 release pipeline · [#35](https://github.com/sharmaniraj009/opencap/issues/35) P2 Windows CI · [#57](https://github.com/sharmaniraj009/opencap/issues/57) P2 · [#90](https://github.com/sharmaniraj009/opencap/issues/90) P2 · [#58](https://github.com/sharmaniraj009/opencap/issues/58) P3 · [#79](https://github.com/sharmaniraj009/opencap/issues/79) P3 pin actions by SHA |
+| scada | [#28](https://github.com/sharmaniraj009/opencap/issues/28) P1 · [#17](https://github.com/sharmaniraj009/opencap/issues/17) P2 matrix + recipes · [#18](https://github.com/sharmaniraj009/opencap/issues/18) P2 RFC 0004 OPC DA |
+| docs | [#9](https://github.com/sharmaniraj009/opencap/issues/9) · [#17](https://github.com/sharmaniraj009/opencap/issues/17) · [#18](https://github.com/sharmaniraj009/opencap/issues/18) · [#19](https://github.com/sharmaniraj009/opencap/issues/19) · [#20](https://github.com/sharmaniraj009/opencap/issues/20) · [#21](https://github.com/sharmaniraj009/opencap/issues/21) · [#24](https://github.com/sharmaniraj009/opencap/issues/24) · [#25](https://github.com/sharmaniraj009/opencap/issues/25) · [#26](https://github.com/sharmaniraj009/opencap/issues/26) |
+| ui | [#89](https://github.com/sharmaniraj009/opencap/issues/89) P2 OpenAPI request bodies · [#33](https://github.com/sharmaniraj009/opencap/issues/33) P2 import wizard · [#26](https://github.com/sharmaniraj009/opencap/issues/26) P2 screen spec |
 | desktop | [#90](https://github.com/sharmaniraj009/opencap/issues/90) P2 licence gate for `desktop/` · [#58](https://github.com/sharmaniraj009/opencap/issues/58) P3 installers with the engine as a sidecar |
 
 ## Blocked (and on what)
@@ -82,14 +87,15 @@ None.
 
 ## Merge order (to minimise conflicts)
 
-1. Rust: [#67](https://github.com/sharmaniraj009/opencap/issues/67) (crate layout) before the driver ports ([#44](https://github.com/sharmaniraj009/opencap/issues/44), [#45](https://github.com/sharmaniraj009/opencap/issues/45), [#47](https://github.com/sharmaniraj009/opencap/issues/47)).
-2. OPC UA: [#30](https://github.com/sharmaniraj009/opencap/issues/30) (quality module) before [#28](https://github.com/sharmaniraj009/opencap/issues/28) if both are open, since #28 changes the server's status mapping.
+1. Rust: [#67](https://github.com/sharmaniraj009/opencap/issues/67) (crate layout, `rust-drivers`) before the driver ports ([#44](https://github.com/sharmaniraj009/opencap/issues/44), [#45](https://github.com/sharmaniraj009/opencap/issues/45), [#47](https://github.com/sharmaniraj009/opencap/issues/47)). [#41](https://github.com/sharmaniraj009/opencap/issues/41) and [#67](https://github.com/sharmaniraj009/opencap/issues/67) both touch `opencap-core`: whichever lands second rebases.
+2. [#42](https://github.com/sharmaniraj009/opencap/issues/42) (`rust-north`) and [#38](https://github.com/sharmaniraj009/opencap/issues/38) (`infra`) both edit `.github/workflows/`: one at a time.
+3. OPC UA: [#30](https://github.com/sharmaniraj009/opencap/issues/30) (quality module) before [#28](https://github.com/sharmaniraj009/opencap/issues/28) if both are open, since #28 changes the server's status mapping.
 
 **Timing tests:** tests with wall-clock bounds use the `no_gc` fixture ([#97](https://github.com/sharmaniraj009/opencap/issues/97)) and wait on conditions rather than fixed sleeps. If one still flakes, file it with the CI log.
 
 ## Decisions for the owner
 
-One new item this pass (11). The lead continues with everything else meanwhile; reply on this issue.
+No new decisions this pass. The lead continues with everything else meanwhile; reply on this issue.
 
 1. **Pin this issue.** The lead's tools cannot pin issues or set label colours.
 2. **Licence:** `LICENSE` is Apache-2.0 ([#4](https://github.com/sharmaniraj009/opencap/issues/4)). Confirm.

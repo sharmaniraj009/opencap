@@ -32,7 +32,7 @@ Desktop interaction is needed only for DDE-type interfaces (manual p. 164).
   import (KEPServerEX `project.json` or opencap export, dry-run diff, apply), and audit log with
   filters. It never writes a PLC value. Browser smoke test: `tests/ui/browser_smoke.js` via
   `tests/integration/test_ui_browser.py`.
-- **Desktop app** (PR #87 for #27, Tauri 2): launcher with connection profiles for local and
+- **Desktop app** (#87 for #27, merged; Tauri 2): launcher with connection profiles for local and
   remote engines, health check, tokens in the OS keychain, and the engine's `/ui/` in a native
   window. No sidecar, signing or auto-update yet. Installers are #58.
 - **CLI:** `opencap import-kep`, `check`, `read`, `identity`, `run`.
@@ -60,7 +60,7 @@ Desktop interaction is needed only for DDE-type interfaces (manual p. 164).
   remote runtime.
 - **Decision:** Adapt: a Tauri 2 shell (ADR-0010) keeps profiles for local and remote engines,
   checks their health, keeps tokens in the OS keychain, and opens the engine's own `/ui/`.
-- **Status:** In review (#87)
+- **Status:** Done (#87); the engine sidecar is planned (#58)
 - **Requirements:**
   - Profiles hold name and engine URL only, and tokens live only in the keychain.
   - The engine window cannot navigate to another origin, and gets no Tauri IPC.
@@ -334,7 +334,7 @@ Desktop interaction is needed only for DDE-type interfaces (manual p. 164).
 | ID | Feature | Decision | Status | Issue/PR | Milestone |
 |---|---|---|---|---|---|
 | UI-01 | Engine as a service, UI as a client | Adapt | Done | D-030, D-031, #57 | M1 |
-| UI-02 | Desktop app with connection profiles | Adapt | In review (#87) | #87, #27, #58 | M4 |
+| UI-02 | Desktop app with connection profiles | Adapt | Done (#87); sidecar Planned (#58) | #87, #27, #58 | M4 |
 | UI-03 | Navigate channels → devices → tags | Adapt | Done | #63 | M1 |
 | UI-04 | New-channel wizard | Adapt | Planned (#26) | #26, #12 | — |
 | UI-05 | New-device wizard with a test step | Adapt | Planned (#26) | #26, #12 | — |

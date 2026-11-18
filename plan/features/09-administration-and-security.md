@@ -20,8 +20,8 @@ are planned in their plug-in files.
 - **Administration surface:** CLI (`opencap import-kep|check|read|identity|run`,
   `opencap-engine run|check|read|identity`), admin API (`/health`, `/metrics`, `/channels`,
   `/devices/{id}…`, `/read-once`, `/reload`) on both engines, configuration API `/api/v1` and web
-  UI `/ui/` on the Python engine (#63), desktop launcher with connection profiles In review
-  (PR #87, #27). Service control through systemd, Docker or WinSW (`deploy/`).
+  UI `/ui/` on the Python engine (#63), desktop launcher with connection profiles
+  (#87, #27). Service control through systemd, Docker or WinSW (`deploy/`).
 - **Authentication:** named bearer tokens in `poller.yaml` `api.tokens` with roles `viewer` and
   `admin`, secrets only in env vars (D-040, `src/opencap/api/auth.py`); with no token the API is
   read-only and loopback-only (D-040); authentication before the body is read and a body cap
@@ -42,7 +42,7 @@ are planned in their plug-in files.
   action and tool listed above.
 - **Decision:** Adapt — no tray tool. Administration is the CLI, the web UI, the desktop launcher
   (ADR-0010) and the OS service manager; each tray item maps to a feature below.
-- **Status:** Done (CLI, admin/config API, web UI, #63, #84); desktop launcher In review (PR #87).
+- **Status:** Done (CLI, admin/config API, web UI, #63, #84; desktop launcher, #87).
 - **Requirements:**
   - Every administrative action except service start/stop is available through the API, so the UI
     and the desktop app need no other channel.
@@ -416,7 +416,7 @@ are planned in their plug-in files.
 ## Checklist rows
 | ID | Feature | Decision | Status | Issue/PR | Milestone |
 |---|---|---|---|---|---|
-| ADM-01 | Administration surface | Adapt | Done (desktop In review) | #63, #84, PR #87 | M1/M4 |
+| ADM-01 | Administration surface | Adapt | Done | #63, #84, #87 | M1/M4 |
 | ADM-02 | Start, stop and reinitialize | Adapt | Done | — | M1 |
 | ADM-03 | Support information | Adapt | Not started | — | M3 |
 | ADM-04 | Licensing and license utility | Out of scope | Out of scope | — | — |

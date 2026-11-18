@@ -31,7 +31,7 @@ it confirms and whether it backs up project files (pp. 33–35).
 - **Rust engine** (`engine/`): `opencap-engine run|check|read|identity`, same config files and
   admin API with the same roles (#84); config conformance with the shared fixtures (#86, #39). Native
   Windows service for Rust is planned (#57); Windows CI is planned (#35).
-- **Desktop:** Tauri shell with connection profiles In review (PR #87, issue #27); sidecar mode
+- **Desktop:** Tauri shell with connection profiles (#87, issue #27, merged); sidecar mode
   is part of the M4 desktop work (RFC 0001 §5, ADR-0010).
 - **Not yet:** benchmark-based sizing (#7), revision history with retention (#37), event log
   (#56), per-platform priority/affinity guidance.
@@ -164,7 +164,7 @@ it confirms and whether it backs up project files (pp. 33–35).
   administration is the CLI plus the OS service manager. CSV tag import/export belongs to tag
   management (#10, [07-tag-management-and-system-tags.md](07-tag-management-and-system-tags.md)).
 - **Status:** Done (engine, CLI, admin and config API, web UI, #63; Rust API parity #84); desktop
-  In review (PR #87); event log Planned (#56).
+  launcher (#87); event log Planned (#56).
 - **Requirements:**
   - Polling never depends on a client: closing every UI or desktop window changes nothing on the
     wire.
@@ -262,8 +262,8 @@ it confirms and whether it backs up project files (pp. 33–35).
   goes with CSV import (#10, 07-tag-management-and-system-tags.md).
 - **Status:** Done in part (#63: delete and import confirmations, dry-run diff before import,
   pending-reload indicator via `GET /api/v1/project/pending`, field-level validation errors);
-  defaults/reset and unsaved-edit warning Not started; desktop profiles and auto-connect In review
-  (PR #87); event-log pane Planned (#56).
+  defaults/reset and unsaved-edit warning Not started; desktop profiles and auto-connect Done
+  (#87); event-log pane Planned (#56).
 - **Requirements:**
   - The UI header shows the engine address, instance, version and whether the files differ from
     the running config.

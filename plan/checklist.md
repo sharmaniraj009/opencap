@@ -22,9 +22,9 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 | [11 Store and forward](features/11-store-and-forward.md) | 20 | 10 | 0 | 2 | 7 | 1 |
 | [12 Diagnostics](features/12-diagnostics.md) | 13 | 3 | 0 | 2 | 7 | 1 |
 | [13 iFIX](features/13-ifix.md) | 12 | 2 | 0 | 3 | 5 | 2 |
-| [14 UI and tools](features/14-ui-and-tools.md) | 20 | 6 | 1 | 7 | 4 | 2 |
+| [14 UI and tools](features/14-ui-and-tools.md) | 20 | 7 | 0 | 7 | 4 | 2 |
 | [15 Event log messages](features/15-event-log-messages.md) | 54 | 10 | 0 | 13 | 22 | 9 |
-| **Total** | **297** | **95** | **3** | **63** | **102** | **34** |
+| **Total** | **297** | **96** | **2** | **63** | **102** | **34** |
 
 ## [01 Runtime and process modes](features/01-runtime-and-process-modes.md)
 
@@ -172,7 +172,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 
 ## [09 Administration and security](features/09-administration-and-security.md)
 
-- [x] **ADM-01** Administration surface (Adapt · Done (desktop In review) · #63, #84, PR #87 · M1/M4)
+- [x] **ADM-01** Administration surface (Adapt · Done · #63, #84, #87 · M1/M4)
 - [x] **ADM-02** Start, stop and reinitialize (Adapt · Done · M1)
 - [ ] **ADM-03** Support information (Adapt · Not started · M3)
 - ~~ADM-04 Licensing and license utility~~ (Out of scope · Out of scope)
@@ -291,7 +291,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 ## [14 UI and tools](features/14-ui-and-tools.md)
 
 - [x] **UI-01** Engine as a service, UI as a client (Adapt · Done · D-030, D-031, #57 · M1)
-- [ ] **UI-02** Desktop app with connection profiles (Adapt · In review (#87) · #87, #27, #58 · M4)
+- [x] **UI-02** Desktop app with connection profiles (Adapt · Done (#87); sidecar Planned (#58) · #87, #27, #58 · M4)
 - [x] **UI-03** Navigate channels → devices → tags (Adapt · Done · #63 · M1)
 - [ ] **UI-04** New-channel wizard (Adapt · Planned (#26) · #26, #12)
 - [ ] **UI-05** New-device wizard with a test step (Adapt · Planned (#26) · #26, #12)

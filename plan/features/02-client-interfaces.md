@@ -363,11 +363,11 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
 | IF-02 | OPC DA server | Defer | Planned (#18) | #18 | M5 |
 | IF-03 | OPC DA settings: versions, browsing, timeouts, limits | Defer | Planned (#18) | #18 | M5 |
 | IF-04 | OPC DA compliance options | Defer | Planned (#18) | #18 | M5 |
-| IF-05 | OPC AE server and its settings | Defer | Not started | — | M5 |
+| IF-05 | OPC AE server and its settings | Defer | Planned (#145) | #145 | M5 |
 | IF-06 | OPC UA server: transport, profiles, address space | Adapt | Done (Python; Rust Planned #50) | #61, #74, #50 | M1/M3 |
 | IF-07 | OPC UA security policies and user authentication | Adapt | Done (Python; users Planned #21) | #61, #74, #21 | M1/M3 |
 | IF-08 | OPC UA session, subscription and queue limits | Adapt | Planned (#50) | #50 | M3 |
-| IF-09 | OPC UA browse options: properties and hints | Adapt | Not started | — | M3 |
+| IF-09 | OPC UA browse options: properties and hints | Adapt | Planned (#28) | #28, #50 | M3 |
 | IF-10 | OPC .NET (Xi) | Out of scope | Out of scope | — | — |
 | IF-11 | OPC HDA server | Out of scope | Out of scope | — | — |
 | IF-12 | DDE and its settings | Out of scope | Out of scope | — | — |

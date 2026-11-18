@@ -590,32 +590,32 @@ poll mechanism (p. 219–220).
 | API-04 | Credential strength and failed-login throttling | Defer | Planned (#21) | #21 | M5 |
 | API-05 | Documentation endpoint and OpenAPI contract | Adapt | Planned (#32) | #32 | M3 |
 | API-06 | Endpoint layout and versioning | Adapt | Done | #63 | M1 |
-| API-07 | Object names in URLs (no silent trimming) | Adapt | Not started | — | M3 |
+| API-07 | Object names in URLs (no silent trimming) | Adapt | Planned (#112) | #112 | M3 |
 | API-08 | Health status | Adapt | Done | #63, #84 | M1 |
-| API-09 | About: product information | Adapt | Not started | — | M3 |
+| API-09 | About: product information | Adapt | Planned (#123) | #123 | M3 |
 | API-10 | Optimistic concurrency (revision, ETag, If-Match) | Adapt | Done | #63 | M1 |
 | API-11 | Force update flag | Out of scope | Out of scope | — | — |
-| API-12 | Event log retrieval | Defer | Not started | — | M5 |
+| API-12 | Event log retrieval | Defer | Planned (#136) | #136 | M5 |
 | API-13 | Transaction log of configuration changes (audit) | Adapt | Done | #63 | M1 |
-| API-14 | Records of refused requests | Adapt | Not started | — | M5 |
+| API-14 | Records of refused requests | Adapt | Planned (#135) | #135 | M5 |
 | API-15 | Content retrieval: response shapes and definitions | Adapt | Done | #63 | M1 |
-| API-16 | Driver catalogue | Adapt | Not started | — | M3 |
-| API-17 | Filtering and sorting collections | Adapt | Not started | — | M3 |
-| API-18 | Paging collections | Adapt | Not started | — | M3 |
+| API-16 | Driver catalogue | Adapt | Planned (#129) | #129 | M3 |
+| API-17 | Filtering and sorting collections | Adapt | Planned (#129) | #129 | M3 |
+| API-18 | Paging collections | Adapt | Planned (#129) | #129 | M3 |
 | API-19 | Localised responses | Out of scope | Out of scope | — | — |
-| API-20 | Server (node) settings through the API | Adapt | Not started | — | M4 |
+| API-20 | Server (node) settings through the API | Adapt | Planned (#132) | #132 | M4 |
 | API-21 | Creating objects: single, several, with children | Adapt | Done | #63 | M1 |
 | API-22 | Reading, editing and deleting; error format | Adapt | Done | #63 | M1 |
 | API-23 | Channel, device and tag CRUD | Adapt | Done | #63 | M1 |
-| API-24 | Tag groups | Adapt | Not started | — | M4 |
-| API-25 | Plug-in endpoints: north agents and plug-ins | Defer | Not started | — | M3 |
+| API-24 | Tag groups | Adapt | Planned (#117) | #117 | M4 |
+| API-25 | Plug-in endpoints: north agents and plug-ins | Defer | Planned (#132) | #132 | M3 |
 | API-26 | Users and user groups | Defer | Planned (#21) | #21 | M5 |
 | API-27 | Group permissions per object type | Defer | Planned (#21) | #21 | M5 |
-| API-28 | Asynchronous services and jobs | Defer | Not started | — | M3 |
+| API-28 | Asynchronous services and jobs | Defer | Planned (#132) | #132 | M3 |
 | API-29 | Automatic tag generation (browse) | Defer | Planned (#11) | #11 | M3 |
 | API-30 | Project load and save (import, export) | Adapt | Done | #63 | M1 |
 | API-31 | Reinitialise the runtime (reload) | Adapt | Done | #63 | M1 |
 | API-32 | Response codes | Adapt | Done | #63 | M1 |
 | API-33 | Device demand poll (read-once) | Adapt | Done | #63, #84 | M1 |
-| API-34 | KEPServerEX Configuration API compatibility layer | Defer | Not started | — | — |
-| API-35 | Configuration API in the Rust engine | Adopt | Not started | — | M3 |
+| API-34 | KEPServerEX Configuration API compatibility layer | Defer | Planned (#141) | #141 | — |
+| API-35 | Configuration API in the Rust engine | Adopt | Planned (#140) | #140 | M3 |

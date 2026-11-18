@@ -99,7 +99,7 @@ applies setting changes at the next disconnect (manual p. 139–143).
 ## Checklist rows
 | ID | Feature | Decision | Status | Issue/PR | Milestone |
 |---|---|---|---|---|---|
-| COM-01 | Modem as a channel medium | Defer | Not started | — | — |
-| COM-02 | Phonebook | Defer | Not started | — | — |
-| COM-03 | Auto-dial | Defer | Not started | — | — |
+| COM-01 | Modem as a channel medium | Defer | Planned (#109) | #109 | — |
+| COM-02 | Phonebook | Defer | Planned (#109) | #109 | — |
+| COM-03 | Auto-dial | Defer | Planned (#109) | #109 | — |
 | COM-04 | Client control of the modem through tag writes | Out of scope | Out of scope | #19 | — |

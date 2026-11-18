@@ -339,8 +339,8 @@ Desktop interaction is needed only for DDE-type interfaces (manual p. 164).
 | UI-04 | New-channel wizard | Adapt | Planned (#26) | #26, #12 | — |
 | UI-05 | New-device wizard with a test step | Adapt | Planned (#26) | #26, #12 | — |
 | UI-06 | Add and edit user-defined tags | Adapt | Done | #63 | M1 |
-| UI-07 | Address help per driver | Adapt | Not started | — | — |
-| UI-08 | Pick tags from the project (tag picker) | Adapt | Not started | — | — |
+| UI-07 | Address help per driver | Adapt | Planned (#139) | #139 | — |
+| UI-08 | Pick tags from the project (tag picker) | Adapt | Planned (#139) | #139 | — |
 | UI-09 | Browse a device and add its tags | Adapt | Planned (#11) | #11 | — |
 | UI-10 | Generate many tags from a pattern (dialog) | Adapt | Not started | TAG-09, #12 | — |
 | UI-11 | Tag scaling in the editor (JSON) | Adapt | Done | #63 | M1 |

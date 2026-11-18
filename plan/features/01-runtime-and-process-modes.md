@@ -318,7 +318,7 @@ it confirms and whether it backs up project files (pp. 33–35).
 | RT-07 | Components: runtime, clients, administration, event log | Adapt | Done | #63, #84, PR #87, #56 | M1 |
 | RT-08 | System service mode | Adopt | Done (Windows service Planned) | #57 | M1/M4 |
 | RT-09 | Foreground and portable modes | Adapt | Done (sidecar Planned) | #27, #58 | M4 |
-| RT-10 | Process priority and CPU affinity | Adapt | Not started | — | M4 |
+| RT-10 | Process priority and CPU affinity | Adapt | Planned (#144) | #144 | M4 |
 | RT-11 | Network listeners and service ports | Adapt | Done | — | M1 |
 | RT-12 | Configuration client behaviour | Adapt | Done (partial) | #63, PR #87, #56 | M1/M4 |
 | RT-13 | Offline editing and project replacement | Adapt | Done | #63 | M1 |

@@ -902,10 +902,10 @@ JSON with `event` and `level`.
 |---|---|---|---|---|---|
 | LOG-01 | Driver and plug-in loading, component inventory | Adapt | Planned (#49) | #49 | M3 |
 | LOG-02 | Project load and validation events (`config.loaded`, `config.warning`, `config.invalid`) | Adapt | Not started | #37 | M3 |
-| LOG-03 | Project save and file-name errors (`config.write_failed`) | Adapt | Not started | — | M3 |
+| LOG-03 | Project save and file-name errors (`config.write_failed`) | Adapt | Planned (#135) | #135 | M3 |
 | LOG-04 | Project backups and revisions | Adapt | Done | — | M3 |
 | LOG-05 | Project file encryption and passwords | Out of scope | Out of scope | — | — |
-| LOG-06 | Object add/edit/delete failures (`config.change_rejected`) | Adapt | Not started | — | M3 |
+| LOG-06 | Object add/edit/delete failures (`config.change_rejected`) | Adapt | Planned (#135) | #135 | M3 |
 | LOG-07 | Naming rules and renames (`_` reserved for system tags) | Adapt | Planned (#22) | #22 | M5 |
 | LOG-08 | Automatic tag generation events | Defer | Planned (#11) | #11 | — |
 | LOG-09 | Tag address validation | Adopt | Done | — | M2 |
@@ -913,14 +913,14 @@ JSON with `event` and `level`.
 | LOG-11 | Auto-demotion and promotion | Adopt | Done | — | M2 |
 | LOG-12 | Data collection enabled/disabled | Adapt | Done | — | M2 |
 | LOG-13 | Simulation mode | Defer | Planned (#12) | #12 | — |
-| LOG-14 | Device discovery | Defer | Not started | — | M5 |
+| LOG-14 | Device discovery | Defer | Planned (#110) | #110 | M5 |
 | LOG-15 | Modem and telephony lines | Out of scope | Out of scope | — | — |
-| LOG-16 | Network adapter selection | Defer | Not started | — | M5 |
+| LOG-16 | Network adapter selection | Defer | Planned (#106) | #106 | M5 |
 | LOG-17 | Serial over TCP (Ethernet encapsulation) | Adapt | Done | — | M3 |
 | LOG-18 | Serial port errors | Adapt | Done | — | M3 |
 | LOG-19 | Socket errors and unresponsive devices | Adopt | Done | — | M2 |
 | LOG-20 | Write failures and rejections | Out of scope | Out of scope | #19 | — |
-| LOG-21 | Time zone validation | Adapt | Not started | — | M2 |
+| LOG-21 | Time zone validation | Adapt | Planned (#112) | #112 | M2 |
 | LOG-22 | CSV tag import errors | Adapt | Planned (#10) | #10 | — |
 | LOG-23 | Alias map import | Out of scope | Out of scope | — | — |
 | LOG-24 | Users, permissions, access denials | Adapt | Planned (#21) | #21 | M5 |
@@ -928,29 +928,29 @@ JSON with `event` and `level`.
 | LOG-26 | Runtime lifecycle, reload, project replacement | Adopt | Done | — | M2 |
 | LOG-27 | Windows service, installation, operating mode | Out of scope | Out of scope | #34 | — |
 | LOG-28 | OPC ProgID redirect | Out of scope | Out of scope | #18 | — |
-| LOG-29 | Configuration API port and TLS events (`api.started`, `api.bind_failed`) | Adapt | Not started | — | M3 |
+| LOG-29 | Configuration API port and TLS events (`api.started`, `api.bind_failed`) | Adapt | Planned (#135) | #135 | M3 |
 | LOG-30 | OPC UA endpoints, certificates, discovery | Adopt | Planned (#74) | #74, #50 | M3 |
 | LOG-31 | OPC .NET, OPC HDA, DDE | Out of scope | Out of scope | — | — |
 | LOG-32 | OPC AE subscription filters | Defer | Planned (#24) | #24 | M5 |
 | LOG-33 | Script engine and profile logs | Out of scope | Out of scope | — | — |
 | LOG-34 | North-side platform connection (MQTT link) | Adapt | Done | — | M2 |
 | LOG-35 | ThingWorx-specific interface events | Out of scope | Out of scope | — | — |
-| LOG-36 | Store-and-forward datastore (disk full, corruption) | Adapt | Not started | — | M2 |
+| LOG-36 | Store-and-forward datastore (disk full, corruption) | Adapt | Planned (#142) | #142 | M2 |
 | LOG-37 | Communication diagnostics capture | Adopt | Planned (#56) | #56 | M5 |
 | LOG-38 | Event log service health | Adapt | Planned (#56) | #56 | M5 |
-| LOG-R1 | Event naming scheme | Adopt | Not started | — | M3 |
-| LOG-R2 | Event catalogue with CI check | Adopt | Not started | — | M3 |
-| LOG-R3 | Line format and common fields (Rust `event` key, level spelling) | Adopt | Not started | — | M2 |
-| LOG-R4 | Severity rules | Adopt | Not started | — | M3 |
-| LOG-R5 | Operator message, cause and fix per event | Adopt | Not started | — | M5 |
-| LOG-R6 | Stable reason codes | Adopt | Not started | — | M3 |
-| LOG-R7 | Flood control | Adopt | Not started | — | M3 |
+| LOG-R1 | Event naming scheme | Adopt | Planned (#134) | #134 | M3 |
+| LOG-R2 | Event catalogue with CI check | Adopt | Planned (#134) | #134 | M3 |
+| LOG-R3 | Line format and common fields (Rust `event` key, level spelling) | Adopt | Planned (#133) | #133 | M2 |
+| LOG-R4 | Severity rules | Adopt | Planned (#134) | #134 | M3 |
+| LOG-R5 | Operator message, cause and fix per event | Adopt | Planned (#134) | #134 | M5 |
+| LOG-R6 | Stable reason codes | Adopt | Planned (#133) | #133 | M3 |
+| LOG-R7 | Flood control | Adopt | Planned (#133) | #133 | M3 |
 | LOG-R8 | Surfacing map (`/health` flags, `log_events_total`) | Adopt | Not started | #56 | M5 |
-| LOG-R9 | Event log store and retention | Adopt | Planned (#56) | #56 | M5 |
-| LOG-R10 | Event log API | Adopt | Planned (#56) | #56, #32 | M5 |
-| LOG-R11 | UI event log view | Adopt | Planned (#56) | #56 | M5 |
-| LOG-R12 | No secrets in logs (test) | Adopt | Not started | — | M2 |
-| LOG-R13 | One test per catalogued event | Adopt | Not started | — | M3 |
+| LOG-R9 | Event log store and retention | Adopt | Planned (#136) | #136 | M5 |
+| LOG-R10 | Event log API | Adopt | Planned (#136) | #136, #32 | M5 |
+| LOG-R11 | UI event log view | Adopt | Planned (#136) | #136 | M5 |
+| LOG-R12 | No secrets in logs (test) | Adopt | Planned (#135) | #135 | M2 |
+| LOG-R13 | One test per catalogued event | Adopt | Planned (#134) | #134 | M3 |
 | LOG-R14 | Engine parity of events | Adopt | Not started | #42 | M4 |
-| LOG-R15 | Correlation fields (`revision`, `who`) | Adopt | Not started | — | M3 |
-| LOG-R16 | Library log lines as JSON | Adopt | Not started | — | M1 |
+| LOG-R15 | Correlation fields (`revision`, `who`) | Adopt | Planned (#135) | #135 | M3 |
+| LOG-R16 | Library log lines as JSON | Adopt | Planned (#133) | #133 | M1 |

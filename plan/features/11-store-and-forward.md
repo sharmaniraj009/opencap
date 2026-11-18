@@ -348,20 +348,20 @@ separate Windows service provides the datastore to the components that need it (
 |---|---|---|---|---|---|
 | SAF-01 | Keep every update until the peer confirms it | Adapt | Done | D-016, #64 | M1 |
 | SAF-02 | Outbox location setting | Adapt | Done | — | M1 |
-| SAF-03 | Validate the outbox location | Adapt | Not started | — | — |
-| SAF-04 | Outbox cannot be opened: degraded mode | Adapt | Not started | — | — |
+| SAF-03 | Validate the outbox location | Adapt | Planned (#142) | #142 | — |
+| SAF-04 | Outbox cannot be opened: degraded mode | Adapt | Planned (#142) | #142 | — |
 | SAF-05 | Size cap with oldest-first drop | Adapt | Done | D-016 | M1 |
-| SAF-06 | Free-disk reserve | Adapt | Not started | — | — |
+| SAF-06 | Free-disk reserve | Adapt | Planned (#142) | #142 | — |
 | SAF-07 | Ordered forwarding after a reconnect | Adopt | Done | D-016 | M1 |
-| SAF-08 | Live-first forwarding (On Hold) | Defer | Not started | — | M5 |
+| SAF-08 | Live-first forwarding (On Hold) | Defer | Planned (#143) | #143 | M5 |
 | SAF-09 | Survive restarts | Adopt | Done | D-016 | M1 |
 | SAF-10 | Survive upgrades and the engine cut-over | Adapt | Done | #64 | M2 |
 | SAF-11 | Changing store-and-forward settings | Adapt | Done | #63 | M1 |
-| SAF-12 | Sizing estimate in `opencap check` | Adapt | Not started | — | — |
+| SAF-12 | Sizing estimate in `opencap check` | Adapt | Planned (#121) | #121 | — |
 | SAF-13 | Backlog count and drops | Adapt | Done | #63, #64 | M1 |
-| SAF-14 | Backlog bytes, age and capacity | Adapt | Not started | — | — |
+| SAF-14 | Backlog bytes, age and capacity | Adapt | Planned (#143) | #143 | — |
 | SAF-15 | Status as system tags | Adapt | Planned (#22) | #22, #56 | M5 |
-| SAF-16 | Controls as admin API actions | Adapt | Not started | — | — |
+| SAF-16 | Controls as admin API actions | Adapt | Planned (#143) | #143 | — |
 | SAF-17 | Store-and-forward events | Adapt | Done | — | M1 |
 | SAF-18 | No separate store-and-forward service | Adapt | Done | ADR-0011 | M1 |
 | SAF-19 | One outbox per durable agent | Adapt | Planned (#51) | #51 | M3 |

@@ -418,15 +418,15 @@ are planned in their plug-in files.
 |---|---|---|---|---|---|
 | ADM-01 | Administration surface | Adapt | Done | #63, #84, #87 | M1/M4 |
 | ADM-02 | Start, stop and reinitialize | Adapt | Done | — | M1 |
-| ADM-03 | Support information | Adapt | Not started | — | M3 |
+| ADM-03 | Support information | Adapt | Planned (#123) | #123 | M3 |
 | ADM-04 | Licensing and license utility | Out of scope | Out of scope | — | — |
 | ADM-05 | Quick Client | Adapt | Planned (#31) | #31 | M3 |
 | ADM-06 | OPC UA configuration page | Adapt | Not started | #74, #50 | M3 |
-| ADM-07 | Tray settings: auto-start and language | Defer | Not started | — | — |
+| ADM-07 | Tray settings: auto-start and language | Defer | Planned (#126) | #126 | — |
 | ADM-08 | Configuration-client connections | Adapt | Done (partial) | — | M1/M5 |
 | ADM-09 | Runtime process and runtime options settings | Adapt | Not started | #37 | M4 |
 | ADM-10 | OPC DCOM connection security | Defer | Planned (#18) | #18 | M5 |
-| ADM-11 | Event log, settings and reset | Adapt | Planned (#56) | #56 | M5 |
+| ADM-11 | Event log, settings and reset | Adapt | Planned (#136) | #136 | M5 |
 | ADM-12 | ProgID redirect | Defer | Planned (#18) | #18 | M5 |
 | ADM-13 | Users, groups and roles | Adapt | Planned (#21) | #63, #84, #21 | M5 |
 | ADM-14 | Permission categories | Adapt | Planned (#21) | #21 | M5 |

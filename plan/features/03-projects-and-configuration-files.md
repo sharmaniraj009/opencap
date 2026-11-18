@@ -363,7 +363,7 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
 | PRJ-01 | A project is a config directory, loaded at start | Adapt | Done | D-012, #71 | M1 |
 | PRJ-02 | Project file v2: one document plus node settings | Adapt | Planned (#37) | #37, ADR-0013 | M4 |
 | PRJ-03 | Node settings kept apart from the project | Adapt | Done | — | M1 |
-| PRJ-04 | Start a new, empty project (`opencap init`) | Adapt | Not started | — | — |
+| PRJ-04 | Start a new, empty project (`opencap init`) | Adapt | Planned (#121) | #121 | — |
 | PRJ-05 | Validate every change before it is saved | Adapt | Done | #63, D-039 | M1 |
 | PRJ-06 | Save and apply; runtime and offline editing | Adapt | Done | #63, D-041 | M1 |
 | PRJ-07 | Import a KEPServerEX JSON project | Adapt | Done | D-010, D-042 | M1 |
@@ -372,11 +372,11 @@ whether NaN, infinity and denormal floats are passed through or replaced with ze
 | PRJ-10 | Encrypted project export | Defer | Not started | #21 | M5 |
 | PRJ-11 | Automatic backup copies (`.bak`, export) | Adapt | Done | #63, D-041 | M1 |
 | PRJ-12 | Revision history and rollback | Adapt | Planned (#37) | #37 | M4 |
-| PRJ-13 | Naming rules for channels, devices, groups, tags | Adapt | Not started | — | M2 |
+| PRJ-13 | Naming rules for channels, devices, groups, tags | Adapt | Planned (#112) | #112 | M2 |
 | PRJ-14 | The channel is the unit of parallel execution | Adopt | Done | D-015 | M1 |
-| PRJ-15 | Optimisation hints in `opencap check` | Adapt | Not started | — | — |
-| PRJ-16 | Re-resolve host names on every connect | Adapt | Not started | — | — |
-| PRJ-17 | Dynamic tag addressing from clients (how-to rules) | Defer | Not started | TAG-13 | M5 |
+| PRJ-15 | Optimisation hints in `opencap check` | Adapt | Planned (#121) | #121 | — |
+| PRJ-16 | Re-resolve host names on every connect | Adapt | Planned (#106) | #106 | — |
+| PRJ-17 | Dynamic tag addressing from clients (how-to rules) | Defer | Planned (#118) | #118 | M5 |
 | PRJ-18 | Serial devices behind terminal servers (encapsulation how-to) | Adapt | Done | #62, D-033, CH-11 | M1 |
 | PRJ-19 | Non-normalized floating-point values (how-to) | Adopt | Done | CH-04 | M1 |
 | PRJ-20 | Choosing network cables | Out of scope | Out of scope | — | — |

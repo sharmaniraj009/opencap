@@ -113,6 +113,10 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   touched the core, a driver, north or the config loader (CI runs acceptance nightly).
 - Tests must exercise behaviour, not just lines: a driver against its simulator, a planner
   against vectors, a fault path by switching on the simulator's fault.
+- A test with a wall-clock bound (a cadence, a gap, a timeout under ~1 s) uses the `no_gc`
+  fixture from `tests/conftest.py`: a full garbage collection late in the suite can stall the
+  event loop for 300 ms or more. Prefer waiting on a condition with a generous deadline over
+  a fixed sleep.
 - Contract changes go into `docs/architecture/` or an ADR in the same PR.
 
 ### Review and merge

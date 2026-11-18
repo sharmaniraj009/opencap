@@ -24,6 +24,9 @@ from opencap.north.publisher import Publisher, changed
 from opencap.north.saf import StoreAndForward
 from tests.helpers.broker import mqtt_broker  # noqa: F401
 
+# interval timing bounds (#69): no automatic GC pause inside a test (tests/conftest.py no_gc)
+pytestmark = pytest.mark.usefixtures("no_gc")
+
 T0 = datetime(2026, 11, 16, 10, 15, 1, tzinfo=UTC)
 CFG = PayloadCfg()
 

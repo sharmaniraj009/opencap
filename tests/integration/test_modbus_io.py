@@ -22,6 +22,9 @@ from opencap.drivers.base import BlockConfigError, CommError, ConnectionLost
 from opencap.drivers.modbus_tcp import ModbusBlock, ModbusTcpDriver
 from tests.helpers.modbus_sim import ModbusSim, free_port, make_sim_devices, start_sims, stop_sims
 
+# timing bounds (#69): no automatic GC pause inside a test (tests/conftest.py no_gc)
+pytestmark = pytest.mark.usefixtures("no_gc")
+
 
 def with_(device: Device, **update) -> Device:
     params = update.pop("params", None)

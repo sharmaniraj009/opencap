@@ -40,3 +40,10 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # changes. Yanked releases warn. Decision: docs/decisions.md D-061 (#66).
 unmaintained = "none"
 yanked = "warn"
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0382"
+reason = """rustls-webpki 0.102.8 is pinned (^0.102.8) by rumqttc 0.25.1, the latest rumqttc; no fixed
+combination exists yet. Affects only TLS paths through the distrusted emSign intermediates, and only
+when the configured trust anchors allow them: opencap's MQTT TLS uses the operator's own CA file.
+Remove when rumqttc moves to rustls-webpki >= 0.103.16 (tracked in #66 follow-up)."""

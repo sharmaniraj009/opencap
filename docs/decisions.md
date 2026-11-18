@@ -588,6 +588,10 @@ validators, not the schema, can reject it) so the Rust engine can load them with
 - **rusqlite 0.37 -> 0.41** (libsqlite3-sys 0.35 -> 0.39.1, bundled SQLite 3.54): the new advisories check flagged the
   bundled SQLite of 0.35 (CVE-2026-119375, fixed in libsqlite3-sys 0.39). No code changes were needed. It adds two
   wasm-only crates (`rsqlite-vfs`, `sqlite-wasm-rs`) to the lock file; the licence gate covers them in CI.
+- **RUSTSEC-2026-0382 ignored (temporary):** `rustls-webpki` 0.102.8 comes only through `rumqttc` 0.25.1 (latest, pins
+  `^0.102.8`). It concerns distrusted emSign intermediates and only matters if the configured trust anchors allow them;
+  opencap's MQTT TLS uses the operator's CA file. Ignored in `engine/deny.toml` with the reason; remove once rumqttc moves
+  to webpki >= 0.103.16. The lead should confirm this ignore is acceptable.
 - **Not done:** pinning third-party actions in `rust-engine.yml` by commit SHA. The session could not read those
   repositories to resolve tags to SHAs, and a SHA written from memory would be unsafe. Left on the issue as a follow-up.
 - **RFC 0001:** direct-dependency table completed with licence links at the lock-file versions (checked against the

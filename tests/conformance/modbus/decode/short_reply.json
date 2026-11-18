@@ -1,0 +1,16 @@
+{
+ "format": 1,
+ "area": "modbus/decode",
+ "description": "Short and long replies: per-tag decode errors.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"short-fails-past-end","description":"A short reply fails only the tags past its end.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16"},{"name":"F","address":"400002","dtype":"float32"}],"reply":{"registers":[42,0]}},"expected":{"values":{"A":{"t":"int","v":"42"},"F":{"t":"decode_error","v":"400002 (float32): short reply: need registers up to offset 2, got 2"}}}},
+  {"id":"short-empty","description":"An empty reply fails every tag.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16"},{"name":"B","address":"400002","dtype":"uint16"}],"reply":{"registers":[]}},"expected":{"values":{"A":{"t":"decode_error","v":"400001 (uint16): short reply: need registers up to offset 0, got 0"},"B":{"t":"decode_error","v":"400002 (uint16): short reply: need registers up to offset 1, got 0"}}}},
+  {"id":"short-exact","description":"A reply of exactly the block length decodes everything.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16"},{"name":"B","address":"400002","dtype":"uint16"}],"reply":{"registers":[1,2]}},"expected":{"values":{"A":{"t":"int","v":"1"},"B":{"t":"int","v":"2"}}}},
+  {"id":"long-reply","description":"Extra registers after the block are ignored.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16"}],"reply":{"registers":[1,2,3]}},"expected":{"values":{"A":{"t":"int","v":"1"}}}},
+  {"id":"short-string","description":"A string past the end of a short reply fails.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16"},{"name":"S","address":"400002.006H","dtype":"string"}],"reply":{"registers":[1,16706]}},"expected":{"values":{"A":{"t":"int","v":"1"},"S":{"t":"decode_error","v":"400002.006H (string): short reply: need registers up to offset 3, got 2"}}}},
+  {"id":"short-array","description":"An array that does not fit a short reply fails as a whole.","input":{"params":{},"tags":[{"name":"ARR","address":"400001[4]","dtype":"uint16"}],"reply":{"registers":[1,2,3]}},"expected":{"values":{"ARR":{"t":"decode_error","v":"400001[4] (uint16): short reply: need registers up to offset 3, got 3"}}}},
+  {"id":"short-bits","description":"A short coil reply fails the coils past its end.","input":{"params":{},"tags":[{"name":"C1","address":"000001","dtype":"bool"},{"name":"C9","address":"000009","dtype":"bool"}],"reply":{"bits":[true]}},"expected":{"values":{"C1":{"t":"bool","v":true},"C9":{"t":"decode_error","v":"000009 (bool): short reply: need bits up to offset 8, got 1"}}}},
+  {"id":"short-alias","description":"Aliases of a failed item all get the same decode error.","input":{"params":{},"tags":[{"name":"A","address":"400002","dtype":"uint16"},{"name":"A2","address":"400002","dtype":"uint16"},{"name":"Z","address":"400001","dtype":"uint16"}],"reply":{"registers":[9]}},"expected":{"values":{"A":{"t":"decode_error","v":"400002 (uint16): short reply: need registers up to offset 1, got 1"},"A2":{"t":"decode_error","v":"400002 (uint16): short reply: need registers up to offset 1, got 1"},"Z":{"t":"int","v":"9"}}}}
+ ]
+}

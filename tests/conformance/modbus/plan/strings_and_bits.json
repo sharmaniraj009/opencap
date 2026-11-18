@@ -1,0 +1,19 @@
+{
+ "format": 1,
+ "area": "modbus/plan",
+ "description": "Strings .lllH/.lllL and .b bits in registers (D-006).",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"string-even","description":"String .020H is 10 registers.","input":{"params":{},"tags":[{"name":"S","address":"400001.020H","dtype":"string"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":10,"tags":["S"]}],"invalid":{}}},
+  {"id":"string-odd-rounds-up","description":"String .005L is 3 registers; the suffix is case-insensitive.","input":{"params":{},"tags":[{"name":"S","address":"300101.005l","dtype":"string"}]},"expected":{"blocks":[{"fc":4,"start":100,"count":3,"tags":["S"]}],"invalid":{}}},
+  {"id":"string-1","description":"A 1-byte string still reads one register.","input":{"params":{},"tags":[{"name":"S","address":"400010.001H","dtype":"string"}]},"expected":{"blocks":[{"fc":3,"start":9,"count":1,"tags":["S"]}],"invalid":{}}},
+  {"id":"strings-merge","description":"Adjacent strings and a word merge into one block.","input":{"params":{},"tags":[{"name":"S1","address":"400001.004H","dtype":"string"},{"name":"S2","address":"400003.003L","dtype":"string"},{"name":"W","address":"400005","dtype":"uint16"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":5,"tags":["S1","S2","W"]}],"invalid":{}}},
+  {"id":"string-and-word-same-start","description":"A string and a uint16 at the same start are separate items in one block.","input":{"params":{},"tags":[{"name":"S","address":"400001.006H","dtype":"string"},{"name":"W","address":"400001","dtype":"uint16"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":3,"tags":["S","W"]}],"invalid":{}}},
+  {"id":"bits-share-register","description":"Bits .0, .7 and .15 of one register and the register itself: one 1-register block.","input":{"params":{},"tags":[{"name":"B0","address":"400001.0","dtype":"bool"},{"name":"B7","address":"400001.7","dtype":"bool"},{"name":"B15","address":"400001.15","dtype":"bool"},{"name":"W","address":"400001","dtype":"uint16"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":1,"tags":["B0","B15","B7","W"]}],"invalid":{}}},
+  {"id":"bits-adjacent-registers","description":"Bits in neighbouring registers merge like words.","input":{"params":{},"tags":[{"name":"A","address":"400001.3","dtype":"bool"},{"name":"B","address":"400002.3","dtype":"bool"},{"name":"C","address":"400010.0","dtype":"bool"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":2,"tags":["A","B"]},{"fc":3,"start":9,"count":1,"tags":["C"]}],"invalid":{}}},
+  {"id":"bit-one-based","description":"zero_based_bit off: .1 and .16 are valid, same register.","input":{"params":{"zero_based_bit":false},"tags":[{"name":"B1","address":"400001.1","dtype":"bool"},{"name":"B16","address":"400001.16","dtype":"bool"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":1,"tags":["B1","B16"]}],"invalid":{}}},
+  {"id":"bit-modicon","description":"modicon_bit_order does not change the plan, only which bit is taken.","input":{"params":{"modicon_bit_order":true},"tags":[{"name":"M0","address":"400001.0","dtype":"bool"},{"name":"M15","address":"400001.15","dtype":"bool"}]},"expected":{"blocks":[{"fc":3,"start":0,"count":1,"tags":["M0","M15"]}],"invalid":{}}},
+  {"id":"bit-on-input-register","description":"A .b bit on an input register reads FC04.","input":{"params":{},"tags":[{"name":"IB","address":"300005.2","dtype":"bool"},{"name":"IW","address":"300006","dtype":"int16"}]},"expected":{"blocks":[{"fc":4,"start":4,"count":2,"tags":["IB","IW"]}],"invalid":{}}},
+  {"id":"string-in-input-registers","description":"Strings work on input registers (FC04).","input":{"params":{},"tags":[{"name":"S","address":"300001.010H","dtype":"string"}]},"expected":{"blocks":[{"fc":4,"start":0,"count":5,"tags":["S"]}],"invalid":{}}}
+ ]
+}

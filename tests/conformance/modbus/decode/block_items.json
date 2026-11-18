@@ -1,0 +1,15 @@
+{
+ "format": 1,
+ "area": "modbus/decode",
+ "description": "Several items in one block: offsets, aliases, overlaps.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"aliases-same-value","description":"Aliases get the same value; offsets are relative to the block start.","input":{"params":{},"tags":[{"name":"Y","address":"400133","dtype":"float32"},{"name":"B","address":"400133","dtype":"float32"},{"name":"W","address":"400136","dtype":"uint16"}],"reply":{"registers":[0,16256,0,7]}},"expected":{"values":{"B":{"t":"float","v":"1.0"},"W":{"t":"int","v":"7"},"Y":{"t":"float","v":"1.0"}}}},
+  {"id":"overlap-types","description":"Overlapping uint16, int32 and float32 at one start decode independently.","input":{"params":{},"tags":[{"name":"U","address":"400001","dtype":"uint16"},{"name":"I","address":"400001","dtype":"int32"},{"name":"F","address":"400001","dtype":"float32"}],"reply":{"registers":[0,49024]}},"expected":{"values":{"F":{"t":"float","v":"-1.0"},"I":{"t":"int","v":"-1082130432"},"U":{"t":"int","v":"0"}}}},
+  {"id":"gap-registers-ignored","description":"Registers in a gap are read but not decoded.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16"},{"name":"B","address":"400005","dtype":"int16"}],"reply":{"registers":[10,57005,48879,51966,65534]}},"expected":{"values":{"A":{"t":"int","v":"10"},"B":{"t":"int","v":"-2"}}}},
+  {"id":"mixed-block","description":"A block mixing every register type.","input":{"params":{},"tags":[{"name":"I16","address":"400001","dtype":"int16"},{"name":"U32","address":"400002","dtype":"uint32"},{"name":"F32","address":"400004","dtype":"float32"},{"name":"F64","address":"400006","dtype":"float64"},{"name":"S","address":"400010.004H","dtype":"string"},{"name":"B","address":"400012.1","dtype":"bool"}],"reply":{"registers":[65535,2,1,0,48960,0,0,0,16409,20299,8481,2]}},"expected":{"values":{"B":{"t":"bool","v":true},"F32":{"t":"float","v":"-0.75"},"F64":{"t":"float","v":"6.25"},"I16":{"t":"int","v":"-1"},"S":{"t":"str","v":"OK!!"},"U32":{"t":"int","v":"65538"}}}},
+  {"id":"zero-based-off","description":"zero_based off shifts the block start but not the decoding.","input":{"params":{"zero_based":false},"tags":[{"name":"A","address":"400001","dtype":"uint16"},{"name":"B","address":"400002","dtype":"int16"}],"reply":{"registers":[5,32768]}},"expected":{"values":{"A":{"t":"int","v":"5"},"B":{"t":"int","v":"-32768"}}}},
+  {"id":"disabled-not-decoded","description":"A disabled tag is not in the plan, so it gets no value.","input":{"params":{},"tags":[{"name":"A","address":"400001","dtype":"uint16"},{"name":"OFF","address":"400002","dtype":"uint16","enabled":false}],"reply":{"registers":[42]}},"expected":{"values":{"A":{"t":"int","v":"42"}}}},
+  {"id":"scale-not-applied","description":"The decoder never scales (scaling is a separate step).","input":{"params":{},"tags":[{"name":"S","address":"400001","dtype":"uint16","scale":{"raw_lo":0,"raw_hi":10,"eng_lo":0,"eng_hi":100}}],"reply":{"registers":[5]}},"expected":{"values":{"S":{"t":"int","v":"5"}}}}
+ ]
+}

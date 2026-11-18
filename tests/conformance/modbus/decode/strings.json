@@ -1,0 +1,20 @@
+{
+ "format": 1,
+ "area": "modbus/decode",
+ "description": "Strings: H/L byte order, NUL cut, odd lengths, latin-1 (D-006).",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"str-h","description":".004H: first character in the high byte.","input":{"params":{},"tags":[{"name":"X","address":"400001.004H","dtype":"string"}],"reply":{"registers":[16706,17220]}},"expected":{"values":{"X":{"t":"str","v":"ABCD"}}}},
+  {"id":"str-l","description":".004L: first character in the low byte.","input":{"params":{},"tags":[{"name":"X","address":"400001.004L","dtype":"string"}],"reply":{"registers":[16706,17220]}},"expected":{"values":{"X":{"t":"str","v":"BADC"}}}},
+  {"id":"str-nul-cut","description":"The value is cut at the first NUL.","input":{"params":{},"tags":[{"name":"X","address":"400001.004H","dtype":"string"}],"reply":{"registers":[16706,67]}},"expected":{"values":{"X":{"t":"str","v":"AB"}}}},
+  {"id":"str-nul-first","description":"A NUL first character gives an empty string.","input":{"params":{},"tags":[{"name":"X","address":"400001.004H","dtype":"string"}],"reply":{"registers":[65,16963]}},"expected":{"values":{"X":{"t":"str","v":""}}}},
+  {"id":"str-odd-length","description":".003H: the low byte of the last register is not part of the value.","input":{"params":{},"tags":[{"name":"X","address":"400001.003H","dtype":"string"}],"reply":{"registers":[16706,17220]}},"expected":{"values":{"X":{"t":"str","v":"ABC"}}}},
+  {"id":"str-odd-length-l","description":".003L: the high byte of the last register is not part of the value.","input":{"params":{},"tags":[{"name":"X","address":"400001.003L","dtype":"string"}],"reply":{"registers":[16706,17220]}},"expected":{"values":{"X":{"t":"str","v":"BAD"}}}},
+  {"id":"str-1","description":"A 1-byte string.","input":{"params":{},"tags":[{"name":"X","address":"400001.001H","dtype":"string"}],"reply":{"registers":[23040]}},"expected":{"values":{"X":{"t":"str","v":"Z"}}}},
+  {"id":"str-latin1","description":"Bytes above 0x7F decode as latin-1 (0xE9 is e-acute, 0xFF y-diaeresis).","input":{"params":{},"tags":[{"name":"X","address":"400001.004H","dtype":"string"}],"reply":{"registers":[59903,40992]}},"expected":{"values":{"X":{"t":"str","v":"éÿ  "}}}},
+  {"id":"str-control-bytes","description":"Control bytes other than NUL are kept.","input":{"params":{},"tags":[{"name":"X","address":"400001.004H","dtype":"string"}],"reply":{"registers":[265,2687]}},"expected":{"values":{"X":{"t":"str","v":"\u0001\t\n"}}}},
+  {"id":"str-byte-order-ignored","description":"byte_order_big does not affect strings; only the H/L suffix does.","input":{"params":{"byte_order_big":false},"tags":[{"name":"X","address":"400001.004H","dtype":"string"}],"reply":{"registers":[16706,17220]}},"expected":{"values":{"X":{"t":"str","v":"ABCD"}}}},
+  {"id":"str-20","description":"A 20-byte string padded with spaces.","input":{"params":{},"tags":[{"name":"X","address":"400001.020H","dtype":"string"}],"reply":{"registers":[20565,19792,8241,8274,21838,8224,8224,8224,8224,8224]}},"expected":{"values":{"X":{"t":"str","v":"PUMP 1 RUN          "}}}},
+  {"id":"str-with-neighbours","description":"A string between two words in one block.","input":{"params":{},"tags":[{"name":"W1","address":"400001","dtype":"uint16"},{"name":"S","address":"400002.004L","dtype":"string"},{"name":"W2","address":"400004","dtype":"int16"}],"reply":{"registers":[7,16961,17475,65535]}},"expected":{"values":{"S":{"t":"str","v":"ABCD"},"W1":{"t":"int","v":"7"},"W2":{"t":"int","v":"-1"}}}}
+ ]
+}

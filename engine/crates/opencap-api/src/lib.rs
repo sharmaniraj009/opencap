@@ -18,6 +18,7 @@
 
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::Body;
@@ -27,6 +28,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
 #[derive(Debug)]
@@ -222,37 +224,74 @@ const OPEN_PATHS: [&str; 5] = ["/health", "/metrics", "/api/v1/auth-info", "/", 
 const OPEN_PREFIX: &str = "/ui/";
 /// Request body cap (Python `guard.MAX_BODY`).
 pub const MAX_BODY: usize = 1024 * 1024;
+/// How much of a refused body is still read and dropped so the client gets the 413 (see
+/// [`drain`]); a body declared larger is refused without reading it.
+pub const DRAIN_MAX: u64 = 8 * 1024 * 1024;
+/// How long a refused body is drained at most.
+pub const DRAIN_TIME: Duration = Duration::from_secs(5);
 
 pub fn is_open_path(path: &str) -> bool {
     OPEN_PATHS.contains(&path) || path.starts_with(OPEN_PREFIX)
 }
 
 /// Python `ApiGuard`: authenticate from the headers before a single body byte is read, then
-/// cap the body (413 on a `Content-Length` over the cap at once, or while a chunked body is
-/// read). Runs in front of every route and the fallback.
+/// cap the body: a `Content-Length` over the cap, or a chunked body passing it, gets 413 and
+/// the rest is drained, never kept (see [`drain`]). Runs in front of every route and the
+/// fallback.
 async fn guard(State(st): St, req: Request, next: Next) -> Response {
-    let (parts, body) = req.into_parts();
+    let (parts, mut body) = req.into_parts();
     if !is_open_path(parts.uri.path()) && parts.method != Method::OPTIONS {
         if let Err(refused) = st.auth.principal(&parts.method, &parts.headers) {
             return refused;
         }
     }
-    let too_large = || detail(StatusCode::PAYLOAD_TOO_LARGE, format!("request body larger than {MAX_BODY} bytes"));
     let length = parts.headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok());
-    if length.and_then(|v| v.trim().parse::<u64>().ok()).is_some_and(|n| n > MAX_BODY as u64) {
+    if let Some(declared) = length.and_then(|v| v.trim().parse::<u64>().ok()).filter(|n| *n > MAX_BODY as u64) {
+        if declared <= DRAIN_MAX {
+            drain(body).await;
+        }
         return too_large();
     }
-    let bytes = match axum::body::to_bytes(body, MAX_BODY).await {
-        Ok(bytes) => bytes,
-        Err(e) if is_length_limit(&e) => return too_large(),
-        Err(_) => return detail(StatusCode::BAD_REQUEST, "could not read the request body"),
-    };
+    let mut bytes: Vec<u8> = Vec::new();
+    while let Some(frame) = body.frame().await {
+        let Ok(frame) = frame else {
+            return detail(StatusCode::BAD_REQUEST, "could not read the request body");
+        };
+        if let Ok(data) = frame.into_data() {
+            if bytes.len() + data.len() > MAX_BODY {
+                drain(body).await;
+                return too_large();
+            }
+            bytes.extend_from_slice(&data);
+        }
+    }
     next.run(Request::from_parts(parts, Body::from(bytes))).await
 }
 
-/// The body passed the cap (not a broken connection).
-fn is_length_limit(e: &axum::Error) -> bool {
-    std::error::Error::source(e).is_some_and(|inner| inner.is::<http_body_util::LengthLimitError>())
+/// 413, closing the connection (its unread body cannot be skipped).
+fn too_large() -> Response {
+    let mut resp = detail(StatusCode::PAYLOAD_TOO_LARGE, format!("request body larger than {MAX_BODY} bytes"));
+    resp.headers_mut().insert(header::CONNECTION, header::HeaderValue::from_static("close"));
+    resp
+}
+
+/// Read and drop the rest of a refused body, up to `DRAIN_MAX` bytes or `DRAIN_TIME`. A server
+/// that closes a socket with unread request bytes makes the kernel send a reset, and the
+/// client then sees "connection reset" instead of the 413 (nginx: lingering close). Nothing
+/// is kept, and only an authenticated caller gets this far.
+async fn drain(mut body: Body) {
+    let mut seen: u64 = 0;
+    let _ = tokio::time::timeout(DRAIN_TIME, async {
+        while let Some(Ok(frame)) = body.frame().await {
+            if let Ok(data) = frame.into_data() {
+                seen += data.len() as u64;
+                if seen > DRAIN_MAX {
+                    break;
+                }
+            }
+        }
+    })
+    .await;
 }
 
 fn unknown(device_id: &str) -> Response {
@@ -345,6 +384,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use futures_util::StreamExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tower::ServiceExt;
 
@@ -574,6 +614,29 @@ mod tests {
         assert_eq!(call(&a, "GET", "/nothing", None).await.0, StatusCode::UNAUTHORIZED);
         assert_eq!(call(&a, "GET", "/api/v1/auth-info", None).await.0, StatusCode::NOT_FOUND);
         assert!(is_open_path("/ui/app.js") && !is_open_path("/uix") && !is_open_path("/channels"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refused_bodies_are_drained_within_bounds() {
+        let (a, _) = app();
+        // the 413 closes the connection: the rest of the body cannot be skipped
+        let resp = send_body(&a, "/reload", Some("s3cret"), Body::empty(), Some(MAX_BODY + 1)).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(resp.headers()[header::CONNECTION], "close");
+        // a client that stops sending mid-body does not hold the request past DRAIN_TIME
+        let stalled = futures_util::stream::iter(vec![Ok::<_, std::io::Error>(vec![b'x'; MAX_BODY + 1])])
+            .chain(futures_util::stream::pending());
+        let started = tokio::time::Instant::now();
+        let resp = send_body(&a, "/reload", Some("s3cret"), Body::from_stream(stalled), None).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(started.elapsed() >= DRAIN_TIME && started.elapsed() < DRAIN_TIME * 2, "{:?}", started.elapsed());
+        // declared larger than DRAIN_MAX: refused without reading a byte (the stream never ends)
+        let endless = futures_util::stream::pending::<Result<Vec<u8>, std::io::Error>>();
+        let started = tokio::time::Instant::now();
+        let declared = usize::try_from(DRAIN_MAX).unwrap() + 1;
+        let resp = send_body(&a, "/reload", Some("s3cret"), Body::from_stream(endless), Some(declared)).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(started.elapsed(), Duration::ZERO);
     }
 
     #[test]

@@ -101,7 +101,28 @@ fn py_type_name(v: &Json) -> &'static str {
 }
 
 fn model<T: DeserializeOwned>(what: &Path, value: Json) -> Result<T, ConfigError> {
-    serde_json::from_value(value).map_err(|e| invalid(format!("{}: {e}", what.display())))
+    serde_json::from_value(value)
+        .map_err(|e| invalid(format!("{}: {}", what.display(), explain_yaml11_bool(e.to_string()))))
+}
+
+/// YAML 1.1 spellings PyYAML reads as booleans; serde_yaml_ng (YAML 1.2) reads them as strings.
+const YAML11_BOOLS: [&str; 10] = ["yes", "no", "on", "off", "y", "n", "true", "false", "t", "f"];
+
+/// Turn serde's `invalid type: string "yes", expected a boolean` into an explicit message
+/// (ADR-0002, D-032: same files as Python, so say what to change instead of a type error).
+fn explain_yaml11_bool(msg: String) -> String {
+    const HEAD: &str = "invalid type: string \"";
+    if let Some(rest) = msg.strip_prefix(HEAD) {
+        if let Some((word, tail)) = rest.split_once('"') {
+            if tail.contains("expected a boolean") && YAML11_BOOLS.contains(&word.to_ascii_lowercase().as_str()) {
+                return format!(
+                    "{word:?} is a YAML 1.1 boolean spelling that this engine does not accept; use true or false{}",
+                    tail.find(" at line").map(|i| &tail[i..]).unwrap_or("")
+                );
+            }
+        }
+    }
+    msg
 }
 
 pub fn load_devices(path: &Path) -> Result<DevicesFile, ConfigError> {
@@ -344,6 +365,39 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn unknown_driver_is_a_config_error_with_pydantic_shape() {
+        let d = dir("unknown-driver");
+        let mut j = devices_json();
+        j["channels"][0]["devices"][0]["driver"] = json!("profibus");
+        std::fs::write(d.join(DEVICES_FILE), j.to_string()).unwrap();
+        let e = load_config(&d).unwrap_err().to_string();
+        assert!(e.contains("Site 001/8 PUMP: driver: Input should be 'modbus_tcp', 'ab_logix'"), "{e}");
+        assert!(e.contains("or 'ab_df1' (got 'profibus')"), "{e}");
+    }
+
+    #[test]
+    fn known_but_unimplemented_driver_still_loads() {
+        let d = dir("known-driver");
+        let mut j = devices_json();
+        j["channels"][0]["devices"][0]["driver"] = json!("s7");
+        std::fs::write(d.join(DEVICES_FILE), j.to_string()).unwrap();
+        assert!(load_config(&d).is_ok());
+    }
+
+    #[test]
+    fn yaml_1_1_boolean_spellings_are_named() {
+        for word in ["yes", "No", "on", "off"] {
+            let d = dir(&format!("yaml11-{word}"));
+            std::fs::write(d.join(DEVICES_FILE), devices_json().to_string()).unwrap();
+            std::fs::write(d.join(OVERRIDES_FILE), format!("devices:\n  Site 001/8 PUMP: {{enabled: {word}}}\n"))
+                .unwrap();
+            let e = load_config(&d).unwrap_err().to_string();
+            assert!(e.contains(&format!("{word:?} is a YAML 1.1 boolean spelling")), "{word}: {e}");
+            assert!(e.contains("use true or false"), "{e}");
+        }
+    }
 
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("opencap-loader-{}-{}", name, std::process::id()));

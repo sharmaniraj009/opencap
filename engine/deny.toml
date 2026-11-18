@@ -1,5 +1,5 @@
 # Licence and supply-chain gate for the Rust engine (ADR-0007, docs/adr/0007-oss-licence-policy.md).
-# CI runs `cargo deny check licenses bans sources`.
+# CI runs `cargo deny check licenses bans sources` (blocking) and `cargo deny check advisories`.
 
 [graph]
 all-features = true
@@ -31,3 +31,11 @@ allow-wildcard-paths = true
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[advisories]
+# Known vulnerabilities fail the build. Unmaintained crates fail only when we depend on them
+# directly (`workspace`); an unmaintained transitive crate is reported as a warning, so an
+# upstream abandoning a crate does not block unrelated work. Yanked releases warn.
+# Decision recorded in docs/decisions.md (#66).
+unmaintained = "workspace"
+yanked = "warn"

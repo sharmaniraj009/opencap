@@ -46,7 +46,7 @@ Take the highest priority in your area, else any `ready` issue.
 
 ## Decision-log numbers (`docs/decisions.md`)
 
-Reserved for the stalled PRs: [#63](https://github.com/sharmaniraj009/opencap/issues/63)/[#75](https://github.com/sharmaniraj009/opencap/issues/75) D-039–D-044, [#61](https://github.com/sharmaniraj009/opencap/issues/61)/[#74](https://github.com/sharmaniraj009/opencap/issues/74) D-045–D-047, [#60](https://github.com/sharmaniraj009/opencap/issues/60)/[#73](https://github.com/sharmaniraj009/opencap/issues/73) D-048–D-058. Used: D-059 ([#72](https://github.com/sharmaniraj009/opencap/issues/72)), D-060 ([#71](https://github.com/sharmaniraj009/opencap/issues/71)). **Next free: D-061.**
+Reserved for the stalled PRs: [#63](https://github.com/sharmaniraj009/opencap/issues/63)/[#75](https://github.com/sharmaniraj009/opencap/issues/75) D-039–D-044, [#61](https://github.com/sharmaniraj009/opencap/issues/61)/[#74](https://github.com/sharmaniraj009/opencap/issues/74) D-045–D-047, [#60](https://github.com/sharmaniraj009/opencap/issues/60)/[#73](https://github.com/sharmaniraj009/opencap/issues/73) D-048–D-058. Used: D-059 ([#72](https://github.com/sharmaniraj009/opencap/issues/72)), D-060 ([#71](https://github.com/sharmaniraj009/opencap/issues/71)). **Next free: D-062.**
 
 ## Open PRs
 

@@ -72,9 +72,9 @@ policy-level summary, reconciled with it after #64.
 | Windows service | windows-service | MIT or Apache-2.0 | no | Adopt |
 | Windows COM (OPC DA bridge) | windows (windows-rs) | MIT or Apache-2.0 | no | Adopt |
 | OPC DA proxy/stub, OpcEnum | OPC Foundation Core Components | OPC Foundation redistributable licence | no | **Owner decision** (OPC DA RFC) |
-| Desktop shell | Tauri 2.12 (+ tauri-build 2.7) | MIT or Apache-2.0; pulls in MPL-2.0 `cssparser`, `selectors` (unmodified) | no (manual audit in `desktop/README.md`; gate in #90) | Adopt (#87) |
-| Desktop keychain | keyring 3 | MIT or Apache-2.0 | no (gate in #90) | Adopt (#87; Secret Service, Credential Manager, Keychain) |
-| Desktop HTTP checks | ureq 2 (+ webpki-roots, CDLA-Permissive-2.0) | MIT or Apache-2.0 | no (gate in #90) | Adopt (#87) |
+| Desktop shell | Tauri 2.12.6 (+ tauri-build 2.7.5) | MIT or Apache-2.0; pulls in MPL-2.0 `cssparser`, `cssparser-macros`, `selectors`, `dtoa-short`, `option-ext` (unmodified; allowed per crate in `desktop/deny.toml`, ADR-0007) | yes (cargo-deny, `desktop/deny.toml`, #90) | Adopt (#87) |
+| Desktop keychain | keyring 3.6.3 | MIT or Apache-2.0 | yes (cargo-deny, `desktop/deny.toml`, #90) | Adopt (#87; Secret Service, Credential Manager, Keychain) |
+| Desktop HTTP checks | ureq 2.12.1 (+ webpki-roots, CDLA-Permissive-2.0, allowed for that crate only) | MIT or Apache-2.0 | yes (cargo-deny, `desktop/deny.toml`, #90) | Adopt (#87) |
 | Licence gate | cargo-deny | MIT or Apache-2.0 | no | Test-only |
 
 ## Test and CI tools (never shipped)

@@ -33,7 +33,7 @@ from tests.helpers.df1_sim import Df1Sim
 from tests.helpers.modbus_sim import ModbusSim, make_sim_devices
 from tests.helpers.netcut import stable_port
 from tests.helpers.pccc_sim import tables_for
-from tests.helpers.pty_bridge import PtyBridge, needs_pyserial
+from tests.helpers.pty_bridge import PtyBridge, needs_pty, needs_pyserial
 from tests.integration.test_ab_df1_sim import PATTERN_TAGS
 
 # --engine=rust: skipped as "driver not ported" until the binary implements ab_df1, modbus_rtu
@@ -77,6 +77,7 @@ def _matches(got, want) -> bool:
 
 
 @needs_pyserial                     # one DF1 line is a local serial port (behind a pty)
+@needs_pty
 async def test_serial_acceptance(tmp_path):
     df1_sims: list[Df1Sim] = []
     rtu_sims: list[ModbusSim] = []

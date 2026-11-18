@@ -152,11 +152,10 @@ jobs:
         run: find /tmp -name engine.log -path '*rust-engine*' -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;
 
   windows:
-    name: build and test on Windows (informational)
+    name: build and test on Windows
     runs-on: windows-latest
     timeout-minutes: 40
-    # Desktop/service target (ADR-0010). Informational until the Windows CI issue (#35) makes it required.
-    continue-on-error: true
+    # Desktop/service target (ADR-0010). Required since the Windows CI issue (#35).
     defaults:
       run:
         working-directory: engine

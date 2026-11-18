@@ -23,7 +23,7 @@ from tests.helpers.df1_sim import Df1Sim
 from tests.helpers.modbus_sim import free_port
 from tests.helpers.netcut import stable_port
 from tests.helpers.pccc_sim import tables_for
-from tests.helpers.pty_bridge import PtyBridge, needs_pyserial
+from tests.helpers.pty_bridge import PtyBridge, needs_pty, needs_pyserial
 
 TYPED_READ = (CMD_EXTENDED, 0xA2)
 
@@ -421,6 +421,7 @@ async def test_line_failure_drops_every_station(sim):
 
 
 @needs_pyserial
+@needs_pty
 async def test_over_a_tty(sim):
     bridge = await PtyBridge.start("127.0.0.1", sim.port)
     drv = AbDf1Driver(_device(0, host=bridge.path, transport="serial", baudrate=19200, parity="N"))

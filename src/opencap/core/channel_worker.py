@@ -32,7 +32,7 @@ Faults (health rules and the "failed cycle" definition are in core/health.py)
 - NotImplementedError from the driver (driver I/O not written yet) or a driver that cannot
   be built: the device stops being polled, state stays `offline`, `last_error` says why.
 - Stale: a good tag with no good read for 3 x its rate. Age is measured from `source_ts`, or,
-  for drivers with `stale_by_read_time` (OPC UA subscriptions, D-028), from when `read()` last
+  for drivers with `stale_by_read_time` (OPC UA subscriptions, D-045), from when `read()` last
   returned the tag good.
 - Demotion: the device's connection is closed when it is demoted. The probe cycle runs when
   the demotion period is over, the group is due, and no reconnect backoff is pending; it
@@ -192,7 +192,7 @@ class _DeviceRunner:
         self.schedule: DeviceSchedule | None = None
         self.tags: dict[str, Tag] = {t.name: t for t in device.tags if t.enabled}
         self.max_age_s = {n: STALE_FACTOR * device.effective_rate_ms(t) / 1000 for n, t in self.tags.items()}
-        # Last good read per tag, kept only for drivers with `stale_by_read_time` (D-028).
+        # Last good read per tag, kept only for drivers with `stale_by_read_time` (D-045).
         self.read_at: dict[str, datetime] | None = None
         self.safety_s = safety_timeout_s(device.timeout_ms)
         usable = plan is not None and plan.ok

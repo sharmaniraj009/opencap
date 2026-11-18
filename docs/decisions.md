@@ -360,7 +360,7 @@ picks by catalog prefix. Stock pycomm3 `SLCDriver` works against it unmodified.
 
 ## Phase 4 / Phase 6: OPC UA (client driver and northbound server)
 
-### D-028 opcua_client driver on asyncua 2.1: subscriptions inside the polling core
+### D-045 opcua_client driver on asyncua 2.1: subscriptions inside the polling core
 PLAN §5.1 says "use subscriptions (monitored items) at the device scan rate, not polling". The
 core asks every driver for values once per rate-group period, so the subscription lives
 inside the driver and `read()` hands out what the server pushed:
@@ -423,13 +423,13 @@ inside the driver and `read()` hands out what the server pushed:
   for production. Params named `password`, `username`... are rejected; errors name the
   environment variable, never a value. The KEPServer security-policy codes are still
   unverified (D-010).
-- **Tested against asyncua's own server only** (D-030), including Basic256Sha256 Sign and
+- **Tested against asyncua's own server only** (D-047), including Basic256Sha256 Sign and
   SignAndEncrypt and user name/password. Not yet against the project's two real OPC UA
   servers: run `opencap identity` and `opencap read` on site. asyncua 2.1's server does not
   notify live monitored items when a node is deleted (its callback coroutine is never
   awaited); the driver's handling of that status is tested by setting it on a node.
 
-### D-029 Northbound OPC UA server (PLAN Phase 6)
+### D-046 Northbound OPC UA server (PLAN Phase 6)
 For SCADA/HMI clients that read KEPServer today (`north/opcua_server.py`, `poller.yaml`
 `opcua_server`, **off by default**):
 - **Address space, KEPServer style:** `Objects/<channel>/<device>/<group>/.../<tag>`, NodeId
@@ -473,7 +473,7 @@ For SCADA/HMI clients that read KEPServer today (`north/opcua_server.py`, `polle
   tag types), so clients keep their sessions. asyncua builds its standard address space on every
   start (~1 s).
 
-### D-030 OPC UA test simulator
+### D-047 OPC UA test simulator
 `tests/helpers/opcua_sim.py` is a real asyncua server (no mocked wire) on a `stable_port()`
 (it restarts on the same port, D-022), nodes in ns 7 like the real project, values and status
 codes that survive a restart, users, anonymous off, security policies with a generated

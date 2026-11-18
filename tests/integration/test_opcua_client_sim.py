@@ -404,7 +404,7 @@ async def test_worker_keeps_unchanged_values_good_and_recovers_after_power_cycle
         while time.monotonic() < deadline:
             seen.add(cache.get(dev.id, "GRP.LTI002_PV").quality)
             await asyncio.sleep(0.01)
-        assert seen == {"good"}                               # D-028: not stale although SourceTimestamp is old
+        assert seen == {"good"}                               # D-045: not stale although SourceTimestamp is old
         assert cache.get(dev.id, "GRP.LTI002_PV").source_ts == old
         assert worker.device_status(dev.id)["connected"] is True
 

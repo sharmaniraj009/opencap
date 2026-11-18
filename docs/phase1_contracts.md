@@ -50,7 +50,7 @@ class ValueCache:
     def expire(self, device_id: str, now: datetime, max_age_s: dict[str, float], *,
                read_at: dict[str, datetime] | None = None) -> None
         # good tags whose last good read is older than max_age_s[name] -> "stale"
-        # age from source_ts, or from read_at[name] for `Driver.stale_by_read_time` drivers (D-028)
+        # age from source_ts, or from read_at[name] for `Driver.stale_by_read_time` drivers (D-045)
 
 class DeviceHealth:                       # pure state machine, time passed in
     state: Literal["ok", "offline", "demoted"]

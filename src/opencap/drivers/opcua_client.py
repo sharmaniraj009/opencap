@@ -3,7 +3,7 @@
 Pure part (no asyncua import, D-002): the NodeId parser, `OpcUaParams`, the block plan, the
 StatusCode -> quality mapping and the value coercion. asyncua is imported in `connect()`.
 
-How the subscription fits the core's polling model (docs/decisions.md D-028)
+How the subscription fits the core's polling model (docs/decisions.md D-045)
 - `connect()` opens a session (security policy and message mode from params, user name and
   password from the environment variables NAMED in params), creates ONE subscription for the
   device and one monitored item per distinct NodeId of every enabled tag (all rate groups),
@@ -70,7 +70,7 @@ _CODE_MASK = 0xFFFF0000                # the low 16 bits are info bits (limits, 
 
 
 def status_quality(code: int | None) -> Quality:
-    """OPC UA StatusCode -> opencap quality (module docstring, D-028)."""
+    """OPC UA StatusCode -> opencap quality (module docstring, D-045)."""
     code = code or 0
     severity = (code >> 30) & 0b11
     if severity == 0:
@@ -551,7 +551,7 @@ def _describe(exc: BaseException) -> str:
 
 
 class OpcUaClientDriver(Driver):
-    """OPC UA client via asyncua subscriptions. See the module docstring and D-028."""
+    """OPC UA client via asyncua subscriptions. See the module docstring and D-045."""
 
     name: ClassVar[str] = "opcua_client"
     is_async: ClassVar[bool] = True

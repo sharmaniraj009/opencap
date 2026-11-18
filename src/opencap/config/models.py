@@ -242,7 +242,7 @@ OpcUaServerPolicy = Literal[
 
 
 class OpcUaServerCfg(_Model):
-    """Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-029): the cache as a
+    """Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046): the cache as a
     read-only, KEPServer-style address space. Off by default."""
 
     enabled: bool = False

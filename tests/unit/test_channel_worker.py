@@ -403,7 +403,7 @@ async def test_old_source_ts_goes_stale_for_a_polled_driver():
 
 
 async def test_read_time_staleness_for_subscription_drivers():
-    """D-028: values whose SourceTimestamp is an hour old stay good while reads succeed, and
+    """D-045: values whose SourceTimestamp is an hour old stay good while reads succeed, and
     go stale 3 x the rate after the reads stop; source_ts is passed through unchanged."""
     ch, d = one_device(scan_ms=50)
     factory = FakeFactory()

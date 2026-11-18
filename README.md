@@ -70,7 +70,7 @@ confirmed), `overrides.yaml` (hand fixes). Secrets come from environment variabl
 ## OPC UA (client driver and server)
 
 `opcua_client` devices subscribe to their NodeIds (`ns=7;s=...`) instead of polling them; values
-carry the server's SourceTimestamp (docs/decisions.md D-028). The importer writes the env var
+carry the server's SourceTimestamp (docs/decisions.md D-045). The importer writes the env var
 names for the credentials (`OPENCAP_OPCUA_<CHANNEL>_USER/_PASSWORD`); set them before `run`.
 Secure endpoints need `certificate` and `private_key` paths in the device params
 (docs/driver_params.md); a self-signed pair is generated there on first connect, trust it on
@@ -82,7 +82,7 @@ read-only with KEPServer's NodeIds, `ns=2;s=<channel>.<device>.<tag>` (tag group
 plus `<channel>.<device>._System._Error`, `_State`, `_LastGood`... per device, so an existing
 SCADA client only changes its endpoint URL. Every write is refused. Bind it to localhost or the
 VPN only; for remote clients offer only `Basic256Sha256_SignAndEncrypt`, turn `anonymous` off
-and set a user through `username_env`/`password_env` (docs/decisions.md D-029).
+and set a user through `username_env`/`password_env` (docs/decisions.md D-046).
 
 ## Tests
 

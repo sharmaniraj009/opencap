@@ -7,7 +7,7 @@ values through its own OPC UA server, where a real asyncua client checks them:
 
 - MQTT `Data` and the opencap OPC UA server both equal the simulated values;
 - changes arrive through subscriptions (no polling: no tag node is read after connect);
-- unchanged values stay good (D-028: no stale tags while nothing changes);
+- unchanged values stay good (D-045: no stale tags while nothing changes);
 - a NodeId the server does not have is BadTags / BadConfigurationError; an Uncertain status is
   BadTags / UncertainLastUsableValue;
 - power-cycling one server takes only that device down (`_System._Error`), and after power-on

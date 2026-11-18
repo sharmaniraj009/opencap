@@ -82,7 +82,7 @@ class ValueCache:
 
         The age is measured from `source_ts`, or from `read_at[name]` when given: the time the
         worker last read the tag good, for drivers whose `source_ts` is the device's own change
-        time (subscriptions, D-028). Tags missing from `max_age_s`, and tags that are already
+        time (subscriptions, D-045). Tags missing from `max_age_s`, and tags that are already
         bad, are left alone.
         """
         tags = self._tags[device_id]

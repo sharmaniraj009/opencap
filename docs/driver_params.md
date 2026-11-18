@@ -85,4 +85,4 @@ opcua_client addresses are NodeIds (`ns=7;s=LTI002_PV`, `i=2258`, `ns=4;g=<guid>
 `user`, `passwd`, `private_key_password`) are rejected: put secrets in environment variables
 and name them in the `*_env` params. Security policy names: `None`, `Basic256Sha256`,
 `Aes128_Sha256_RsaOaep`, `Aes256_Sha256_RsaPss` (case and underscores do not matter); message
-mode `None`, `Sign` or `SignAndEncrypt`. See docs/decisions.md D-028.
+mode `None`, `Sign` or `SignAndEncrypt`. See docs/decisions.md D-045.

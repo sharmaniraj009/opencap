@@ -156,7 +156,7 @@ def test_expire_boundary_is_strictly_older():
 
 
 def test_expire_by_read_time_ignores_an_old_source_ts():
-    """Subscription drivers (D-028): age is measured from when the worker last read the tag
+    """Subscription drivers (D-045): age is measured from when the worker last read the tag
     good, so a value unchanged for an hour (old SourceTimestamp) is not stale."""
     c = ValueCache()
     c.register(dev("UNCHANGED", "STOPPED", "UNTRACKED"))

@@ -1,7 +1,7 @@
 """Northbound OPC UA server (PLAN.md Phase 6): the ValueCache as a read-only address space.
 
 It replaces KEPServer for the SCADA/HMI clients that read from it today (docs/decisions.md
-D-029). Off by default (`poller.yaml` -> `opcua_server.enabled`).
+D-046). Off by default (`poller.yaml` -> `opcua_server.enabled`).
 
 Address space, KEPServer style, in the namespace `namespace_uri` (registered first: ns=2)::
 
@@ -78,7 +78,7 @@ def variant_type(tag: Tag) -> str:
 
 
 def status_code(tv: TagValue) -> int:
-    """opencap quality -> OPC UA StatusCode (module docstring, D-029)."""
+    """opencap quality -> OPC UA StatusCode (module docstring, D-046)."""
     if tv.quality == "good":
         return GOOD
     if tv.quality == "stale":

@@ -1,0 +1,113 @@
+// opencap desktop launcher: connection profiles and engine health. Talks only to the app's
+// own Rust commands (window.__TAURI__.core.invoke); nothing here reaches the network itself.
+(function () {
+  "use strict";
+  var invoke = window.__TAURI__ && window.__TAURI__.core ? window.__TAURI__.core.invoke : null;
+  var list = document.getElementById("profiles");
+  var tpl = document.getElementById("profile-tpl");
+  var dialog = document.getElementById("editor");
+  var form = document.getElementById("profile-form");
+  var editing = null;
+
+  function showError(el, text) { el.textContent = text || ""; el.hidden = !text; }
+
+  function statusText(st) {
+    var parts = [];
+    parts.push((st.version || "engine") + (st.instance ? " · " + st.instance : ""));
+    parts.push("devices " + st.devices.ok + " ok / " + st.devices.offline + " offline / " + st.devices.demoted + " demoted");
+    if (st.mqtt_connected !== null && st.mqtt_connected !== undefined) parts.push("MQTT " + (st.mqtt_connected ? "connected" : "down"));
+    var a = st.auth;
+    if (a.state === "ok") parts.push("token ok (" + a.name + ", " + a.role + ")");
+    else if (a.state === "open") parts.push("no token configured on the engine: read-only");
+    else if (a.state === "token_required") parts.push("needs a token: edit this engine to add one");
+    else if (a.state === "bad_token") parts.push("the stored token was refused");
+    else parts.push("token: " + (a.detail || "unknown"));
+    if (!st.has_ui) parts.push("this engine does not serve the web UI");
+    return parts.join(" · ");
+  }
+
+  function statusClass(st) {
+    if (st.auth.state === "bad_token" || st.auth.state === "token_required") return "status warn";
+    return "status ok";
+  }
+
+  function check(p, li) {
+    var el = li.querySelector(".status");
+    el.className = "status muted small";
+    el.textContent = "checking…";
+    invoke("check_engine", { id: p.id }).then(function (st) {
+      el.className = statusClass(st) + " small";
+      el.textContent = statusText(st);
+      li.querySelector(".open").disabled = !st.has_ui;
+    }).catch(function (e) {
+      el.className = "status bad small";
+      el.textContent = String(e);
+    });
+  }
+
+  function render(profiles) {
+    list.textContent = "";
+    profiles.forEach(function (p) {
+      var li = tpl.content.firstElementChild.cloneNode(true);
+      li.querySelector(".name").textContent = p.name;
+      li.querySelector(".url").textContent = p.base_url + (p.keychain_error ? " · keychain unavailable: " + p.keychain_error
+        : (p.has_token ? " · token in keychain" : " · no token stored"));
+      li.querySelector(".open").addEventListener("click", function () {
+        invoke("open_engine", { id: p.id }).catch(function (e) { showError(document.getElementById("error"), String(e)); });
+      });
+      li.querySelector(".check").addEventListener("click", function () { check(p, li); });
+      li.querySelector(".edit").addEventListener("click", function () { openEditor(p); });
+      li.querySelector(".delete").addEventListener("click", function () {
+        if (!window.confirm("Delete " + p.name + " and its stored token?")) return;
+        invoke("delete_profile", { id: p.id }).then(load).catch(function (e) { showError(document.getElementById("error"), String(e)); });
+      });
+      list.appendChild(li);
+      check(p, li);
+    });
+  }
+
+  function load() {
+    showError(document.getElementById("error"), "");
+    return invoke("list_profiles").then(render).catch(function (e) { showError(document.getElementById("error"), String(e)); });
+  }
+
+  function openEditor(p) {
+    editing = p || null;
+    document.getElementById("editor-title").textContent = p ? "Edit " + p.name : "Add engine";
+    form.elements.name.value = p ? p.name : "";
+    form.elements.base_url.value = p ? p.base_url : "http://127.0.0.1:8080";
+    form.elements.token.value = "";
+    form.elements.clear_token.checked = false;
+    form.elements.clear_token.parentElement.hidden = !(p && p.has_token);
+    showError(document.getElementById("form-error"), "");
+    dialog.showModal();
+  }
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var input = {
+      id: editing ? editing.id : null,
+      name: form.elements.name.value,
+      base_url: form.elements.base_url.value,
+      token: form.elements.token.value || null,
+      clear_token: form.elements.clear_token.checked,
+    };
+    invoke("save_profile", { input: input }).then(function () {
+      form.elements.token.value = "";
+      dialog.close();
+      load();
+    }).catch(function (e) { showError(document.getElementById("form-error"), String(e)); });
+  });
+  document.getElementById("cancel").addEventListener("click", function () { dialog.close(); });
+  document.getElementById("add").addEventListener("click", function () { openEditor(null); });
+
+  if (!invoke) {
+    showError(document.getElementById("error"), "This page runs inside the opencap desktop app.");
+    return;
+  }
+  invoke("app_info").then(function (info) {
+    document.getElementById("foot").textContent = "opencap desktop " + info.version + " · profiles: " + info.profiles_path +
+      " (tokens: system keychain) · read-only towards PLCs";
+  });
+  load();
+})();

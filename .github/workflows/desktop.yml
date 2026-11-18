@@ -1,0 +1,56 @@
+name: desktop
+
+on:
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: deb,appimage
+          - os: windows-latest
+            bundles: msi
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev build-essential pkg-config file
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - name: Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Bundle (unsigned)
+        run: cargo tauri build --bundles ${{ matrix.bundles }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencap-desktop-${{ runner.os }}
+          path: |
+            desktop/target/release/bundle/deb/*.deb
+            desktop/target/release/bundle/appimage/*.AppImage
+            desktop/target/release/bundle/msi/*.msi
+          if-no-files-found: error

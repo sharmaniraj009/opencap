@@ -7,7 +7,7 @@ Each spec arrives through a board issue.
 | Spec | Status |
 |---|---|
 | `payload-subdevice-json.md` | today in the `src/opencap/north/payload.py` docstring and D-017 |
-| `system-tags.md` | board issue |
+| [`system-tags.md`](system-tags.md) | draft v1 (#22); vectors in `tests/conformance/system_tags/`; Python follow-ups and Rust #56 implement it |
 | `derived-tags.md` | board issue |
 | `alarms.md` | board issue |
 | `data-logger.md` | board issue |

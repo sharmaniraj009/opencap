@@ -1,0 +1,354 @@
+{
+ "spec": "docs/spec/system-tags.md",
+ "spec_version": 1,
+ "description": "Node-level counts and links (spec §5.3).",
+ "cases": [
+  {
+   "kind": "snapshot",
+   "name": "tag_device_client_and_outbox_counts",
+   "sections": [
+    "5.3"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": [
+      {
+       "server": "opcua_server",
+       "kind": "opcua_server",
+       "name": "SCADA B"
+      },
+      {
+       "server": "opcua_server",
+       "kind": "opcua_server",
+       "name": "HMI A"
+      },
+      {
+       "server": "modbus_server",
+       "kind": "modbus_server",
+       "name": "198.51.100.7:50210"
+      }
+     ]
+    },
+    "north": [
+     {
+      "name": "mqtt",
+      "kind": "mqtt",
+      "enabled": true,
+      "connected": true,
+      "published": 10,
+      "outbox": {
+       "messages": 120,
+       "bytes": 51200,
+       "oldest": "2026-11-18T09:59:17.500Z",
+       "max_bytes": 2147483648,
+       "dropped": 3
+      }
+     },
+     {
+      "name": "mqtt_cloud",
+      "kind": "mqtt",
+      "enabled": true,
+      "connected": false,
+      "published": 0,
+      "outbox": {
+       "messages": 0,
+       "bytes": 0,
+       "oldest": null,
+       "max_bytes": 1073741824,
+       "dropped": 1
+      }
+     },
+     {
+      "name": "opcua_server",
+      "kind": "opcua_server",
+      "enabled": true,
+      "running": true,
+      "clients": 2
+     }
+    ],
+    "channels": [
+     {
+      "name": "Plant A",
+      "enabled": true,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 10,
+        "tags_scanned": 9,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "errors": 0
+        }
+       },
+       {
+        "name": "PLC2",
+        "enabled": true,
+        "driver": "ab_logix",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 5,
+        "tags_scanned": 5,
+        "status": {
+         "state": "demoted",
+         "consecutive_failures": 3,
+         "errors": 3
+        }
+       },
+       {
+        "name": "PLC3",
+        "enabled": false,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 4,
+        "tags_scanned": 0,
+        "status": {
+         "state": "offline",
+         "consecutive_failures": 0,
+         "errors": 0
+        }
+       }
+      ]
+     },
+     {
+      "name": "Plant B",
+      "enabled": true,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.11",
+        "port": 502,
+        "tags_enabled": 7,
+        "tags_scanned": 7,
+        "status": {
+         "state": "offline",
+         "consecutive_failures": 1,
+         "errors": 1
+        }
+       },
+       {
+        "name": "PLC2",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.12",
+        "port": 502,
+        "tags_enabled": 3,
+        "tags_scanned": 3,
+        "status": {
+         "state": "offline",
+         "consecutive_failures": 0,
+         "errors": 0
+        }
+       }
+      ]
+     },
+     {
+      "name": "Plant C",
+      "enabled": false,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.13",
+        "port": 502,
+        "tags_enabled": 6,
+        "tags_scanned": 6,
+        "status": {
+         "state": "offline",
+         "consecutive_failures": 0,
+         "errors": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "_System._TotalTagCount": {
+     "dtype": "uint32",
+     "value": 25
+    },
+    "_System._ActiveTagCount": {
+     "dtype": "uint32",
+     "value": 19
+    },
+    "_System._ClientCount": {
+     "dtype": "uint32",
+     "value": 3
+    },
+    "_System._OpcClientNames": {
+     "dtype": "string_array",
+     "value": [
+      "HMI A",
+      "SCADA B"
+     ]
+    },
+    "_System._DevicesOk": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "_System._DevicesOffline": {
+     "dtype": "uint32",
+     "value": 2
+    },
+    "_System._DevicesDemoted": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "_System._DevicesDisabled": {
+     "dtype": "uint32",
+     "value": 2
+    },
+    "_System._MqttConnected": {
+     "dtype": "bool",
+     "value": false
+    },
+    "_System._OutboxMessages": {
+     "dtype": "uint64",
+     "value": 120
+    },
+    "_System._OutboxAgeS": {
+     "dtype": "float64",
+     "value": 42.5
+    },
+    "_System._OutboxDropped": {
+     "dtype": "uint64",
+     "value": 4
+    }
+   }
+  },
+  {
+   "kind": "snapshot",
+   "name": "mqtt_connected_ignores_disabled_agents",
+   "sections": [
+    "5.3"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [
+     {
+      "name": "mqtt",
+      "kind": "mqtt",
+      "enabled": true,
+      "connected": true,
+      "published": 10,
+      "outbox": {
+       "messages": 120,
+       "bytes": 51200,
+       "oldest": "2026-11-18T09:59:17.500Z",
+       "max_bytes": 2147483648,
+       "dropped": 3
+      }
+     },
+     {
+      "name": "mqtt_spare",
+      "kind": "mqtt",
+      "enabled": false,
+      "connected": false,
+      "published": 0
+     }
+    ],
+    "channels": []
+   },
+   "expect": {
+    "_System._MqttConnected": {
+     "dtype": "bool",
+     "value": true
+    },
+    "_System._OutboxMessages": {
+     "dtype": "uint64",
+     "value": 120
+    },
+    "_System._ClientCount": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "_System._OpcClientNames": {
+     "dtype": "string_array",
+     "value": []
+    },
+    "_System._TotalTagCount": {
+     "dtype": "uint32",
+     "value": 0
+    }
+   }
+  },
+  {
+   "kind": "snapshot",
+   "name": "no_mqtt_agent_means_not_connected",
+   "sections": [
+    "5.3"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [
+     {
+      "name": "opcua_server",
+      "kind": "opcua_server",
+      "enabled": true,
+      "running": true,
+      "clients": 2
+     }
+    ],
+    "channels": []
+   },
+   "expect": {
+    "_System._MqttConnected": {
+     "dtype": "bool",
+     "value": false
+    },
+    "_System._OutboxMessages": {
+     "dtype": "uint64",
+     "value": 0
+    },
+    "_System._OutboxAgeS": {
+     "dtype": "float64",
+     "value": 0.0
+    },
+    "_System._OutboxDropped": {
+     "dtype": "uint64",
+     "value": 0
+    }
+   }
+  }
+ ]
+}

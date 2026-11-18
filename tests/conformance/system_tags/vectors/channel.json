@@ -1,0 +1,667 @@
+{
+ "spec": "docs/spec/system-tags.md",
+ "spec_version": 1,
+ "description": "Channel mirrors and statistics (spec §7, §8.3).",
+ "cases": [
+  {
+   "kind": "snapshot",
+   "name": "serial_line_shared_settings",
+   "sections": [
+    "7.1"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Line 1",
+      "enabled": true,
+      "devices": [
+       {
+        "name": "Meter1",
+        "enabled": true,
+        "driver": "modbus_rtu",
+        "host": "/dev/ttyUSB0",
+        "port": 0,
+        "params": {
+         "transport": "serial",
+         "baudrate": 9600,
+         "parity": "E",
+         "com_port": "COM3",
+         "unit_id": 1
+        },
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       },
+       {
+        "name": "Meter2",
+        "enabled": true,
+        "driver": "modbus_rtu",
+        "host": "/dev/ttyUSB0",
+        "port": 0,
+        "params": {
+         "transport": "serial",
+         "baudrate": 9600,
+         "parity": "even",
+         "com_port": "COM3",
+         "unit_id": 2
+        },
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Line 1._System._Enabled": {
+     "dtype": "bool",
+     "value": true
+    },
+    "Line 1._System._Description": {
+     "dtype": "string",
+     "value": ""
+    },
+    "Line 1._System._Driver": {
+     "dtype": "string",
+     "value": "modbus_rtu"
+    },
+    "Line 1._System._DeviceCount": {
+     "dtype": "uint32",
+     "value": 2
+    },
+    "Line 1._System._ComId": {
+     "dtype": "uint32",
+     "value": 3
+    },
+    "Line 1._System._BaudRate": {
+     "dtype": "uint32",
+     "value": 9600
+    },
+    "Line 1._System._DataBits": {
+     "dtype": "uint32",
+     "value": 8
+    },
+    "Line 1._System._Parity": {
+     "dtype": "string",
+     "value": "Even"
+    },
+    "Line 1._System._StopBits": {
+     "dtype": "float64",
+     "value": 1.0
+    },
+    "Line 1.Meter1._System._DeviceId": {
+     "dtype": "string",
+     "value": "/dev/ttyUSB0"
+    }
+   },
+   "absent": [
+    "Line 1._System._EncapsulationPort",
+    "Line 1._System._EncapsulationProtocol",
+    "Line 1.Meter1._System._EncapsulationIp"
+   ]
+  },
+  {
+   "kind": "snapshot",
+   "name": "serial_line_settings_that_differ_are_placeholders",
+   "sections": [
+    "7.1"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Line 2",
+      "enabled": true,
+      "description": "north field line",
+      "devices": [
+       {
+        "name": "Meter1",
+        "enabled": true,
+        "driver": "modbus_rtu",
+        "host": "COM4",
+        "port": 0,
+        "params": {
+         "transport": "serial",
+         "baudrate": 9600,
+         "stopbits": 2
+        },
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       },
+       {
+        "name": "Slc1",
+        "enabled": true,
+        "driver": "ab_df1",
+        "host": "COM4",
+        "port": 0,
+        "params": {
+         "transport": "serial",
+         "baudrate": 19200,
+         "stopbits": 2,
+         "station": 1
+        },
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Line 2._System._Description": {
+     "dtype": "string",
+     "value": "north field line"
+    },
+    "Line 2._System._Driver": {
+     "dtype": "string",
+     "value": ""
+    },
+    "Line 2._System._ComId": {
+     "dtype": "uint32",
+     "value": 4
+    },
+    "Line 2._System._BaudRate": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Line 2._System._DataBits": {
+     "dtype": "uint32",
+     "value": 8
+    },
+    "Line 2._System._Parity": {
+     "dtype": "string",
+     "value": "None"
+    },
+    "Line 2._System._StopBits": {
+     "dtype": "float64",
+     "value": 2.0
+    },
+    "Line 2.Slc1._System._DeviceId": {
+     "dtype": "string",
+     "value": "COM4"
+    }
+   }
+  },
+  {
+   "kind": "snapshot",
+   "name": "serial_over_tcp_gateway",
+   "sections": [
+    "7.1",
+    "8.2"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Gateway",
+      "enabled": true,
+      "devices": [
+       {
+        "name": "Meter1",
+        "enabled": true,
+        "driver": "modbus_rtu",
+        "host": "192.0.2.20",
+        "port": 4001,
+        "params": {},
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       },
+       {
+        "name": "Meter2",
+        "enabled": true,
+        "driver": "modbus_rtu",
+        "host": "192.0.2.20",
+        "port": 4002,
+        "params": {},
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Gateway._System._EncapsulationPort": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Gateway._System._EncapsulationProtocol": {
+     "dtype": "string",
+     "value": "TCP/IP"
+    },
+    "Gateway.Meter1._System._EncapsulationIp": {
+     "dtype": "string",
+     "value": "192.0.2.20"
+    },
+    "Gateway.Meter1._System._EncapsulationPort": {
+     "dtype": "uint32",
+     "value": 4001
+    },
+    "Gateway.Meter1._System._EncapsulationProtocol": {
+     "dtype": "string",
+     "value": "TCP/IP"
+    },
+    "Gateway.Meter1._System._DeviceId": {
+     "dtype": "string",
+     "value": "192.0.2.20:4001"
+    },
+    "Gateway.Meter2._System._EncapsulationPort": {
+     "dtype": "uint32",
+     "value": 4002
+    }
+   },
+   "absent": [
+    "Gateway._System._BaudRate",
+    "Gateway._System._ComId"
+   ]
+  },
+  {
+   "kind": "snapshot",
+   "name": "ethernet_channel_has_no_line_mirrors",
+   "sections": [
+    "7.1"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Plant A",
+      "enabled": false,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "errors": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Plant A._System._Enabled": {
+     "dtype": "bool",
+     "value": false
+    },
+    "Plant A._System._Driver": {
+     "dtype": "string",
+     "value": "modbus_tcp"
+    },
+    "Plant A._System._DeviceCount": {
+     "dtype": "uint32",
+     "value": 1
+    }
+   },
+   "absent": [
+    "Plant A._System._BaudRate",
+    "Plant A._System._EncapsulationPort",
+    "Plant A.PLC1._System._EncapsulationIp"
+   ]
+  },
+  {
+   "kind": "snapshot",
+   "name": "statistics_sums_wrap_and_byte_condition",
+   "sections": [
+    "7.2",
+    "8.3"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Plant A",
+      "enabled": true,
+      "in_flight": 1,
+      "max_in_flight": 1,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "errors": 0
+        },
+        "counts_bytes": true,
+        "counters": {
+         "ok": 4294967290,
+         "timeout": 6,
+         "conn_error": 2,
+         "bad_config": 1,
+         "error": 0,
+         "failed_reads": 3,
+         "overruns": 5,
+         "rx_bytes": 1000,
+         "tx_bytes": 400
+        }
+       },
+       {
+        "name": "PLC2",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.11",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "errors": 0
+        },
+        "counts_bytes": false,
+        "counters": {
+         "ok": 10,
+         "timeout": 3,
+         "conn_error": 0,
+         "bad_config": 0,
+         "error": 1,
+         "failed_reads": 1,
+         "overruns": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Plant A._Statistics._SuccessfulReads": {
+     "dtype": "uint32",
+     "value": 4
+    },
+    "Plant A._Statistics._FailedReads": {
+     "dtype": "uint32",
+     "value": 4
+    },
+    "Plant A._Statistics._PendingReads": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "Plant A._Statistics._MaxPendingReads": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "Plant A._Statistics._RequestsOk": {
+     "dtype": "uint64",
+     "value": 4294967300
+    },
+    "Plant A._Statistics._Timeouts": {
+     "dtype": "uint64",
+     "value": 9
+    },
+    "Plant A._Statistics._ConnErrors": {
+     "dtype": "uint64",
+     "value": 2
+    },
+    "Plant A._Statistics._BadConfig": {
+     "dtype": "uint64",
+     "value": 1
+    },
+    "Plant A._Statistics._OtherErrors": {
+     "dtype": "uint64",
+     "value": 1
+    },
+    "Plant A._Statistics._Overruns": {
+     "dtype": "uint64",
+     "value": 5
+    },
+    "Plant A.PLC1._Statistics._SuccessfulReads": {
+     "dtype": "uint32",
+     "value": 4294967290
+    },
+    "Plant A.PLC1._Statistics._FailedReads": {
+     "dtype": "uint32",
+     "value": 3
+    },
+    "Plant A.PLC1._Statistics._RxBytes": {
+     "dtype": "uint32",
+     "value": 1000
+    },
+    "Plant A.PLC1._Statistics._TxBytes": {
+     "dtype": "uint32",
+     "value": 400
+    },
+    "Plant A.PLC1._Statistics._RequestsOk": {
+     "dtype": "uint64",
+     "value": 4294967290
+    },
+    "Plant A.PLC1._Statistics._Timeouts": {
+     "dtype": "uint64",
+     "value": 6
+    },
+    "Plant A.PLC1._System._Overruns": {
+     "dtype": "uint64",
+     "value": 5
+    },
+    "Plant A.PLC2._Statistics._SuccessfulReads": {
+     "dtype": "uint32",
+     "value": 10
+    },
+    "Plant A.PLC2._Statistics._OtherErrors": {
+     "dtype": "uint64",
+     "value": 1
+    }
+   },
+   "absent": [
+    "Plant A._Statistics._RxBytes",
+    "Plant A._Statistics._TxBytes",
+    "Plant A.PLC2._Statistics._RxBytes",
+    "Plant A._Statistics._SuccessfulWrites",
+    "Plant A._Statistics._Reset"
+   ]
+  },
+  {
+   "kind": "snapshot",
+   "name": "byte_counters_when_every_driver_counts",
+   "sections": [
+    "7.2",
+    "8.3"
+   ],
+   "state": {
+    "now": "2026-11-18T10:00:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": [
+     {
+      "name": "Plant A",
+      "enabled": true,
+      "devices": [
+       {
+        "name": "PLC1",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.10",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "errors": 0
+        },
+        "counts_bytes": true,
+        "counters": {
+         "ok": 3,
+         "timeout": 0,
+         "conn_error": 4,
+         "bad_config": 2,
+         "rx_bytes": 4294967000,
+         "tx_bytes": 120
+        }
+       },
+       {
+        "name": "PLC2",
+        "enabled": true,
+        "driver": "modbus_tcp",
+        "host": "192.0.2.11",
+        "port": 502,
+        "tags_enabled": 1,
+        "tags_scanned": 1,
+        "status": {
+         "state": "ok",
+         "consecutive_failures": 0,
+         "errors": 0
+        },
+        "counts_bytes": true,
+        "counters": {
+         "ok": 1,
+         "conn_error": 1,
+         "rx_bytes": 500,
+         "tx_bytes": 80
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "Plant A._Statistics._RxBytes": {
+     "dtype": "uint32",
+     "value": 204
+    },
+    "Plant A._Statistics._TxBytes": {
+     "dtype": "uint32",
+     "value": 200
+    },
+    "Plant A._Statistics._PendingReads": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Plant A._Statistics._MaxPendingReads": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "Plant A._Statistics._ConnErrors": {
+     "dtype": "uint64",
+     "value": 5
+    },
+    "Plant A.PLC1._Statistics._ConnErrors": {
+     "dtype": "uint64",
+     "value": 4
+    },
+    "Plant A.PLC1._Statistics._BadConfig": {
+     "dtype": "uint64",
+     "value": 2
+    },
+    "Plant A.PLC2._Statistics._BadConfig": {
+     "dtype": "uint64",
+     "value": 0
+    },
+    "Plant A.PLC2._Statistics._RxBytes": {
+     "dtype": "uint32",
+     "value": 500
+    },
+    "Plant A.PLC1._Statistics._RxBytes": {
+     "dtype": "uint32",
+     "value": 4294967000
+    }
+   }
+  }
+ ]
+}

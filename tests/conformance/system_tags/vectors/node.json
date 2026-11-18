@@ -1,0 +1,383 @@
+{
+ "spec": "docs/spec/system-tags.md",
+ "spec_version": 1,
+ "description": "Node identity, clock and redundancy placeholder (spec §5.1, §5.2, §5.5).",
+ "cases": [
+  {
+   "kind": "snapshot",
+   "name": "identity_and_clock_kolkata",
+   "sections": [
+    "5.1",
+    "5.2",
+    "5.5"
+   ],
+   "state": {
+    "now": "2026-11-18T10:15:42.250Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-edge-2",
+     "project_name": "plant-a",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-18T08:00:00.000Z",
+     "timezone": "Asia/Kolkata",
+     "sessions": []
+    },
+    "north": [],
+    "channels": []
+   },
+   "expect": {
+    "_System._ProductName": {
+     "dtype": "string",
+     "value": "opencap"
+    },
+    "_System._ProductVersion": {
+     "dtype": "string",
+     "value": "0.1.0"
+    },
+    "_System._Version": {
+     "dtype": "string",
+     "value": "opencap-0.1.0"
+    },
+    "_System._Engine": {
+     "dtype": "string",
+     "value": "python"
+    },
+    "_System._Instance": {
+     "dtype": "string",
+     "value": "opencap-edge-2"
+    },
+    "_System._ProjectName": {
+     "dtype": "string",
+     "value": "plant-a"
+    },
+    "_System._ProjectTitle": {
+     "dtype": "string",
+     "value": ""
+    },
+    "_System._ProjectRevision": {
+     "dtype": "string",
+     "value": "5d41402abc4b2a76"
+    },
+    "_System._StartTime": {
+     "dtype": "datetime",
+     "value": "2026-11-18T08:00:00.000Z"
+    },
+    "_System._UptimeS": {
+     "dtype": "uint64",
+     "value": 8142
+    },
+    "_System._DateTime": {
+     "dtype": "string",
+     "value": "2026-11-18T10:15:42.250Z"
+    },
+    "_System._DateTimeLocal": {
+     "dtype": "string",
+     "value": "2026-11-18T15:45:42.250+05:30"
+    },
+    "_System._Date": {
+     "dtype": "string",
+     "value": "2026-11-18"
+    },
+    "_System._Time": {
+     "dtype": "string",
+     "value": "15:45:42"
+    },
+    "_System._Date_Day": {
+     "dtype": "uint32",
+     "value": 18
+    },
+    "_System._Date_DayOfWeek": {
+     "dtype": "uint32",
+     "value": 3
+    },
+    "_System._Date_Month": {
+     "dtype": "uint32",
+     "value": 11
+    },
+    "_System._Date_Year2": {
+     "dtype": "uint32",
+     "value": 26
+    },
+    "_System._Date_Year4": {
+     "dtype": "uint32",
+     "value": 2026
+    },
+    "_System._Time_Hour": {
+     "dtype": "uint32",
+     "value": 3
+    },
+    "_System._Time_Hour24": {
+     "dtype": "uint32",
+     "value": 15
+    },
+    "_System._Time_Minute": {
+     "dtype": "uint32",
+     "value": 45
+    },
+    "_System._Time_Second": {
+     "dtype": "uint32",
+     "value": 42
+    },
+    "_System._Time_PM": {
+     "dtype": "bool",
+     "value": true
+    },
+    "_System._Redundancy._Mode": {
+     "dtype": "string",
+     "value": "standalone"
+    },
+    "_System._Redundancy._Role": {
+     "dtype": "string",
+     "value": "active"
+    }
+   },
+   "absent": [
+    "_System._FullProjectName",
+    "_System._LicensedFeatures",
+    "_System._North"
+   ]
+  },
+  {
+   "kind": "snapshot",
+   "name": "clock_new_year_just_after_midnight_utc",
+   "sections": [
+    "5.2"
+   ],
+   "state": {
+    "now": "2027-01-01T00:05:09.007Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "rust",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-12-31T08:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": []
+   },
+   "expect": {
+    "_System._Engine": {
+     "dtype": "string",
+     "value": "rust"
+    },
+    "_System._UptimeS": {
+     "dtype": "uint64",
+     "value": 57909
+    },
+    "_System._DateTime": {
+     "dtype": "string",
+     "value": "2027-01-01T00:05:09.007Z"
+    },
+    "_System._DateTimeLocal": {
+     "dtype": "string",
+     "value": "2027-01-01T00:05:09.007+00:00"
+    },
+    "_System._Date": {
+     "dtype": "string",
+     "value": "2027-01-01"
+    },
+    "_System._Time": {
+     "dtype": "string",
+     "value": "00:05:09"
+    },
+    "_System._Date_Day": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "_System._Date_DayOfWeek": {
+     "dtype": "uint32",
+     "value": 5
+    },
+    "_System._Date_Month": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "_System._Date_Year2": {
+     "dtype": "uint32",
+     "value": 27
+    },
+    "_System._Date_Year4": {
+     "dtype": "uint32",
+     "value": 2027
+    },
+    "_System._Time_Hour": {
+     "dtype": "uint32",
+     "value": 12
+    },
+    "_System._Time_Hour24": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "_System._Time_Minute": {
+     "dtype": "uint32",
+     "value": 5
+    },
+    "_System._Time_Second": {
+     "dtype": "uint32",
+     "value": 9
+    },
+    "_System._Time_PM": {
+     "dtype": "bool",
+     "value": false
+    }
+   }
+  },
+  {
+   "kind": "snapshot",
+   "name": "clock_new_york_before_dst_ends",
+   "sections": [
+    "5.2"
+   ],
+   "state": {
+    "now": "2026-11-01T05:30:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-01T05:00:00.000Z",
+     "timezone": "America/New_York",
+     "sessions": []
+    },
+    "north": [],
+    "channels": []
+   },
+   "expect": {
+    "_System._DateTimeLocal": {
+     "dtype": "string",
+     "value": "2026-11-01T01:30:00.000-04:00"
+    },
+    "_System._Date": {
+     "dtype": "string",
+     "value": "2026-11-01"
+    },
+    "_System._Time": {
+     "dtype": "string",
+     "value": "01:30:00"
+    },
+    "_System._Date_DayOfWeek": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "_System._Time_Hour": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "_System._Time_Hour24": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "_System._Time_PM": {
+     "dtype": "bool",
+     "value": false
+    },
+    "_System._UptimeS": {
+     "dtype": "uint64",
+     "value": 1800
+    }
+   }
+  },
+  {
+   "kind": "snapshot",
+   "name": "clock_new_york_after_dst_ends_same_wall_time",
+   "sections": [
+    "5.2"
+   ],
+   "state": {
+    "now": "2026-11-01T06:30:00.000Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-11-01T05:00:00.000Z",
+     "timezone": "America/New_York",
+     "sessions": []
+    },
+    "north": [],
+    "channels": []
+   },
+   "expect": {
+    "_System._DateTime": {
+     "dtype": "string",
+     "value": "2026-11-01T06:30:00.000Z"
+    },
+    "_System._DateTimeLocal": {
+     "dtype": "string",
+     "value": "2026-11-01T01:30:00.000-05:00"
+    },
+    "_System._Time": {
+     "dtype": "string",
+     "value": "01:30:00"
+    },
+    "_System._Time_Hour24": {
+     "dtype": "uint32",
+     "value": 1
+    },
+    "_System._UptimeS": {
+     "dtype": "uint64",
+     "value": 5400
+    }
+   }
+  },
+  {
+   "kind": "snapshot",
+   "name": "clock_noon_is_12_pm",
+   "sections": [
+    "5.2"
+   ],
+   "state": {
+    "now": "2026-06-07T12:00:59.999Z",
+    "node": {
+     "product_version": "0.1.0",
+     "engine": "python",
+     "instance": "opencap-1",
+     "project_name": "config",
+     "project_title": "",
+     "project_revision": "5d41402abc4b2a76",
+     "start_time": "2026-06-07T12:00:00.000Z",
+     "timezone": "UTC",
+     "sessions": []
+    },
+    "north": [],
+    "channels": []
+   },
+   "expect": {
+    "_System._Time_Hour": {
+     "dtype": "uint32",
+     "value": 12
+    },
+    "_System._Time_Hour24": {
+     "dtype": "uint32",
+     "value": 12
+    },
+    "_System._Time_PM": {
+     "dtype": "bool",
+     "value": true
+    },
+    "_System._Time_Second": {
+     "dtype": "uint32",
+     "value": 59
+    },
+    "_System._Date_DayOfWeek": {
+     "dtype": "uint32",
+     "value": 0
+    },
+    "_System._UptimeS": {
+     "dtype": "uint64",
+     "value": 59
+    }
+   }
+  }
+ ]
+}

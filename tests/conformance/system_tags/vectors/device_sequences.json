@@ -1,0 +1,538 @@
+{
+ "spec": "docs/spec/system-tags.md",
+ "spec_version": 1,
+ "description": "Device health transitions over time (spec §9).",
+ "cases": [
+  {
+   "kind": "device_sequence",
+   "name": "fail_demote_failed_probe_resume",
+   "sections": [
+    "8.1",
+    "9"
+   ],
+   "device": {
+    "name": "PLC1",
+    "driver": "modbus_tcp",
+    "host": "192.0.2.10",
+    "port": 502,
+    "demote_after": 3,
+    "demote_for_ms": 10000
+   },
+   "start": "2026-11-18T10:00:00.000Z",
+   "steps": [
+    {
+     "at": "2026-11-18T10:00:00.000Z",
+     "event": "tick",
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_NoError": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 0
+      },
+      "_AutoDemoted": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_FailedConnection": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_Connected": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_LastGood": {
+       "dtype": "datetime",
+       "value": null
+      },
+      "_LastError": {
+       "dtype": "string",
+       "value": ""
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 0
+      },
+      "_CycleMs": {
+       "dtype": "float64",
+       "value": 0.0
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:00.100Z",
+     "event": "connect_ok"
+    },
+    {
+     "at": "2026-11-18T10:00:00.150Z",
+     "event": "cycle_good",
+     "cycle_ms": 50.0,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "ok"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_Connected": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_LastGood": {
+       "dtype": "datetime",
+       "value": "2026-11-18T10:00:00.150Z"
+      },
+      "_CycleMs": {
+       "dtype": "float64",
+       "value": 50.0
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:01.150Z",
+     "event": "cycle_failed",
+     "error": "HR 0..9 (10 regs): timeout",
+     "cycle_ms": 9001.2,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_NoError": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 0
+      },
+      "_AutoDemoted": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 1
+      },
+      "_LastError": {
+       "dtype": "string",
+       "value": "HR 0..9 (10 regs): timeout"
+      },
+      "_LastGood": {
+       "dtype": "datetime",
+       "value": "2026-11-18T10:00:00.150Z"
+      },
+      "_CycleMs": {
+       "dtype": "float64",
+       "value": 9001.2
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:03.650Z",
+     "event": "tick",
+     "expect": {
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 2
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": true
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:11.150Z",
+     "event": "connect_failed"
+    },
+    {
+     "at": "2026-11-18T10:00:11.160Z",
+     "event": "cycle_failed",
+     "error": "connect failed: connection refused",
+     "cycle_ms": 2.0,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 2
+      },
+      "_FailedConnection": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_Connected": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 10
+      },
+      "_LastError": {
+       "dtype": "string",
+       "value": "connect failed: connection refused"
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:21.160Z",
+     "event": "cycle_failed",
+     "error": "connect failed: connection refused",
+     "cycle_ms": 0.1,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "demoted"
+      },
+      "_AutoDemoted": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_NoError": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 20
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 3
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:31.160Z",
+     "event": "tick",
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "demoted"
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 30
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:31.170Z",
+     "event": "connect_failed"
+    },
+    {
+     "at": "2026-11-18T10:00:31.180Z",
+     "event": "cycle_failed",
+     "error": "connect failed: connection refused",
+     "cycle_ms": 2.1,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "demoted"
+      },
+      "_AutoDemoted": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 4
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 30
+      },
+      "_FailedConnection": {
+       "dtype": "bool",
+       "value": true
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:41.200Z",
+     "event": "connect_ok"
+    },
+    {
+     "at": "2026-11-18T10:00:41.260Z",
+     "event": "cycle_good",
+     "cycle_ms": 60.0,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "ok"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_NoError": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 0
+      },
+      "_AutoDemoted": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_FailedConnection": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_Connected": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_LastGood": {
+       "dtype": "datetime",
+       "value": "2026-11-18T10:00:41.260Z"
+      },
+      "_LastError": {
+       "dtype": "string",
+       "value": ""
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 4
+      },
+      "_CycleMs": {
+       "dtype": "float64",
+       "value": 60.0
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:42.260Z",
+     "event": "cycle_failed",
+     "error": "HR 0..9 (10 regs): timeout",
+     "cycle_ms": 9000.0,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 0
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 5
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:45.900Z",
+     "event": "tick",
+     "expect": {
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 3
+      }
+     }
+    }
+   ]
+  },
+  {
+   "kind": "device_sequence",
+   "name": "neutral_cycles_and_demotion_off",
+   "sections": [
+    "9"
+   ],
+   "device": {
+    "name": "PLC2",
+    "driver": "modbus_tcp",
+    "host": "192.0.2.11",
+    "port": 502,
+    "demote_after": 0,
+    "demote_for_ms": 30000
+   },
+   "start": "2026-11-18T10:00:00.000Z",
+   "steps": [
+    {
+     "at": "2026-11-18T10:00:00.000Z",
+     "event": "connect_ok"
+    },
+    {
+     "at": "2026-11-18T10:00:00.050Z",
+     "event": "cycle_neutral",
+     "error": "HR 40000 (1 regs): illegal data address",
+     "cycle_ms": 4.0,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_NoError": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 0
+      },
+      "_LastError": {
+       "dtype": "string",
+       "value": "HR 40000 (1 regs): illegal data address"
+      },
+      "_Connected": {
+       "dtype": "bool",
+       "value": true
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:01.000Z",
+     "event": "cycle_failed",
+     "error": "HR 0..9 (10 regs): timeout",
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 1
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:02.500Z",
+     "event": "cycle_neutral",
+     "error": "HR 40000 (1 regs): illegal data address",
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 1
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 1
+      },
+      "_LastError": {
+       "dtype": "string",
+       "value": "HR 40000 (1 regs): illegal data address"
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:03.000Z",
+     "event": "cycle_failed",
+     "error": "HR 0..9 (10 regs): timeout"
+    },
+    {
+     "at": "2026-11-18T10:00:04.000Z",
+     "event": "cycle_failed",
+     "error": "HR 0..9 (10 regs): timeout"
+    },
+    {
+     "at": "2026-11-18T10:00:05.000Z",
+     "event": "cycle_failed",
+     "error": "HR 0..9 (10 regs): timeout"
+    },
+    {
+     "at": "2026-11-18T10:00:06.000Z",
+     "event": "cycle_failed",
+     "error": "HR 0..9 (10 regs): timeout",
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "offline"
+      },
+      "_AutoDemoted": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": true
+      },
+      "_ErrorCount": {
+       "dtype": "uint64",
+       "value": 5
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 5
+      }
+     }
+    },
+    {
+     "at": "2026-11-18T10:00:07.000Z",
+     "event": "cycle_good",
+     "error": "HR 40000 (1 regs): illegal data address",
+     "cycle_ms": 8.0,
+     "expect": {
+      "_State": {
+       "dtype": "string",
+       "value": "ok"
+      },
+      "_Error": {
+       "dtype": "bool",
+       "value": false
+      },
+      "_SecondsInError": {
+       "dtype": "uint32",
+       "value": 0
+      },
+      "_LastError": {
+       "dtype": "string",
+       "value": "HR 40000 (1 regs): illegal data address"
+      },
+      "_LastGood": {
+       "dtype": "datetime",
+       "value": "2026-11-18T10:00:07.000Z"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

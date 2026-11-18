@@ -59,7 +59,7 @@ plug-in (manual p. 86–95).
 - **Requirements:**
   - `Device.description: str | null` (additive, ADR-0003), imported from the KEPServerEX description.
   - Returned by `GET /api/v1/devices/{id}`, editable in the config editor, exposed as
-    `_System._Description` (SYS-09) and as the OPC UA folder description.
+    `<Channel>.<Device>._System._Description` (SYS-08 in plan 07) and as the OPC UA folder description.
 - **Acceptance:** importer and API unit tests; config fixture; UI smoke test.
 
 ### DEV-03 Data collection on/off (manual p. 87)
@@ -67,7 +67,7 @@ plug-in (manual p. 86–95).
   changed at any time, including through a system tag.
 - **Decision:** Adapt — `enabled` in `devices.json` or `overrides.yaml`, changed through the audited
   API (`PATCH /api/v1/devices/{id}` or the override routes) and applied by reload; the writable
-  `_Enabled` tag is not offered (SYS-08).
+  `_Enabled` tag is not offered (SYS-09 in plan 07).
 - **Status:** Done
 - **Requirements:**
   - A disabled device sends no request and publishes nothing; `opencap check` shows it `(disabled)`.
@@ -133,7 +133,7 @@ plug-in (manual p. 86–95).
   asks explicitly or triggers a device-wide poll.
 - **Decision:** Adapt — `scan_mode: demand` leaves the device unscheduled; reads come from `POST
   /api/v1/devices/{id}/read-once` (done) or from north demand reads where `allow_demand_reads` is
-  set (03 §3.5). The `_DemandPoll` write trigger is replaced by the API route (SYS-08).
+  set (03 §3.5). The `_DemandPoll` write trigger is replaced by the API route (SYS-09 in plan 07).
 - **Status:** Not started
 - **Requirements:**
   - Device `scan_mode: periodic | demand` (default `periodic`); a `demand` device has no rate groups,
@@ -166,7 +166,7 @@ plug-in (manual p. 86–95).
 - **Status:** Done
 - **Requirements:**
   - State `demoted` in `GET …/status`, `device_state` = 2 in `/metrics`, and the device's MQTT status
-    topic; `_AutoDemoted` follows with the system tags (SYS-09 in plan 07).
+    topic; `_AutoDemoted` follows with the system tags (SYS-08 in plan 07).
   - A failed probe demotes again for another `demote_for_ms`; a good probe resumes polling.
   - The importer copies the KEPServerEX count and period when demotion is on there.
 - **Acceptance:** `tests/unit/test_health.py`, `tests/unit/test_channel_worker.py`; Phase 1 acceptance
@@ -265,7 +265,7 @@ plug-in (manual p. 86–95).
 - **Requirements:**
   - `Device.hosts: [{host, port}]` (optional, after `host`/`port`); the worker moves to the next path
     after a failed connect or a demotion and reports the active path in `GET …/status` and a
-    `_System._ActivePath` tag; metric `device_path_switches_total{device}`.
+    `<Channel>.<Device>._System._ActivePath` tag; metric `device_path_switches_total{device}`.
   - One path at a time; never two connections to one device.
 - **Acceptance:** simulator test with two endpoints, one cut with `tests/helpers/netcut.py`; both engines.
 

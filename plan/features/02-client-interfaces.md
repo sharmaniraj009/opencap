@@ -251,7 +251,8 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
   timeouts, and automatic deactivation of tags iFIX stops reading.
 - **Decision:** Out of scope — proprietary interface (ADR-0009 §5); iFIX connects through its
   OPC UA client or the DA bridge. "Unconfirmed updates" is a write path (ADR-0008). The idea of
-  scanning only what clients read is FR-3's client-driven scan (scan planning file).
+  scanning only what clients read is FR-3's client-driven scan. iFIX-specific topics from later
+  in the manual are in [13-ifix.md](13-ifix.md).
 - **Status:** Out of scope
 
 ### IF-15 ThingWorx native interface (manual pp. 28–29, 47–52)
@@ -302,7 +303,8 @@ tags (pp. 49–55), which are planned in [11-store-and-forward.md](11-store-and-
 - **What:** Per-interface diagnostic capture (OPC DA, OPC UA stack, HDA, ThingWorx) into the event
   log or a diagnostics viewer, off by default because it costs performance.
 - **Decision:** Adapt — per-interface metrics always on; detailed tracing per interface off by
-  default, rate-limited, written to the logs and the event log (ADM-11, #56).
+  default, rate-limited, written to the logs and the event log (09 ADM-11, #56; see also
+  [12-diagnostics.md](12-diagnostics.md)).
 - **Status:** Not started.
 - **Requirements:**
   - Each interface exports connections/sessions, requests, refusals and errors as metrics.

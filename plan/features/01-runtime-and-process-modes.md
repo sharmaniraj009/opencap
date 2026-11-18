@@ -162,7 +162,7 @@ it confirms and whether it backs up project files (pp. 33–35).
 - **Decision:** Adapt — one engine process holds the runtime, the API and (later) the event log;
   configuration clients are the web UI, the desktop app (same bundle, ADR-0010) and the CLI;
   administration is the CLI plus the OS service manager. CSV tag import/export belongs to tag
-  management (#10, other plan file).
+  management (#10, [07-tag-management-and-system-tags.md](07-tag-management-and-system-tags.md)).
 - **Status:** Done (engine, CLI, admin and config API, web UI, #63; Rust API parity #84); desktop
   In review (PR #87); event log Planned (#56).
 - **Requirements:**
@@ -259,7 +259,7 @@ it confirms and whether it backs up project files (pp. 33–35).
 - **Decision:** Adapt — the web UI and desktop app give the same cues the web way; confirmations
   for destructive actions are always on rather than optional; "pending" is the API's
   pending-reload state. Plug-in tree nodes are planned in each plug-in's file; the CSV delimiter
-  goes with CSV import (#10).
+  goes with CSV import (#10, 07-tag-management-and-system-tags.md).
 - **Status:** Done in part (#63: delete and import confirmations, dry-run diff before import,
   pending-reload indicator via `GET /api/v1/project/pending`, field-level validation errors);
   defaults/reset and unsaved-edit warning Not started; desktop profiles and auto-connect In review

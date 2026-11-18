@@ -234,7 +234,7 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
   - Node setting `serialization_mode: load_balanced | priority` (default `load_balanced`); in
     `priority` a pending `read-once` gets the next turn.
   - Metrics `serialization_turns_total{channel}`, `serialization_owned_seconds_total{channel}`;
-    tags per SYS-15.
+    tags per SYS-13 in plan 07.
   - `opencap check` estimates the group's cycle as the sum of its channels.
 - **Acceptance:** simulator test with three channels in one group: request intervals never overlap,
   turns follow the configured count; a muted device delays the others until demoted; both engines.

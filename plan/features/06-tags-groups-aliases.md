@@ -125,7 +125,7 @@ paths, mainly for legacy and DDE-style clients, with an optional scan-rate overr
 - **Requirements:**
   - `Tag.description` is imported, editable through the API and shown in the config editor.
   - Follow-up in plan 02: the OPC UA server sets each variable's `Description` from it (03 §3.5,
-    #74, #50); property-style access is SYS-11 in plan 07.
+    #74, #50); property-style access is SYS-10 in plan 07.
 - **Acceptance:** importer and API unit tests.
 
 ### TAG-09 Multiple tag generation (manual p. 98–101)

@@ -470,14 +470,19 @@ def test_import_rejects_unknown_documents(env):
     assert c.post(f"{V1}/project/import", json={"hello": 1}, headers=ADMIN).status_code == 422
 
 
-def test_validate_endpoint(env):
+def test_validate_endpoint(env, monkeypatch):
     c, _, _, _ = env
+    from opencap import drivers
+    # a driver whose module is not there (yet): it must show as a plan error, not break the report
+    monkeypatch.setitem(drivers.DRIVERS, "opcua_client", "opencap.drivers._not_built_yet:Nope")
     report = c.get(f"{V1}/project/validate", headers=VIEWER).json()
     assert report["rtt_ms"] == 60.0 and report["totals"]["devices"] == 10
     modbus = next(ch for ch in report["channels"] if ch["name"] == "SITE MODBUS")["devices"][0]
     assert modbus["blocks"] >= 1 and modbus["wire_requests"] >= 1 and "block_plan" not in modbus
     s7 = next(ch for ch in report["channels"] if ch["name"] == "SITE S7")["devices"][0]
-    assert "not implemented" in s7["plan_error"]
+    assert s7["plan_error"] is None and s7["blocks"] >= 1          # the s7 driver plans (#60)
+    opc = next(ch for ch in report["channels"] if ch["name"] == "Test OPC")["devices"][0]
+    assert "not implemented" in opc["plan_error"]
     verbose = c.get(f"{V1}/project/validate?site=SITE MODBUS&verbose=true", headers=VIEWER).json()
     assert [ch["name"] for ch in verbose["channels"]] == ["SITE MODBUS"]
     assert verbose["channels"][0]["devices"][0]["block_plan"][0]["describe"].startswith("FC")

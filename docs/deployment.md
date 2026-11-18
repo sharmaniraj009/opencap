@@ -162,6 +162,22 @@ Notes:
   `C:\ProgramData\opencap\data` and `\logs`.
 - Windows support has not been tested on real hardware yet. Please report what you find.
 
+## Commissioning a Siemens S7 or Mitsubishi PLC
+
+The S7 and MC drivers are tested against simulators only (D-058). On the first real PLC of
+each kind, before the cut-over:
+
+1. `opencap identity "<channel>/<S7 device>"`: CPU module and order code (SZL), firmware,
+   run/stop, and the PDU the CPU negotiated (`pdu_negotiated`). If it is below
+   `pdu_requested`, set `params.max_pdu` to it in `overrides.yaml` so blocks are planned to
+   fit (D-051). A connect that fails during the ISO handshake may mean the link type: try
+   `params.link_type: 1` (PG), D-050.
+2. `opencap identity "<channel>/<MELSEC device>"`: CPU model from "read CPU model". It confirms
+   that the importer's `plc_type: Q` guess talks to this PLC (D-054). Check `protocol`
+   (TCP/UDP) too.
+3. `opencap read "<channel>/<device>"`: compare with the KEPServerEX Quick Client, especially
+   S7 timers and counters (milliseconds, BCD) and MELSEC 32-bit values (`first_word_low`).
+
 ## Upgrades and backups
 
 - **Upgrade:** stop, `pip install --upgrade ...` (or pull and rebuild the image), start.

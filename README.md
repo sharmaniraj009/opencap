@@ -21,8 +21,9 @@ It is **read-only by design**: no code path writes to a PLC.
 - Admin REST API, Prometheus metrics, and config reload on SIGHUP without dropping
   unchanged channels.
 
-Status: the core, Modbus TCP, both Allen-Bradley drivers and the serial drivers (DF1, Modbus
-RTU) are done. Siemens S7, Mitsubishi MC and OPC UA are in progress. See [ROADMAP.md](ROADMAP.md).
+Status: the core, Modbus TCP, both Allen-Bradley drivers, the serial drivers (DF1, Modbus
+RTU), Siemens S7 and Mitsubishi MC are done (S7 and MC still need a check on real hardware).
+OPC UA is in progress. See [ROADMAP.md](ROADMAP.md).
 
 ## Contents
 
@@ -136,8 +137,8 @@ reference implementation.
 | `modbus_tcp` | Modbus TCP | any Modbus TCP server or gateway | Modbus TCP/IP Ethernet | `modbus` (pymodbus) | ✅ done |
 | `ab_logix` | EtherNet/IP, CIP symbolic | ControlLogix, CompactLogix, Micro800 | Allen-Bradley ControlLogix Ethernet (Logix models), Allen-Bradley Micro800 Ethernet | `ab` (pycomm3) | ✅ done |
 | `ab_pccc` | EtherNet/IP, PCCC | SLC 500, MicroLogix | Allen-Bradley ControlLogix Ethernet (data-table model) | `ab` (pycomm3) | ✅ done |
-| `s7` | S7comm (ISO-on-TCP) | S7-300/400/1200/1500 | Siemens TCP/IP Ethernet | `s7` (python-snap7) | 🚧 in progress |
-| `melsec_mc` | MELSEC MC protocol | Mitsubishi Q/L/iQ-R | Mitsubishi Ethernet | `melsec` (pymcprotocol) | 🚧 in progress |
+| `s7` | S7comm (ISO-on-TCP) | S7-300/400/1200/1500 | Siemens TCP/IP Ethernet | `s7` (python-snap7) | ✅ done (field check to do) |
+| `melsec_mc` | MELSEC MC protocol | Mitsubishi Q/L/iQ-R | Mitsubishi Ethernet | `melsec` (pymcprotocol) | ✅ done (field check to do) |
 | `opcua_client` | OPC UA | any OPC UA server | OPC UA Client | `opcua` (asyncua) | 🚧 in progress |
 | `modbus_rtu` | Modbus RTU (serial, or RTU over TCP) | serial Modbus slaves | Modbus RTU Serial (configured by hand) | `modbus` (+ `serial` for a local port) | ✅ done |
 | `ab_df1` | Allen-Bradley DF1 full duplex | SLC 500, MicroLogix | Allen-Bradley DF1 | none (+ `serial` for a local port) | ✅ done |
@@ -161,12 +162,22 @@ Addresses and data types:
   block plan; its own link layer does BCC/CRC, ACK/NAK/ENQ and retries (full duplex only).
   Modbus RTU uses the Modbus TCP addresses and params. Devices on one line (stations, unit
   ids) share one connection.
+- **Siemens S7:** the KEPServerEX Siemens TCP/IP Ethernet forms (`MW10`, `MD232`, `MB4`,
+  `M10.3`, `I0.0`, `Q1.2`, `DB100,D4`, `DB100,REAL8`, `DB5,X2.1`, `T3`, `C7`) and the Siemens
+  `DB100.DBD4` spelling. Reads in one area and DB are merged into blocks that fit the PDU; if
+  the CPU negotiates a smaller PDU, reads are split. Timers read as milliseconds (S5TIME),
+  counters as BCD. Only setup, read-var and SZL requests are ever sent (D-048, D-051).
+- **Mitsubishi MC (3E frame, binary):** the KEPServerEX Mitsubishi Ethernet Q-series forms
+  (`D100`, `D0000002`, `W1A`, `R10`, `ZR100`, bits `M`, `X`, `Y`, `B`, bits in words `D10.3`,
+  strings such as `DSH200.020`), TCP or UDP. Batch reads of up to 960 words. Only read requests are ever sent
+  (D-053, D-055).
 
 Per-driver parameters (`Device.params`) and their KEPServerEX sources:
 [docs/driver_params.md](docs/driver_params.md).
 
 Devices whose driver is not ready are imported and reported by `opencap check`, but never
-polled. A device's status says why.
+polled. A device's status says why. Checks to run on the first real S7 or Mitsubishi PLC:
+[docs/deployment.md](docs/deployment.md) ("Commissioning a Siemens S7 or Mitsubishi PLC").
 
 ## Migrating from KEPServerEX
 

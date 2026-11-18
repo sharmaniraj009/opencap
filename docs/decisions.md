@@ -582,8 +582,9 @@ validators, not the schema, can reject it) so the Rust engine can load them with
 - **`driver_panics_total{device}`** (counter) is incremented each time a device loop restarts after `device.loop_error`.
 - **Read-only guard:** the Modbus function-code match is exhaustive; a block with FC outside 1-4 is `BlockConfig`, never
   FC04. `tests/modbus_read_only.rs` scans the driver sources for write APIs and checks planned FCs.
-- **Advisories:** `cargo deny check advisories` runs in CI. Vulnerabilities fail; unmaintained crates fail only if we depend
-  on them directly (`unmaintained = "workspace"`); yanked releases warn.
+- **Advisories:** `cargo deny check advisories` runs in CI. Vulnerabilities fail; yanked releases warn; "unmaintained"
+  notices do not fail (`unmaintained = "none"`). First CI run showed why: `chrono` and `chrono-tz`, both direct dependencies,
+  are flagged unmaintained (RUSTSEC-2026-0543/0555, no fix). Follow-up: evaluate `jiff` or `time` for time zones.
 - **Not done:** pinning third-party actions in `rust-engine.yml` by commit SHA. The session could not read those
   repositories to resolve tags to SHAs, and a SHA written from memory would be unsafe. Left on the issue as a follow-up.
 - **RFC 0001:** direct-dependency table completed with licence links at the lock-file versions (checked against the

@@ -33,9 +33,10 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
 [advisories]
-# Known vulnerabilities fail the build. Unmaintained crates fail only when we depend on them
-# directly (`workspace`); an unmaintained transitive crate is reported as a warning, so an
-# upstream abandoning a crate does not block unrelated work. Yanked releases warn.
-# Decision recorded in docs/decisions.md (#66).
-unmaintained = "workspace"
+# Known vulnerabilities fail the build. "Unmaintained" notices do not (`none`): chrono and
+# chrono-tz (RUSTSEC-2026-0543/0555, no fix available) are direct dependencies, and blocking
+# every PR on them would stall unrelated work. The migration (jiff or time) is a follow-up;
+# until then unmaintained status is reviewed by hand when the dependency table in RFC 0001
+# changes. Yanked releases warn. Decision: docs/decisions.md D-061 (#66).
+unmaintained = "none"
 yanked = "warn"

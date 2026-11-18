@@ -564,6 +564,43 @@ fn d_token_env() -> String {
     "OPENCAP_API_TOKEN".into()
 }
 
+fn d_audit_log() -> String {
+    "data/audit.jsonl".into()
+}
+
+/// What a token may do: `viewer` = safe methods only (GET/HEAD), `admin` = also changes
+/// (reload, read-once, config writes). Python `ApiToken.role`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    #[default]
+    Viewer,
+    Admin,
+}
+
+impl Role {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::Viewer => "viewer",
+            Role::Admin => "admin",
+        }
+    }
+}
+
+/// A named API token. The secret lives in the env var `token_env`, never in yaml.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApiToken {
+    /// Shown in the audit log as "who".
+    pub name: String,
+    #[serde(default)]
+    pub role: Role,
+    pub token_env: String,
+}
+
+/// The legacy `api.token_env` token's name (it has role admin).
+pub const LEGACY_TOKEN_NAME: &str = "default";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApiCfg {
@@ -571,8 +608,46 @@ pub struct ApiCfg {
     pub bind: String,
     #[serde(default = "d_8080")]
     pub port: i64,
+    /// Legacy single token: name "default", role admin.
     #[serde(default = "d_token_env")]
     pub token_env: String,
+    #[serde(default)]
+    pub tokens: Vec<ApiToken>,
+    /// Config-change audit log (JSON lines). The Rust engine has no config API yet, so it
+    /// accepts the setting and does not write the file.
+    #[serde(default = "d_audit_log")]
+    pub audit_log: String,
+    /// Other web origins allowed to call the API (desktop app). Accepted for parity; the Rust
+    /// engine sends no CORS headers yet.
+    #[serde(default)]
+    pub cors_origins: Vec<String>,
+}
+
+impl ApiCfg {
+    /// pydantic's `min_length=1` on `ApiToken` fields and the `_unique_token_names` validator,
+    /// same messages.
+    pub fn validate(&self) -> Result<(), String> {
+        for (i, t) in self.tokens.iter().enumerate() {
+            for (field, value) in [("name", &t.name), ("token_env", &t.token_env)] {
+                if value.is_empty() {
+                    return Err(format!("tokens.{i}.{field}: String should have at least 1 character"));
+                }
+            }
+        }
+        let names: Vec<&str> = self.tokens.iter().map(|t| t.name.as_str()).collect();
+        if names.contains(&LEGACY_TOKEN_NAME) {
+            return Err("api.tokens: the name 'default' is reserved for api.token_env".into());
+        }
+        let mut dupes: Vec<String> =
+            names.iter().filter(|n| names.iter().filter(|m| m == n).count() > 1).map(|n| n.to_string()).collect();
+        dupes.sort();
+        dupes.dedup();
+        if dupes.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("api.tokens: duplicate names {}", py_repr_list(&dupes)))
+        }
+    }
 }
 
 fn d_decimals() -> i64 {
@@ -702,6 +777,31 @@ mod tests {
             cfg("a//b").validate().unwrap_err(),
             "topic_prefix 'a//b' must not start or end with '/' or contain '//'"
         );
+    }
+
+    #[test]
+    fn api_tokens_match_python() {
+        let api = |v: Json| serde_json::from_value::<ApiCfg>(v).unwrap();
+        let a = api(serde_json::json!({"tokens": [
+            {"name": "ops", "role": "admin", "token_env": "OPS_TOKEN"},
+            {"name": "screen", "token_env": "SCREEN_TOKEN"},
+        ], "cors_origins": ["tauri://localhost"]}));
+        assert!(a.validate().is_ok());
+        assert_eq!((a.tokens[0].role, a.tokens[1].role), (Role::Admin, Role::Viewer));
+        assert_eq!(a.audit_log, "data/audit.jsonl");
+        let dup = api(serde_json::json!({"tokens": [
+            {"name": "b", "token_env": "X"}, {"name": "a", "token_env": "Y"},
+            {"name": "b", "token_env": "Z"}, {"name": "a", "token_env": "W"},
+        ]}));
+        assert_eq!(dup.validate().unwrap_err(), "api.tokens: duplicate names ['a', 'b']");
+        let reserved = api(serde_json::json!({"tokens": [{"name": "default", "token_env": "X"}]}));
+        assert_eq!(reserved.validate().unwrap_err(), "api.tokens: the name 'default' is reserved for api.token_env");
+        let empty = api(serde_json::json!({"tokens": [{"name": "", "token_env": "X"}]}));
+        assert_eq!(empty.validate().unwrap_err(), "tokens.0.name: String should have at least 1 character");
+        assert!(serde_json::from_value::<ApiCfg>(
+            serde_json::json!({"tokens": [{"name": "x", "token_env": "X", "role": "root"}]})
+        )
+        .is_err());
     }
 
     #[test]

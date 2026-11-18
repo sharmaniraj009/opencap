@@ -1,0 +1,16 @@
+{
+  "document": "overrides",
+  "expected_error": "dtype",
+  "semantic": false,
+  "data": {
+    "devices": {
+      "A/B": {
+        "tags": {
+          "T": {
+            "dtype": "int8"
+          }
+        }
+      }
+    }
+  }
+}

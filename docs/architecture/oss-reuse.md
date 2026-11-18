@@ -7,8 +7,9 @@ out-of-process plugin, owner approval needed), **Avoid**, **Build** (no suitable
 
 The **Verified** column is `yes` only when the licence was checked against the project's
 own `LICENSE` file at a pinned version. Every `no` must be verified by the PR that first
-adds the dependency (CI licence gate, board issue). RFC 0001 (`rust-engine`) carries its own
-table; the lead merges it into this file when that PR lands.
+adds the dependency (CI licence gate, board issue). The per-feature build-vs-reuse study
+(every KEPServerEX driver and plug-in, existing OSS gateways) is RFC 0001 §3; this file is the
+policy-level summary, reconciled with it after #64.
 
 ## Python reference (shipped dependencies)
 
@@ -20,13 +21,14 @@ table; the lead merges it into this file when that PR lands.
 | Logging | structlog | MIT or Apache-2.0 | no | Adopt (in use) |
 | Modbus | pymodbus | BSD-3-Clause | no | Adopt (in use) |
 | Allen-Bradley CIP/PCCC | pycomm3 | MIT | no | Adopt (in use) |
-| Siemens S7 | python-snap7 (wrapper) + snap7 (bundled C library) | MIT + LGPL-3.0 | no | Adopt: snap7 is dynamically loaded, unmodified, replaceable (LGPL OK) |
-| Mitsubishi MC | pymcprotocol | MIT (*verify*) | no | Adopt if verified |
+| Siemens S7 | python-snap7 ≥ 3.5 | MIT (3.x is pure Python: `py3-none-any` wheel, no bundled LGPL snap7 library) | yes (3.5.0 metadata + LICENSE) | Adopt (#60) |
+| Mitsubishi MC | pymcprotocol 0.3 | MIT | yes (0.3.0 metadata + LICENSE) | Adopt (#60; driver overrides its socket I/O) |
 | OPC UA | asyncua | LGPL-3.0 | no | Adopt: imported unmodified, separately installed (LGPL OK); not vendored |
 | MQTT | aiomqtt + paho-mqtt | BSD-3-Clause; EPL-2.0 or EDL-1.0 | no | Adopt (EDL-1.0 = BSD-3) |
 | API | FastAPI, uvicorn | MIT; BSD-3-Clause | no | Adopt (in use) |
-| YAML edits that keep comments (config API) | ruamel.yaml | MIT ([PyPI 0.19.1](https://pypi.org/project/ruamel.yaml/0.19.1/), `LICENSE` in the wheel) | yes (0.19.1) | Adopt (`north` extra; D-034) |
-| Web UI framework, vendored in `src/opencap/api/ui/vendor/` | Alpine.js 3.17.5, CSP build | MIT ([LICENSE.md](https://github.com/alpinejs/alpine/blob/v3.17.5/LICENSE.md)) | yes (3.17.5) | Adopt (vendored, listed in `NOTICE`; D-037) |
+| Serial ports (modbus_rtu, ab_df1) | pyserial 3.5 | BSD-3-Clause (SPDX header in `serial/__init__.py`; LICENSE.txt at tag v3.5) | yes | Adopt (optional `serial` extra, #62) |
+| YAML edits that keep comments (config API) | ruamel.yaml | MIT ([PyPI 0.19.1](https://pypi.org/project/ruamel.yaml/0.19.1/), `LICENSE` in the wheel) | yes (0.19.1) | Adopt (`north` extra; D-041) |
+| Web UI framework, vendored in `src/opencap/api/ui/vendor/` | Alpine.js 3.17.5, CSP build | MIT ([LICENSE.md](https://github.com/alpinejs/alpine/blob/v3.17.5/LICENSE.md)) | yes (3.17.5) | Adopt (vendored, listed in `NOTICE`; D-044) |
 | Metrics | prometheus-client | Apache-2.0 | no | Adopt (in use) |
 | Test broker | amqtt | MIT | no | Test-only |
 
@@ -37,20 +39,23 @@ table; the lead merges it into this file when that PR lands.
 | Async runtime | tokio | MIT | no | Adopt |
 | HTTP API, WebSocket | axum (+ tower, hyper) | MIT | no | Adopt |
 | Serialisation | serde, serde_json, serde_yaml successor | MIT or Apache-2.0 | no | Adopt |
-| Schema → types | typify | Apache-2.0 | no | Evaluate (config issue) |
+| Schema → types | typify | Apache-2.0 | no | Not used: #64 hand-writes serde types with `deny_unknown_fields`; #39 adds the schema drift check |
 | Logging | tracing, tracing-subscriber | MIT | no | Adopt |
-| Metrics | prometheus-client | Apache-2.0 | no | Adopt |
+| Metrics | prometheus (rust-prometheus) 0.14 | Apache-2.0 | no | Adopt (#64; exposition identical to Python's, RFC 0001 §10 Q2) |
+| Config YAML | serde_yaml_ng | MIT | no | Adopt (#64; YAML 1.2, see D-032) |
+| TLS | rustls + ring | Apache-2.0 / ISC-style | no | Adopt (#64; allowed by `engine/deny.toml`) |
+| CLI, time zones | clap; chrono-tz | MIT or Apache-2.0 | no | Adopt (#64) |
 | SQLite outbox | rusqlite (bundled SQLite) | MIT (SQLite: public domain) | no | Adopt |
 | gRPC plugin protocol | tonic, prost | MIT; Apache-2.0 | no | Adopt |
 | Modbus TCP/RTU client and server | tokio-modbus | MIT or Apache-2.0 | no | Adopt |
 | Serial ports | tokio-serial / serialport | MIT; MPL-2.0 | no | Adopt (MPL-2.0 is file-level copyleft: OK unmodified) |
 | MQTT | rumqttc | Apache-2.0 | no | Adopt |
-| Sparkplug B payload | `sparkplug_b.proto` from the Eclipse Sparkplug specification + prost | EPL-2.0 (the .proto) | no | Adopt: keep the .proto file unmodified with its notice; generated code is ours (*verify* with the Sparkplug issue) |
+| Sparkplug B payload | `sparkplug_b.proto` from the Eclipse Sparkplug specification + prost; or the `srad` crate | EPL-2.0 (the .proto); srad *verify* | no | Evaluate in #51: srad first if its licence and maturity pass, else .proto + prost (keep the .proto unmodified with its notice) |
 | OPC UA client + server | async-opcua (successor of locka99/opcua) | MPL-2.0 | no | Evaluate against the memory/throughput gate (04 §4.1) |
 | OPC UA (alternative) | open62541 via FFI | MPL-2.0 | no | Evaluate as fallback |
-| EtherNet/IP, Logix, PCCC | rseip | MIT (*verify*) | no | Evaluate (Logix port issue) |
+| EtherNet/IP, Logix, PCCC | native CIP client (RFC 0001 default) vs rseip / rust-ethernet-ip | — ; MIT (*verify*) | no | Decide in #43 (Micro800 batching probe, tag-list cache, read-only guarantee decide it) |
 | EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Evaluate (MPL-2.0 permits static linking) |
-| Siemens S7comm | — | — | — | Build: native read subset (COTP, S7 setup, read var); snap7 server as Test-only peer |
+| Siemens S7comm | — (rust-snap7 is MulanPSL-2.0: Avoid) | — | — | Build: native read subset (COTP, S7 setup, read var); snap7 server as Test-only peer |
 | Mitsubishi MC 3E/4E | — | — | — | Build: native (simple framing) |
 | Omron FINS | — | — | — | Build: native |
 | Beckhoff ADS | ads | MIT or Apache-2.0 (*verify*) | no | Evaluate |
@@ -80,7 +85,7 @@ table; the lead merges it into this file when that PR lands.
 | ADS test server | pyads (testserver) | MIT (*verify*) | Test-only |
 | SNMP agent simulator | snmpsim | BSD-2-Clause (*verify*) | Test-only |
 | IEC 104 test peer | c104 (Python, wraps lib60870) | GPL-3.0 (*verify*) | Test-only: installed in CI, never vendored or shipped |
-| S7 test server | python-snap7 server | MIT + LGPL-3.0 | Test-only |
+| S7 test server | python-snap7 server | MIT | Test-only |
 | Docs site | mkdocs-material | MIT | Test-only (build tool) |
 | Python licence report | pip-licenses | MIT | Test-only |
 | MSI build | WiX Toolset | MS-RL (*verify*) | Build tool only; output is not encumbered (*verify*) |

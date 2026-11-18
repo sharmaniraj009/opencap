@@ -1,0 +1,26 @@
+# Licence allow-list for Python distributions (ADR-0007, docs/adr/0007-oss-licence-policy.md).
+# Checked by scripts/check_licenses.py against every distribution installed from `.[all,dev]`.
+# To request an exception see licenses/README.md.
+
+# Licence ids (SPDX where possible) allowed for any package.
+[allow]
+ids = [
+    "MIT", "MIT-0", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC", "Zlib", "PSF-2.0",
+    "Unlicense", "0BSD", "Python-2.0",
+    "MPL-2.0",     # file-level copyleft: allowed unmodified (e.g. certifi)
+    "EPL-2.0",     # file-level copyleft, only seen in `A OR B` choices (paho-mqtt)
+]
+
+# Packages allowed despite a licence not in [allow].ids. Each needs a reason and an ADR-0007 reference.
+[exceptions]
+asyncua = { licence = "LGPL-3.0-or-later", reason = "ADR-0007: LGPL library imported unmodified, separately installed, replaceable; never vendored" }
+
+# Packages whose metadata is missing/ambiguous but whose licence was verified by hand.
+[overrides]
+sortedcontainers = { licence = "Apache-2.0", reason = "classifier 'Apache Software License'; LICENSE file checked" }
+
+# Dev/test-only tools (installed by the `dev` extra, never shipped). Strong copyleft is tolerated here
+# only if installed in CI and never vendored (ADR-0007); non-commercial and unknown never.
+[test_only]
+packages = ["pytest", "pytest-asyncio", "httpx", "amqtt", "pip-licenses", "prettytable", "iniconfig", "pluggy", "pygments"]
+extra_ids = []

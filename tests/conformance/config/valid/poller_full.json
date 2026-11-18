@@ -1,0 +1,44 @@
+{
+  "document": "poller",
+  "data": {
+    "instance": "edge-1",
+    "log_level": "DEBUG",
+    "stats_interval_s": 0,
+    "mqtt": {
+      "host": "192.0.2.20",
+      "port": 8883,
+      "tls": true,
+      "ca_file": "/etc/opencap/ca.pem",
+      "username": "edge",
+      "password_env": "OPENCAP_MQTT_PASSWORD",
+      "qos": 1,
+      "keepalive_s": 60,
+      "topic_prefix": "plant/line1"
+    },
+    "saf": {
+      "path": "data/saf.sqlite",
+      "max_bytes": 1048576
+    },
+    "api": {
+      "bind": "127.0.0.1",
+      "port": 8081,
+      "token_env": "OPENCAP_API_TOKEN"
+    },
+    "payload": {
+      "float_decimals": 2,
+      "bad_tags_field": false,
+      "timezone": "UTC"
+    },
+    "defaults": {
+      "scan_ms": 500,
+      "min_scan_ms": 500,
+      "timeout_ms": 2000,
+      "retries": 3,
+      "demote_after": 4,
+      "demote_for_ms": 5000
+    },
+    "check": {
+      "est_rtt_ms": 20.0
+    }
+  }
+}

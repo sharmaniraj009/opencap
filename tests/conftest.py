@@ -10,6 +10,22 @@ import structlog
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--engine", choices=("python", "rust"), default=os.environ.get("OPENCAP_ENGINE", "python"),
+        help="engine the conformance (acceptance) tests drive: the Python reference Poller (default) "
+             "or the Rust engine binary from engine/ (see tests/helpers/engine.py)",
+    )
+
+
+@pytest.fixture
+def engine_factory(request, tmp_path):
+    """`factory(config_dir) -> engine` for the engine chosen with --engine / OPENCAP_ENGINE."""
+    from tests.helpers.engine import make_engine_factory
+
+    return make_engine_factory(request.config.getoption("--engine"), tmp_path)
+
+
 @pytest.fixture(autouse=True)
 def _restore_structlog_config():
     """Tests that call `configure_logging()` change structlog's global config; restore it so

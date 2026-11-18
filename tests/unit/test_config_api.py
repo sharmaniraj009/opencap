@@ -194,7 +194,7 @@ def test_project_status_and_etag(env):
     c, _, _, _ = env
     r = c.get(f"{V1}/project/status", headers=VIEWER)
     body = r.json()
-    assert body["valid"] and body["counts"]["devices"] == 9
+    assert body["valid"] and body["counts"]["devices"] == 10
     assert r.headers["etag"] == f'"{body["revision"]}"'
     assert body["status"]["available"] and body["status"]["pending_reload"] is False
     assert c.get(f"{V1}/project/pending", headers=VIEWER).json()["pending_reload"] is False
@@ -218,7 +218,7 @@ def test_device_and_tag_reads(env):
     assert len(c.get(f"{DEV_PATH}/tags", headers=VIEWER).json()) == 9
     assert c.get(f"{DEV_PATH}/tags/FLOW_1", headers=VIEWER).json()["tag"]["address"] == "400045"
     assert [d["id"] for d in c.get(f"{V1}/channels/SITE MODBUS/devices", headers=VIEWER).json()] == [DEV]
-    assert len(c.get(f"{V1}/devices", headers=VIEWER).json()) == 9
+    assert len(c.get(f"{V1}/devices", headers=VIEWER).json()) == 10
     assert c.get(f"{V1}/devices?channel=S7 MULTI", headers=VIEWER).json()[1]["name"] == "OUT-2"
     for path in (f"{V1}/channels/NOPE", f"{V1}/channels/NOPE/devices", f"{V1}/devices/SITE MODBUS/NOPE",
                  f"{DEV_PATH}/tags/NOPE", f"{V1}/map/devices/NOPE/X", f"{V1}/overrides/devices/{DEV}",
@@ -412,7 +412,7 @@ def test_import_rejects_unknown_documents(env):
 def test_validate_endpoint(env):
     c, _, _, _ = env
     report = c.get(f"{V1}/project/validate", headers=VIEWER).json()
-    assert report["rtt_ms"] == 60.0 and report["totals"]["devices"] == 9
+    assert report["rtt_ms"] == 60.0 and report["totals"]["devices"] == 10
     modbus = next(ch for ch in report["channels"] if ch["name"] == "SITE MODBUS")["devices"][0]
     assert modbus["blocks"] >= 1 and modbus["wire_requests"] >= 1 and "block_plan" not in modbus
     s7 = next(ch for ch in report["channels"] if ch["name"] == "SITE S7")["devices"][0]

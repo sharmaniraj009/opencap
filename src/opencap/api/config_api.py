@@ -17,7 +17,7 @@ Device ids are `<channel>/<device>`. Reads return the resource with the config `
 (also as `ETag`). **Writes need `If-Match: <revision>`**: 428 without it, 412 when the
 config changed since. `PUT` replaces, `PATCH` is a JSON merge patch (RFC 7386, `null`
 removes a key). A write changes the files only; `POST /api/v1/reload` applies, or add
-`?apply=true` to a write to reload right after it (D-032).
+`?apply=true` to a write to reload right after it (D-039).
 """
 
 from __future__ import annotations

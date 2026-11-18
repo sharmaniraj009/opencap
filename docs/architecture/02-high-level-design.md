@@ -62,16 +62,16 @@ flowchart LR
 
 | Component | Responsibility | Python today | Rust target |
 |---|---|---|---|
-| Config manager | Load, validate (shared JSON Schema), layer, diff, atomically persist, keep revisions | `config/loader.py`, `kep_import.py` | `engine/crates/config` |
-| Address space / registry | Canonical tag paths, internal ids, rate groups, block plans | `core/registry.py` | `engine/crates/core` |
-| Scheduler + channel workers | Rate groups, one request on the wire per channel, retries, backoff, demotion, stale | `core/scheduler.py`, `core/channel_worker.py` | `engine/crates/core` |
-| Drivers | Protocol: pure `plan()`, one-attempt `read()`, `connect/close/identity/browse` | `drivers/*.py` | `engine/drivers/<name>` crates + out-of-process plugins |
-| Tag store | Current value, quality and timestamps of every tag; snapshots | `core/cache.py` (`ValueCache`) | single-writer-per-device store ([ADR-0005](../adr/0005-north-plugins-tag-store-event-bus.md)) |
-| Change-event bus | Device-batch change events to every consumer; south never blocks on north | `on_cycle` callback | bounded broadcast with conflation |
-| Processing | Derived tags, alarms, system tags | — | `engine/crates/processing` |
-| North plugins | Publish/serve values to SCADA and IT systems | `north/` (MQTT) | `engine/north/<name>` crates |
+| Config manager | Load, validate (shared JSON Schema), layer, diff, atomically persist, keep revisions | `config/loader.py`, `kep_import.py` | `opencap-core::config` |
+| Address space / registry | Canonical tag paths, internal ids, rate groups, block plans | `core/registry.py` | `opencap-core` (registry) |
+| Scheduler + channel workers | Rate groups, one request on the wire per channel, retries, backoff, demotion, stale | `core/scheduler.py`, `core/channel_worker.py` | `opencap-core` (scheduler, `ChannelWorker`) |
+| Drivers | Protocol: pure `plan()`, one-attempt `read()`, `connect/close/identity/browse` | `drivers/*.py` | `engine/drivers/<name>` crates (#67; today `opencap-drivers`) + out-of-process plugins (#49) |
+| Tag store | Current value, quality and timestamps of every tag; snapshots | `core/cache.py` (`ValueCache`) | `opencap-core` cache (global lock today); single-writer-per-device store of [ADR-0005](../adr/0005-north-plugins-tag-store-event-bus.md) in #41 |
+| Change-event bus | Device-batch change events to every consumer; south never blocks on north | `on_cycle` callback | `on_cycle` today; bounded broadcast with conflation in #41 |
+| Processing | Derived tags, alarms, system tags | — | `opencap-processing` (new crate, #55/#56) |
+| North plugins | Publish/serve values to SCADA and IT systems | `north/` (MQTT) | `opencap-north` (MQTT, outbox, publisher); one crate per new north plugin |
 | Outbox | Durable queue per agent that must not lose data | `north/saf.py` | same SQLite semantics (D-016, [ADR-0011](../adr/0011-store-and-forward-outbox-per-agent.md)) |
-| Admin + config API | Status, values, demand read, reload, config CRUD, auth, audit | `api/server.py` (+ `web-ui` PR) | `engine/crates/api` (same OpenAPI contract) |
+| Admin + config API | Status, values, demand read, reload, config CRUD, auth, audit | `api/server.py` (+ `web-ui` PR) | `opencap-api` (axum; same routes and auth) |
 | Web UI | Configuration, Quick Client, diagnostics | `web-ui` PR | same bundle, served by the engine |
 | Desktop app | Web UI in a native shell, local engine as sidecar, connect to remote nodes | — | `desktop/` (Tauri 2, [ADR-0010](../adr/0010-one-ui-web-and-tauri.md)) |
 | Plugin host | Run drivers that are not Rust (Python reference drivers) or must stay out of process (GPL, unstable C libraries) | — | gRPC protocol ([ADR-0004](../adr/0004-driver-contract-and-plugin-model.md)) |

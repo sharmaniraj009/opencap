@@ -1,0 +1,10 @@
+{
+  "document": "poller",
+  "expected_error": "Extra inputs are not permitted",
+  "semantic": false,
+  "data": {
+    "mqtt": {
+      "hots": "192.0.2.20"
+    }
+  }
+}

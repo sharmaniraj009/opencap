@@ -21,8 +21,8 @@ It is **read-only by design**: no code path writes to a PLC.
 - Admin REST API, Prometheus metrics, and config reload on SIGHUP without dropping
   unchanged channels.
 
-Status: the core, Modbus TCP and both Allen-Bradley drivers are done. Siemens S7,
-Mitsubishi MC, OPC UA and the serial drivers are in progress. See [ROADMAP.md](ROADMAP.md).
+Status: the core, Modbus TCP, both Allen-Bradley drivers and the serial drivers (DF1, Modbus
+RTU) are done. Siemens S7, Mitsubishi MC and OPC UA are in progress. See [ROADMAP.md](ROADMAP.md).
 
 ## Contents
 
@@ -47,11 +47,12 @@ opencap is not on PyPI yet. Install it from a clone (or with
 ```bash
 git clone https://github.com/sharmaniraj009/opencap && cd opencap
 python3.12 -m venv .venv
-.venv/bin/pip install -e '.[modbus,ab,north]'      # add ,dev for the test suite
+.venv/bin/pip install -e '.[modbus,ab,north]'      # add ,dev,serial for the test suite
 ```
 
 Extras choose the drivers: `modbus`, `ab` (Allen-Bradley), `s7`, `melsec`, `opcua`, plus
-`north` (MQTT, API, metrics; needed for `opencap run`). `all` installs everything.
+`north` (MQTT, API, metrics; needed for `opencap run`) and `serial` (pyserial: local serial
+ports and RFC 2217; serial-over-TCP gateways need nothing extra). `all` installs everything.
 
 ```bash
 # 1. Import a KEPServerEX project (File > Save As > .json in the KEPServerEX Configuration)
@@ -123,6 +124,11 @@ With Docker: `docker build -t opencap .`, then see [docs/deployment.md](docs/dep
 Design decisions and every deviation from the original build plan are in
 [docs/decisions.md](docs/decisions.md).
 
+The production engine is moving to Rust ([ADR-0002](docs/adr/0002-rust-engine-python-reference.md)):
+[`engine/`](engine/README.md) reads the same config, serves the same API and publishes the same
+payload bytes; design in [RFC 0001](docs/rfc/0001-rust-engine.md). This Python code stays the
+reference implementation.
+
 ## Driver support
 
 | `driver` | Protocol | Devices | KEPServerEX driver it replaces | Extra | Status |
@@ -133,8 +139,8 @@ Design decisions and every deviation from the original build plan are in
 | `s7` | S7comm (ISO-on-TCP) | S7-300/400/1200/1500 | Siemens TCP/IP Ethernet | `s7` (python-snap7) | 🚧 in progress |
 | `melsec_mc` | MELSEC MC protocol | Mitsubishi Q/L/iQ-R | Mitsubishi Ethernet | `melsec` (pymcprotocol) | 🚧 in progress |
 | `opcua_client` | OPC UA | any OPC UA server | OPC UA Client | `opcua` (asyncua) | 🚧 in progress |
-| Modbus RTU | Modbus over serial | serial Modbus slaves | Modbus RTU Serial | | 🚧 in progress |
-| DF1 | Allen-Bradley DF1 (serial) | SLC 500, MicroLogix, PLC-5 | Allen-Bradley DF1 | | 🚧 in progress |
+| `modbus_rtu` | Modbus RTU (serial, or RTU over TCP) | serial Modbus slaves | Modbus RTU Serial (configured by hand) | `modbus` (+ `serial` for a local port) | ✅ done |
+| `ab_df1` | Allen-Bradley DF1 full duplex | SLC 500, MicroLogix | Allen-Bradley DF1 | none (+ `serial` for a local port) | ✅ done |
 | OPC UA server | OPC UA (north side) | SCADA/HMI clients | KEPServerEX's OPC UA server | | 🚧 in progress |
 
 Addresses and data types:
@@ -149,6 +155,12 @@ Addresses and data types:
 - **Allen-Bradley PCCC:** data-table addresses (`N7:0`, `F8:3`, `B3:2/14`, `L9:0`,
   `T4:0.ACC`, `C5:1.PRE`, `S:1`, `ST10:0`). The PLC's file directory is read once, so blocks
   for missing files are rejected before they reach the wire.
+- **Serial lines (`ab_df1`, `modbus_rtu`):** `params.transport` is `tcp` (raw TCP to a
+  serial-over-TCP gateway), `serial` (a local port; `host` is the device path, e.g.
+  `/dev/ttyUSB0`) or `rfc2217` (DF1 only). DF1 uses the PCCC addresses above and the same
+  block plan; its own link layer does BCC/CRC, ACK/NAK/ENQ and retries (full duplex only).
+  Modbus RTU uses the Modbus TCP addresses and params. Devices on one line (stations, unit
+  ids) share one connection.
 
 Per-driver parameters (`Device.params`) and their KEPServerEX sources:
 [docs/driver_params.md](docs/driver_params.md).
@@ -196,6 +208,7 @@ connections.
 | Auto-demotion | `demote_after` (failed cycles), `demote_for_ms` |
 | Tag scaling (linear, square root, clamps, negate) | `scale` |
 | Data collection disabled | device not imported (listed in the summary) |
+| DF1 channel on a COM port | `ab_df1` device with the COM port's serial settings and `transport: unmapped`; skipped until `overrides.yaml` `serial_ports` maps the COM port (below) |
 | Driver-specific device properties | `params` ([docs/driver_params.md](docs/driver_params.md)) |
 | IoT Gateway MQTT agent (not imported) | `poller.yaml` `mqtt` + `devices_map.yaml` (topic, SubDeviceId), set by hand |
 | Credentials in the project | never copied; environment variables instead |
@@ -226,6 +239,26 @@ manager, and the OPC UA server's endpoint configuration. They are tracked in
 
 Re-run `opencap import-kep` whenever the KEPServerEX project changes. `devices.json` is
 regenerated, but your `devices_map.yaml` and `overrides.yaml` stay as they are.
+
+### 4. Serial PLCs: map each KEPServerEX COM port
+
+KEPServerEX reached DF1 PLCs through a COM port (often a virtual COM port that a virtual-COM
+tool maps to a serial-over-TCP gateway). opencap imports them with `transport: unmapped` and
+**skips them, with a warning, until you say where that line is now**:
+
+```yaml
+# overrides.yaml
+serial_ports:
+  COM112: 192.0.2.50:4001            # the gateway behind COM112 (raw TCP; also tcp://host:port)
+  COM7: rfc2217://192.0.2.51:4002    # an RFC 2217 COM-port server
+  COM3: /dev/ttyUSB0                 # a local serial port (baud/parity from the import)
+```
+
+One entry covers every device on that COM port. Then `opencap check --site "<channel>"` (no
+longer `(disabled)`; `reports/import_summary.json` lists the settings to confirm: error
+check, station, parity), `opencap identity` (processor type, link counters) and `opencap
+read` (prints why when it fails). Stop KEPServerEX first if the gateway accepts one TCP client.
+Details: [docs/driver_params.md](docs/driver_params.md) ("Serial lines", "ab_df1", "modbus_rtu").
 
 ## Configuration reference
 
@@ -341,7 +374,8 @@ devices:
 
 Device fields: `enabled`, `host`, `port`, `scan_ms`, `min_scan_ms`, `timeout_ms`, `retries`,
 `demote_after`, `demote_for_ms`, `params`, `publish`, `tags`. Tag fields: `enabled`,
-`address`, `dtype`, `scan_ms`, `scale`.
+`address`, `dtype`, `scan_ms`, `scale`. Top-level `serial_ports` maps KEPServerEX COM ports
+of serial devices to a gateway, RFC 2217 server or local port (see "Serial PLCs" above).
 
 ## MQTT topics and payload
 
@@ -487,7 +521,7 @@ hand-owned `devices_map.yaml` and `overrides.yaml` are kept. A write changes the
 write. Renaming a device or channel moves its map entry and override along; deleting one deletes
 them. Channels, devices and tags live in `devices.json`, which a KEPServerEX re-import replaces:
 put fixes that must survive a re-import in the device's override. Every accepted change, import
-and reload is in the audit log (who, when, what). Details: `docs/decisions.md` D-032 to D-037.
+and reload is in the audit log (who, when, what). Details: `docs/decisions.md` D-039 to D-044.
 
 ## Deployment
 
@@ -500,10 +534,11 @@ Windows service with WinSW ([`deploy/windows/`](deploy/windows/)).
 ## Testing
 
 ```bash
-pip install -e '.[dev,modbus,ab,north]'
+pip install -e '.[dev,modbus,ab,north,serial]'
 pytest -m "not acceptance"                  # fast suite, ~30 s; runs in CI on every push and PR
 pytest -m acceptance                        # simulated devices + broker outage; nightly in CI
 OPENCAP_OUTAGE_S=600 pytest -m acceptance   # the full 10-minute broker outage
+OPENCAP_ENGINE=rust pytest -m acceptance tests/integration/test_phase1_acceptance.py   # same suite, Rust engine
 ```
 
 - Protocol tests run against simulators in `tests/helpers/` (Modbus, CIP/EtherNet-IP and

@@ -1,0 +1,24 @@
+# Repo-root cargo-deny policy (ADR-0007). CI: `cargo deny check licenses bans sources`
+# (.github/workflows/licenses.yml). engine/deny.toml is the engine owner's stricter file used by
+# rust-engine.yml; this root file is the project-wide floor and adds MPL-2.0.
+[graph]
+all-features = true
+
+[licenses]
+allow = [
+    "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib",
+    "Unicode-3.0", "Unicode-DFS-2016",
+    "MPL-2.0",   # file-level copyleft, unmodified crates only (ADR-0007)
+]
+confidence-threshold = 0.9
+# GPL, AGPL, LGPL (static linking), non-commercial and unlicensed crates are not listed, hence denied.
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

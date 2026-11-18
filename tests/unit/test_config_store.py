@@ -113,7 +113,7 @@ def test_atomic_write_failure_leaves_the_file_alone(tmp_path, monkeypatch):
 
 def test_summary_and_reads(store: ConfigStore):
     s = store.summary()
-    assert s["valid"] and s["counts"]["devices"] == 9 and s["counts"]["channels"] == 8
+    assert s["valid"] and s["counts"]["devices"] == 10 and s["counts"]["channels"] == 9
     assert "modbus_tcp" in s["drivers"] and "float32" in s["dtypes"]
     assert len(s["revision"]) == 16
     assert [c["name"] for c in store.list_channels()][0] == "SITE MODBUS"
@@ -328,7 +328,8 @@ def test_missing_yaml_files_are_created_from_templates(store: ConfigStore, cfg: 
     store.put_device_override(DEV, {"retries": 0}, partial=False)
     text = (cfg / "overrides.yaml").read_text()
     assert "hand fixes applied on top of devices.json" in text            # template comments kept
-    assert yaml.safe_load(text) == {"channels": {}, "devices": {DEV: {"retries": 0}}}
+    doc = yaml.safe_load(text)
+    assert doc["channels"] == {} and doc["devices"] == {DEV: {"retries": 0}}
 
 
 def test_if_match(store: ConfigStore):
@@ -373,9 +374,9 @@ def test_import_kep_dry_run_writes_nothing(store: ConfigStore, cfg: Path):
     assert [d["id"] for d in dj["devices_added"]] == [DEV]
     assert [d["id"] for d in dj["devices_removed"]] == ["SITE MODBUS/Renamed"]
     stubs = report["devices_map"]["stubs_added"]
-    assert DEV in stubs and "SITE M800/8 PUMP" not in stubs and len(stubs) == 8
+    assert DEV in stubs and "SITE M800/8 PUMP" not in stubs and len(stubs) == 9
     assert set(report["files"]) == {"devices.json", "devices_map.yaml"}
-    assert report["import_summary"]["included"]["devices"] == 9
+    assert report["import_summary"]["included"]["devices"] == 10
     assert {p.name: p.read_bytes() for p in cfg.iterdir()} == before
 
 

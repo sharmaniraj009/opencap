@@ -120,7 +120,7 @@ async def settle(link: FakeLink, topic: str, n: int, timeout: float = 2.0) -> No
 
 async def test_interval_publishes_full_snapshot_every_interval():
     dev = make_device(interval_ms=100)
-    custom = make_device("PLC 2", interval_ms=100, topic="olectrhub/custom/plc2")
+    custom = make_device("PLC 2", interval_ms=100, topic="acme/custom/plc2")
     cache, link = FakeCache(), FakeLink()
     cache.set(dev.id, vals())
     cache.set(custom.id, vals(flow=5.0))
@@ -132,13 +132,19 @@ async def test_interval_publishes_full_snapshot_every_interval():
     assert 4 <= len(msgs) <= 6
     assert all(m.payload == encode(build_payload(dev, vals(), CFG, is_secure=False)) for m in msgs)
     assert not any(m.retain for m in msgs)
-    # Fixed rate: message k goes out on its own slot t_start + (k+1) * interval, never early
-    # and at most 50 ms late. (Checking gaps between messages instead would count one late
-    # wake-up twice: a long gap, then a short one back onto the grid.)
+    # Fixed rate: message k goes out on its own slot t_start + (k+1) * interval, never early.
+    # Checking gaps between messages instead would count one late wake-up twice (a long gap,
+    # then a short one back onto the grid), so lateness is measured against the grid.
+    # A shared CI runner can delay the first wake-up (cold start: 73 ms seen), so the first
+    # message gets a looser bound (150 ms) than the rest (50 ms). Drift is caught separately:
+    # the median gap (robust to one late message) must equal the interval within 8 ms.
     lateness = [m.t - (t_start + (k + 1) * 0.1) for k, m in enumerate(msgs)]
-    assert all(-0.005 < late < 0.05 for late in lateness), lateness
+    assert -0.005 < lateness[0] < 0.15, lateness
+    assert all(-0.005 < late < 0.05 for late in lateness[1:]), lateness
+    gaps = sorted(b.t - a.t for a, b in zip(msgs, msgs[1:]))
+    assert abs(gaps[len(gaps) // 2] - 0.1) < 0.008, gaps
     assert msgs[0].t - link.sent[0].t >= 0.08       # status at start, first data one interval later
-    assert 4 <= len(link.on("olectrhub/custom/plc2")) <= 6
+    assert 4 <= len(link.on("acme/custom/plc2")) <= 6
 
 
 async def test_interval_follows_the_cache():

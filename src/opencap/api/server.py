@@ -1,7 +1,7 @@
 """Admin REST API (PLAN.md section 9), configuration API (`/api/v1`) and the web UI (`/ui/`).
 Bind to localhost or the VPN only.
 
-Auth (D-019, D-033): `Authorization: Bearer <token>`. Tokens are named and carry a role
+Auth (D-019, D-040): `Authorization: Bearer <token>`. Tokens are named and carry a role
 (`viewer`: GET only; `admin`: also changes), see `opencap.api.auth`. The legacy single
 token from the env var named in `poller.yaml` `api.token_env` is the admin "default".
 `/health`, `/metrics`, `/api/v1/auth-info` and the UI's static files are open; everything

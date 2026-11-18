@@ -1,6 +1,6 @@
 # 0006. Five qualities, two timestamps, one mapping table per north protocol
 
-- Status: Accepted (exact OPC UA codes pinned by the shared quality-mapping issue)
+- Status: Accepted (amended 2026-11-17: `bad_decode` code pinned as built in #61)
 - Date: 2026-11-17
 - Deciders: technical lead
 
@@ -17,7 +17,7 @@ its own mapping.
 | `good` | last read good | `Good` (0x00000000) | 0xC0 Good | value, `Quality` property 192 | in `Data` |
 | `bad_comm` | last attempt failed on the wire; last value kept | `Bad_CommunicationError` (0x80050000) | 0x18 Bad: Comm Failure | `is_null` false with last value, `Quality` 0x18 | in `BadTags` |
 | `bad_config` | address unusable or rejected by the device | `Bad_ConfigurationError` (0x80890000) | 0x04 Bad: Config Error | `is_null` true, `Quality` 0x04 | in `BadTags` |
-| `bad_decode` | reply could not be converted | `Bad_DecodingError` (0x80070000) (*pin*) | 0x00 Bad | `is_null` true, `Quality` 0x00 | in `BadTags` |
+| `bad_decode` | reply could not be converted | `Bad_DataEncodingInvalid` (0x80380000) — not `Bad_DecodingError`, which means a malformed OPC UA message | 0x00 Bad | `is_null` true, `Quality` 0x00 | in `BadTags` |
 | `stale` | no good read within 3 × rate, or never read | `Uncertain_LastUsableValue` (0x40900000); never read: `Bad_WaitingForInitialData` (0x80320000) | 0x44 Uncertain: Last Usable; never read 0x00 | last value, `Quality` 0x44 | in `BadTags` |
 
 - Timestamps: `source_ts` = reply arrival time, or the device's own timestamp when the

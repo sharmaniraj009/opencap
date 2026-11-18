@@ -36,7 +36,7 @@ These rules come before everything else:
 ```bash
 git clone https://github.com/sharmaniraj009/opencap && cd opencap
 python3.12 -m venv .venv            # 3.12 and 3.13 are tested in CI
-.venv/bin/pip install -e '.[dev,modbus,ab,north]'
+.venv/bin/pip install -e '.[dev,all]'
 .venv/bin/pytest -m "not acceptance"          # must stay green (~30 s)
 .venv/bin/pytest -m acceptance                # slower end-to-end runs
 ```
@@ -125,6 +125,18 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 - The lead squash-merges when CI is green and the review passes, in the order that causes
   the fewest conflicts, with the message `<area>: <what> (#PR)`. Engineers never merge.
 - After a merge, the lead updates the board and flips the issues that waited on it to `ready`.
+- When a PR has only mechanical conflicts (decision-log numbers, README hunks), the lead may
+  resolve them with a merge commit on the PR branch. History is never rewritten.
+- **Stalled PRs.** If a PR's author has not answered a review after two board passes, the lead
+  files a `finish PR #N` issue (P1) listing the remaining review items. Whoever claims it:
+  1. branches from the PR head, keeping the original commits;
+  2. merges `main` and makes the fixes;
+  3. opens a new PR that says "Supersedes #N".
+
+  The lead closes the old PR when the new one merges. A returning author keeps the work by
+  commenting on both.
+- **Decision-log numbers:** take the next free `D-NNN` (shown on the board) when you open the
+  PR. If two open PRs collide, the lead renumbers the later one at merge time.
 
 ### Decisions only the owner makes
 

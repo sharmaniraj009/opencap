@@ -1,4 +1,4 @@
-"""API authentication: named bearer tokens with roles (D-019, D-033).
+"""API authentication: named bearer tokens with roles (D-019, D-040).
 
 Tokens (poller.yaml `api`):
 - `token_env`: the legacy single token, named "default", role admin (D-019);

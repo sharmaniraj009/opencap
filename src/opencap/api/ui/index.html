@@ -14,6 +14,7 @@
   <a class="brand" href="#/dashboard">opencap</a>
   <nav class="nav" x-show="app().name" x-cloak>
     <a href="#/dashboard" :aria-current="active('dashboard device') ? 'page' : null">Dashboard</a>
+    <a href="#/quick" :aria-current="active('quick') ? 'page' : null">Quick Client</a>
     <a href="#/config" :aria-current="active('config channel edit check') ? 'page' : null">Config</a>
     <a href="#/import" :aria-current="active('import') ? 'page' : null">Import</a>
     <a href="#/audit" :aria-current="active('audit') ? 'page' : null">Audit</a>
@@ -95,6 +96,7 @@
     <h1 x-text="id"></h1>
     <div class="actions">
       <button class="primary" x-show="isAdmin() && !missing" :disabled="busy" @click="readOnce()" title="Read every tag of this device now (read-only)">Read once</button>
+      <a class="button" :href="quickHref(id)">Quick Client</a>
       <a class="button" :href="editHref(id)">Edit config</a>
     </div>
   </div>
@@ -156,6 +158,74 @@
         <thead><tr><th>Tag</th><th>Reason</th></tr></thead>
         <tbody><template x-for="row in invalidRows()" :key="row.name"><tr><td><code x-text="row.name"></code></td><td class="wrap" x-text="row.reason"></td></tr></template></tbody>
       </table>
+    </div>
+  </div>
+</section>
+</template>
+
+<!-- ============================================================ Quick Client -->
+<template x-if="view('quick')">
+<section x-data="quickView" id="view-quick">
+  <div class="toolbar">
+    <h1>Quick Client</h1>
+    <span id="quick-mode" :class="modeClass()" :title="modeTitle()" x-text="modeText()"></span>
+  </div>
+  <p class="muted small">Live values over <code>/api/v1/ws</code>: changes arrive as they are polled, at most four updates per device per second. Read-only: nothing here writes to a PLC.</p>
+  <div class="quick">
+    <nav class="quick-tree" aria-label="Devices">
+      <input type="search" placeholder="Filter devices…" aria-label="Filter devices" x-model="q">
+      <p class="error" x-show="devError" x-text="devError"></p>
+      <p class="muted small" x-show="!devError && !has(tree())">No polled device matches.</p>
+      <template x-for="ch in tree()" :key="ch.name">
+        <div class="quick-channel">
+          <div class="quick-channel-name" x-text="ch.name"></div>
+          <ul>
+            <template x-for="d in ch.devices" :key="d.id">
+              <li><a :href="quickHref(d.id)" :aria-current="d.id === id ? 'true' : null"><span :class="stateDot(d.state)" aria-hidden="true"></span><span x-text="deviceName(d, ch)"></span></a></li>
+            </template>
+          </ul>
+        </div>
+      </template>
+    </nav>
+    <div class="quick-main">
+      <p class="muted" x-show="!id">Choose a device on the left to watch its tags.</p>
+      <template x-if="id">
+        <div>
+          <div class="toolbar">
+            <h2 class="quick-title"><a :href="deviceHref(id)" x-text="id"></a></h2>
+            <div class="actions">
+              <input type="search" placeholder="Filter tags…" aria-label="Filter tags" x-model="tq">
+              <button class="primary" x-show="isAdmin()" :disabled="readDisabled()" @click="readNow()" title="Read every tag of this device now (POST read-once, read-only)">Read now</button>
+            </div>
+          </div>
+          <p class="error" role="alert" x-show="error" x-text="error"></p>
+          <p class="banner warn" x-show="unavailable" x-text="'Not polled: ' + unavailable"></p>
+          <p class="flash flash-ok inline" x-show="readNote" x-text="readNote"></p>
+          <p class="muted small" id="quick-counts" x-show="has(rows)" x-text="countsText()"></p>
+          <p class="muted" x-show="!unavailable && !has(rows) && loaded">This device has no enabled tags.</p>
+          <p class="muted" x-show="!unavailable && !loaded">waiting for the first values…</p>
+          <div class="table-wrap" x-show="has(rows)">
+            <table class="values" id="quick-values">
+              <thead><tr><th>Tag</th><th class="opt">Address</th><th class="opt">Type</th><th>Value</th><th>Quality</th><th class="opt">Source time</th><th>Age</th><th class="opt">Updates</th></tr></thead>
+              <tbody>
+                <template x-for="r in shown()" :key="r.tag">
+                  <tr :class="rowClass(r)" :data-tag="r.tag">
+                    <td><code x-text="r.tag"></code></td>
+                    <td class="small opt"><code x-show="r.address" x-text="r.address"></code></td>
+                    <td class="small muted opt" x-text="r.dtype"></td>
+                    <td :class="valueClass(r)" x-text="fmt(r.value)"></td>
+                    <td><span :class="qualityClass(r.quality)" x-text="r.quality"></span></td>
+                    <td class="muted small nowrap opt" x-text="tsText(r)"></td>
+                    <td :class="ageClass(r)" x-text="age(r)"></td>
+                    <td class="num small muted opt" x-text="r.updates"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted small" x-show="shownNote()" x-text="shownNote()"></p>
+        </div>
+      </template>
     </div>
   </div>
 </section>

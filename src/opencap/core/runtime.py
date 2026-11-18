@@ -305,6 +305,15 @@ class Poller:
         self._worker_for(device_id)
         return {name: tag_value_json(tv) for name, tv in self.cache.snapshot(device_id).items()}
 
+    def live_version(self, device_id: str) -> int | None:
+        """Change counter of the device's values, for the live feed `GET /api/v1/ws` (#31): it
+        grows with every cache update or expiry. None = the device is not polled."""
+        try:
+            self._worker_for(device_id)
+        except KeyError:
+            return None
+        return self.cache.version(device_id)
+
     async def read_once(self, device_id: str) -> dict[str, Any]:
         values = await self._worker_for(device_id).read_once(device_id)
         return {name: tag_value_json(tv) for name, tv in values.items()}
@@ -360,11 +369,12 @@ class Poller:
     async def _start_api(self) -> None:
         import uvicorn
 
+        from opencap.api.live import UVICORN_WS
         from opencap.api.server import create_app
 
         api_cfg = self.loaded.poller.api
         app = create_app(self, api_cfg)
         config = uvicorn.Config(app, host=api_cfg.bind, port=api_cfg.port, log_config=None,
-                                access_log=False, lifespan="off")
+                                access_log=False, lifespan="off", **UVICORN_WS)
         self._api_server = uvicorn.Server(config)
         self._api_task = asyncio.create_task(self._api_server.serve(), name="api")

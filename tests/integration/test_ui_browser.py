@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,17 @@ def test_ui_in_a_browser(tmp_path):
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning", lifespan="off"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    # the Quick Client must see FLOW_1 change without a reload: a poll every 300 ms, as it were
+    stop = threading.Event()
+
+    def polling() -> None:
+        n = 0
+        while not stop.wait(0.3):
+            n += 1
+            poller.set_tag("SITE MODBUS/Device1", "FLOW_1", 100.0 + n, source_ts=datetime.now(UTC).isoformat())
+
+    ticker = threading.Thread(target=polling, daemon=True)
+    ticker.start()
     try:
         deadline = time.monotonic() + 10
         while not server.started:
@@ -66,5 +78,7 @@ def test_ui_in_a_browser(tmp_path):
         assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
         assert "all checks passed" in result.stdout
     finally:
+        stop.set()
+        ticker.join(5)
         server.should_exit = True
         thread.join(10)

@@ -4,6 +4,7 @@ It loads a real config directory (so the config API, `/check` and "pending reloa
 what a real poller would), builds the real block plans, and serves canned runtime state:
 every enabled tag of a polled device reads `good` with value 1.0 unless `values` says
 otherwise. `reload()` re-reads the config like `Poller.reload()` and reports what changed.
+`set_tag()` changes one value and bumps the device's `live_version` (the WebSocket feed).
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ class ConfigPoller:
         self.states: dict[str, str] = {}
         self.mqtt_connected = True
         self.saf_queue = 7
+        self.live_versions: dict[str, int] = {}
 
     def _build(self) -> None:
         plans: dict[str, DevicePlan] = {}
@@ -99,6 +101,21 @@ class ConfigPoller:
             else:
                 out[t.name] = {"value": 1.0, "quality": "good", "source_ts": TS}
         return out
+
+    def live_version(self, device_id: str) -> int | None:
+        try:
+            self._check(device_id)
+        except KeyError:
+            return None
+        return self.live_versions.get(device_id, 1)
+
+    def set_tag(self, device_id: str, tag: str, value: Any, quality: str = "good",
+                source_ts: str | None = TS) -> None:
+        """Change one tag's value (as a poll would) and bump the device's change counter."""
+        values = {k: dict(v) for k, v in self.device_values(device_id).items()}
+        values[tag] = {"value": value, "quality": quality, "source_ts": source_ts}
+        self.values[device_id] = values
+        self.live_versions[device_id] = self.live_version(device_id) + 1
 
     async def read_once(self, device_id: str) -> dict[str, Any]:
         self._check(device_id)

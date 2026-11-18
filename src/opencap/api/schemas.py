@@ -320,3 +320,71 @@ ERR_RUN = {**ERR_AUTH, **ERR_NOT_FOUND,
            400: {"model": Error, "description": "reload failed, old config kept"},
            409: {"model": Error, "description": "the device is not in a state to do this (e.g. not connected)"}}
 ERR_WRITE = {**ERR_AUTH, **ERR_WRITE}
+
+
+# --- live values: WebSocket /api/v1/ws (#31) -------------------------------------------------
+# OpenAPI cannot describe WebSocket messages, so these models go into `components.schemas` by
+# hand (`server._openapi`) and `GET /api/v1/ws` points to them with `x-websocket`.
+
+class WsTagRef(_Open):
+    device: str
+    tag: str
+
+
+class WsSubscription(_Open):
+    """What a connection receives. Each `subscribe` replaces the previous subscription."""
+
+    devices: list[str] = Field(default_factory=list, description="device ids: every tag of each")
+    tags: list[WsTagRef] = Field(default_factory=list, description="single tags (of devices not in `devices`)")
+
+
+class WsSubscribe(_Open):
+    """Client to server: the only message a client sends."""
+
+    subscribe: WsSubscription
+
+
+class WsChange(_Open):
+    tag: str
+    value: Any = Field(None, description='non-finite floats are sent as "NaN", "Infinity", "-Infinity"')
+    quality: str
+    source_ts: str | None = None
+
+
+class WsValues(_Open):
+    """`snapshot`: every subscribed tag of the device, replacing what the client holds for it (sent after
+    each `subscribe`, when a device comes back, and to a client that fell behind). `changes`: what
+    changed since the previous message for the device. At most one per device per `conflate_ms`."""
+
+    type: str = Field(description='"snapshot" or "changes"', pattern="^(snapshot|changes)$")
+    device: str
+    version: int = Field(description="change counter of the device's values; grows within a connection")
+    changes: list[WsChange]
+    missing: list[str] | None = Field(None, description="subscribed tags the device does not have (snapshot)")
+
+
+class WsSubscribed(_Open):
+    type: str = Field(pattern="^subscribed$")
+    devices: list[str]
+    tags: list[WsTagRef]
+    conflate_ms: int
+
+
+class WsUnavailable(_Open):
+    """The device is not polled (unknown, its channel disabled, or not reloaded yet). Stays
+    subscribed: a `snapshot` follows when it is polled again."""
+
+    type: str = Field(pattern="^unavailable$")
+    device: str
+    detail: str
+
+
+class WsError(_Open):
+    """The server could not use a client message; the connection stays open."""
+
+    type: str = Field(pattern="^error$")
+    detail: str
+
+
+WS_CLIENT_MESSAGES = (WsSubscribe,)
+WS_SERVER_MESSAGES = (WsSubscribed, WsValues, WsUnavailable, WsError)

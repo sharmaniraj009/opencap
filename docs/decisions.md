@@ -826,6 +826,63 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   marked `deprecated` (rules in `api/README.md`). `info.version` is `1.0.0`.
 - **Licences:** no new dependency; `jsonschema` (MIT) was already a dev dependency and validates the contract.
 
+### D-066 Live values over WebSocket, `GET /api/v1/ws` (#31)
+
+- **Contract:** protocol `opencap.v1`, JSON text frames. OpenAPI 3.1 has no WebSocket operations, so
+  `api/openapi.json` documents the upgrade as `GET /api/v1/ws` (101, 400, 401, 403, 503) with an `x-websocket` block
+  whose `client_messages` / `server_messages` point to the `Ws*` schemas in `components.schemas`. The contract
+  test validates real messages against them. Additive: `info.version` 1.1.0.
+- **Messages (as built vs the issue's wording):** one client message, `{"subscribe": {"devices": [...], "tags":
+  [{"device", "tag"}]}}`. Each subscribe *replaces* the previous one (no unsubscribe message; an empty subscribe
+  stops everything), so a client never has to track server state. Tags are `{device, tag}` objects because channel,
+  device and tag names may contain `/`. Server messages carry a `type`: `snapshot` and `changes` both have the
+  issue's shape `{device, version, changes: [{tag, value, quality, source_ts}]}`; `subscribed` acks;
+  `unavailable` says a device is not polled (it stays subscribed and gets a snapshot when it is polled again);
+  `error` answers a message the server could not use, without closing. `version` is the value cache's change
+  counter of the device (`Poller.live_version()`): it grows within a connection, so a client can drop a stale batch.
+- **Auth in the handshake**, with the REST tokens and roles (subscribing is a read: viewers may). Browsers cannot set
+  `Authorization` on a WebSocket, so they offer the subprotocol `opencap.bearer.<base64url(token)>` next to
+  `opencap.v1` (the pattern Kubernetes uses); the server selects `opencap.v1` and never echoes the token. Not a query
+  parameter: URLs end up in access logs, proxies and browser history. A refusal is an HTTP 400/401/403/503 before the
+  upgrade (uvicorn's `websocket.http.response` extension), so no socket is opened.
+- **Origin check (security):** CORS does not apply to WebSockets. In open mode (no token, loopback only) any web page
+  open in a browser on that machine could connect to `ws://127.0.0.1:<port>` with a correct `Host` and read live
+  values. A browser `Origin` must therefore equal the API's own origin (`Host`) or be listed in `api.cors_origins`;
+  clients without `Origin` (not browsers) are unaffected. Behind a reverse proxy, keep `Host` or list the public
+  origin in `api.cors_origins`.
+- **Conflation by polling a change counter, not an `on_cycle` hook:** the worker's housekeeping marks tags stale with
+  `ValueCache.expire()` without a cycle callback, so a hook would miss quality changes. A hub task (only while
+  connections exist) reads `live_version` of each subscribed device every 50 ms: one dict lookup per device. A
+  changed device whose last message left at least 250 ms ago is diffed once against the values last sent; the batch
+  is JSON-encoded once and the same string goes to every whole-device subscriber (snapshots are cached per version).
+  The first change after a quiet period goes out within 50 ms, then at most one message per device per 250 ms.
+  The only runtime change is `Poller.live_version()`.
+- **Slow clients:** each connection has a queue bounded by 4 MiB and `16 + 4 x devices` messages. Over the bound the
+  queue is dropped and every subscribed device gets a fresh snapshot, built when it is sent (one at a time, so memory
+  holds one snapshot). Batches for a device waiting on a snapshot are not queued; a snapshot due to a reload (tag set
+  changed) or a device coming back drops that device's older queued batches. At most 256 connections (503), 1 MiB
+  per client frame (uvicorn closes with 1009), 100,000 devices and tags per subscribe.
+- **permessage-deflate is off** (`live.UVICORN_WS`, used by `runtime._start_api`). It compresses per connection on the
+  poll loop: with 50 clients x 5,000 changing tags the event loop stalled 40-150 ms every second; without it the only
+  stall was ~90 ms while the 50 clients connected. The price is bandwidth: about 80 bytes per changed tag,
+  uncompressed, to each client.
+- **Non-finite floats** go out as the strings `"NaN"`, `"Infinity"`, `"-Infinity"` (as the proto3 JSON mapping does):
+  JSON has no such numbers and a browser's `JSON.parse` rejects them.
+- **New dependency:** `websockets` (BSD-3-Clause) in the `north` extra. uvicorn serves WebSockets only with a WebSocket
+  library installed; it was present before only through `amqtt` (dev), so a production install could not have served
+  the feed.
+- **UI (Quick Client, `#/quick/<device>`):** device tree, tag table (address and type from the config, value,
+  quality colour, source time, age, update count), tag filter, at most 1,000 rows rendered. "Read now" calls
+  `POST /api/v1/devices/{id}/read-once` (admin until RFC 0005; never a PLC write). If the socket cannot be opened three
+  times in a row (an engine without the route, such as the Rust engine today) the screen polls
+  `GET /api/v1/devices/{id}/values` every 2 s and says so. CSP stays `connect-src 'self'`, which covers `ws:`/`wss:`
+  to the same host in current browsers (CSP3); where it does not, the fallback applies.
+- **Load result** (`tests/integration/test_live_load.py`, acceptance): 50 clients in their own process, each
+  subscribed to 10 Modbus simulators x 500 tags with every value changing on every 1 s poll: no poll overruns,
+  cycles ~100 ms, all clients hold all 5,000 tags, 120 batches per client in 12 s, no resyncs, ~27 MB/s delivered.
+- **Rust engine:** not part of this change; it has to serve the same `x-websocket` contract (the dual-engine suite,
+  #42, can reuse `tests/unit/test_live_api.py`'s message checks).
+
 ## S7 and MELSEC MC drivers
 
 ### D-048 s7 driver on python-snap7 3.5 (pure Python)

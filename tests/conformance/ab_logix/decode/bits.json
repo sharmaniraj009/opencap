@@ -1,0 +1,21 @@
+{
+ "format": 1,
+ "area": "ab_logix/decode",
+ "description": ".n bits decoded from the returned integer.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"bit-0-set","description":"Bit 0 of 1.","input":{"params":{},"tags":[{"name":"X","address":"W.0","dtype":"bool"}],"values":{"t":"list","v":[{"t":"int","v":"1"}]}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"bit-5-clear","description":"Bit 5 of 1 is clear.","input":{"params":{},"tags":[{"name":"X","address":"W.5","dtype":"bool"}],"values":{"t":"list","v":[{"t":"int","v":"1"}]}},"expected":{"values":{"X":{"t":"bool","v":false}}}},
+  {"id":"bit-31-of-min-dint","description":"Bit 31 of -2^31 (a DINT's sign bit).","input":{"params":{},"tags":[{"name":"X","address":"W.31","dtype":"bool"}],"values":{"t":"list","v":[{"t":"int","v":"-2147483648"}]}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"bit-63-of-neg-one","description":"Bit 63 of -1: negative values are two's complement.","input":{"params":{},"tags":[{"name":"X","address":"W.63","dtype":"bool"}],"values":{"t":"list","v":[{"t":"int","v":"-1"}]}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"bit-63-of-min-lint","description":"Bit 63 of -2^63.","input":{"params":{},"tags":[{"name":"X","address":"W.63","dtype":"bool"}],"values":{"t":"list","v":[{"t":"int","v":"-9223372036854775808"}]}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"bit-40-of-positive","description":"A bit above 31 of a positive LINT.","input":{"params":{},"tags":[{"name":"X","address":"W.40","dtype":"bool"}],"values":{"t":"list","v":[{"t":"int","v":"1099511627776"}]}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"bit-of-bool","description":"A BOOL value is an integer: bit 0 of true is set.","input":{"params":{},"tags":[{"name":"X","address":"W.0","dtype":"bool"}],"values":{"t":"list","v":[{"t":"bool","v":true}]}},"expected":{"values":{"X":{"t":"bool","v":true}}}},
+  {"id":"bit-1-of-bool","description":"Bit 1 of true is clear.","input":{"params":{},"tags":[{"name":"X","address":"W.1","dtype":"bool"}],"values":{"t":"list","v":[{"t":"bool","v":true}]}},"expected":{"values":{"X":{"t":"bool","v":false}}}},
+  {"id":"bit-as-int16","description":"A bit typed int16 gives 0 or 1.","input":{"params":{},"tags":[{"name":"X","address":"W.2","dtype":"int16"}],"values":{"t":"list","v":[{"t":"int","v":"4"}]}},"expected":{"values":{"X":{"t":"int","v":"1"}}}},
+  {"id":"bit-as-float32","description":"A bit typed float32 gives 0.0 or 1.0.","input":{"params":{},"tags":[{"name":"X","address":"W.2","dtype":"float32"}],"values":{"t":"list","v":[{"t":"int","v":"4"}]}},"expected":{"values":{"X":{"t":"float","v":"1.0"}}}},
+  {"id":"bit-of-float","description":"A bit of a REAL is a decode error.","input":{"params":{},"tags":[{"name":"X","address":"W.0","dtype":"bool"}],"values":{"t":"list","v":[{"t":"float","v":"1.0"}]}},"expected":{"values":{"X":{"t":"decode_error","v":"W: X: expected an integer for a bit, got float"}}}},
+  {"id":"bit-of-str","description":"A bit of a string is a decode error.","input":{"params":{},"tags":[{"name":"X","address":"W.0","dtype":"bool"}],"values":{"t":"list","v":[{"t":"str","v":"1"}]}},"expected":{"values":{"X":{"t":"decode_error","v":"W: X: expected an integer for a bit, got str"}}}},
+  {"id":"bits-and-word","description":"Bits and the integer itself from one value.","input":{"params":{},"tags":[{"name":"B0","address":"W.0","dtype":"bool"},{"name":"B1","address":"W.1","dtype":"bool"},{"name":"V","address":"W","dtype":"int32"}],"values":{"t":"list","v":[{"t":"int","v":"-2"}]}},"expected":{"values":{"B0":{"t":"bool","v":false},"B1":{"t":"bool","v":true},"V":{"t":"int","v":"-2"}}}}
+ ]
+}

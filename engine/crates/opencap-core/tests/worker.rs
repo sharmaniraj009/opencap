@@ -69,13 +69,22 @@ struct Probe {
 }
 
 impl Probe {
-    fn enter(&self) {
+    /// Mark a request as on the wire until the returned guard drops. A request future that
+    /// is cancelled (safety-net timeout, `stop()` aborting device tasks one by one) drops the
+    /// guard too, as the real wire lock is released then; a manual exit() would leak it.
+    fn enter(self: &Arc<Self>) -> InFlight {
         let n = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.max.fetch_max(n, Ordering::SeqCst);
         self.total.fetch_add(1, Ordering::SeqCst);
+        InFlight(self.clone())
     }
-    fn exit(&self) {
-        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+}
+
+struct InFlight(Arc<Probe>);
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -122,14 +131,14 @@ impl Driver for FakeDriver {
     }
 
     async fn connect(&mut self) -> Result<(), DriverError> {
-        self.probes.iter().for_each(|p| p.enter());
+        let _in_flight: Vec<InFlight> = self.probes.iter().map(|p| p.enter()).collect();
         let (down, unsupported, delay) = {
             let mut s = self.script.lock().unwrap();
             s.connect_attempts.push(mono());
             (s.down, s.unsupported, s.delay)
         };
         tokio::time::sleep(delay).await;
-        self.probes.iter().for_each(|p| p.exit());
+        drop(_in_flight);
         if unsupported {
             return Err(DriverError::NotImplemented("fake: no I/O".into()));
         }
@@ -154,7 +163,7 @@ impl Driver for FakeDriver {
         if !self.connected {
             return Err(DriverError::ConnectionLost("not connected".into()));
         }
-        self.probes.iter().for_each(|p| p.enter());
+        let _in_flight: Vec<InFlight> = self.probes.iter().map(|p| p.enter()).collect();
         let (delay, hang) = {
             let mut s = self.script.lock().unwrap();
             s.reads.push(b.key.clone());
@@ -164,7 +173,7 @@ impl Driver for FakeDriver {
             tokio::time::sleep(Duration::from_secs(3600)).await;
         }
         tokio::time::sleep(delay).await;
-        self.probes.iter().for_each(|p| p.exit());
+        drop(_in_flight);
         let mut s = self.script.lock().unwrap();
         if let Some(e) = s.read_failures.pop_front() {
             if matches!(e, DriverError::ConnectionLost(_)) {
@@ -323,6 +332,23 @@ async fn one_request_on_the_wire_per_channel_and_channels_in_parallel() {
         assert!(p.total.load(Ordering::SeqCst) > 20);
     }
     assert_eq!(s.rig.global.max.load(Ordering::SeqCst), 2, "the two channels poll in parallel");
+}
+
+/// Mutation check for the one-request-on-the-wire assertion: the probe really reports an
+/// overlap, and a cancelled request does not leak an in-flight count.
+#[test]
+fn probe_detects_overlap_and_is_drop_safe() {
+    let p = Arc::new(Probe::default());
+    {
+        let _a = p.enter();
+        let _b = p.enter();
+    }
+    assert_eq!(p.max.load(Ordering::SeqCst), 2, "an overlapping driver must be visible");
+    assert_eq!(p.in_flight.load(Ordering::SeqCst), 0, "dropped guards release the count");
+    let cancelled = p.enter();
+    drop(cancelled); // request abandoned mid-flight
+    let _next = p.enter();
+    assert_eq!(p.in_flight.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -565,7 +591,11 @@ async fn stop_closes_drivers_and_on_cycle_panics_do_not_stop_polling() {
     let s =
         setup_with(vec![device("S/D", &[("X", "a.0")])], true, WorkerOptions { on_cycle: Some(on_cycle), ..opts() });
     s.workers[0].start();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // wait on the condition with a generous deadline instead of a fixed sleep (CPU load, #78)
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while calls.load(Ordering::SeqCst) < 3 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     assert!(calls.load(Ordering::SeqCst) >= 3, "polling continues after a panicking callback");
     s.workers[0].stop().await;
     {

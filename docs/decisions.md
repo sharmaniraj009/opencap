@@ -1199,3 +1199,15 @@ so asyncua's ServerState keep-alive probe is not mistaken for polling), Write at
 monitored items. The first server of a test process builds asyncua's standard address space
 into a shelf in a temp dir (~3 s); later servers load it in milliseconds. `stop()` cancels
 asyncua's once-a-second clock task first (private attribute, guarded), which saves 1 s per stop.
+
+### D-065 Worker overlap flake is a test artefact (#78)
+- **Conclusion: test artefact, not a D-015 violation.** The `Probe` in `engine/crates/opencap-core/tests/worker.rs`
+  counted a request as in flight until a manual `exit()`. `ChannelWorker::stop()` aborts the device tasks one by one,
+  so a request future dropped mid-flight (also the safety-net timeout path) never called `exit()`, and a sibling
+  device still polling saw 2. The real wire lock is a `tokio::sync::Mutex` guard held across the driver call and is
+  released on drop, so a cancelled request cannot leave the channel locked; `src/worker.rs` is unchanged.
+- **Fix:** `Probe::enter()` returns a drop guard. `probe_detects_overlap_and_is_drop_safe` is the mutation check:
+  two overlapping requests still report `max == 2`, and an abandoned request releases its count.
+- **Timing flake:** the panicking-`on_cycle` test waits on the call counter with a 10 s deadline instead of a fixed 300 ms sleep.
+- **Verification:** 100 consecutive `cargo test -p opencap-core --test worker` runs with 8 busy loops on 4 cores: 0 failures
+  (was ~4/25). Command: start `sh -c 'while :; do :; done'` x8, then loop the test.

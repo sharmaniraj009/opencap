@@ -1,0 +1,4 @@
+# Cargo build output and Tauri-generated files
+/target/
+/src-tauri/target/
+/src-tauri/gen/schemas/

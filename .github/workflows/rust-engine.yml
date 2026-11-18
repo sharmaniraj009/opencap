@@ -1,0 +1,131 @@
+name: Rust engine
+
+# The Rust engine in engine/ (docs/rfc/0001-rust-engine.md): format, lint, unit tests and the
+# licence gate (ADR-0007), then conformance against the Python reference (ADR-0014): golden
+# payloads, CLI parity, outbox interchange and the Phase 1 acceptance suite driven against the
+# Rust binary (OPENCAP_ENGINE=rust), with the same simulators, broker and assertions as Python.
+
+on:
+  push:
+    paths: ["engine/**", "src/**", "tests/**", "config/**", "pyproject.toml", ".github/workflows/rust-engine.yml"]
+  pull_request:
+    paths: ["engine/**", "src/**", "tests/**", "config/**", "pyproject.toml", ".github/workflows/rust-engine.yml"]
+  workflow_dispatch:
+    inputs:
+      outage_s:
+        description: "Broker outage in the Phase 1 acceptance test, seconds"
+        required: false
+        default: "8"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-test:
+    name: cargo fmt, clippy, test, deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          shared-key: engine
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Build
+        run: cargo build --locked --all-targets
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked
+      - name: Licence and supply-chain gate (cargo-deny)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: engine/Cargo.toml
+          command: check licenses bans sources
+      - name: Advisories (RustSec)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: engine/Cargo.toml
+          command: check advisories
+
+  conformance:
+    name: conformance vs the Python reference
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          shared-key: engine
+          save-if: false
+      - name: Build the engine binary
+        working-directory: engine
+        run: cargo build --locked -p opencap-engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install the Python reference and test harness
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,modbus,north]'
+      - name: Golden payloads, CLI parity, outbox interchange, API and reload
+        env:
+          OPENCAP_ENGINE_BIN: engine/target/debug/opencap-engine
+        run: >
+          pytest -ra tests/unit/test_payload_golden.py
+          tests/integration/test_rust_engine_cli.py tests/integration/test_rust_engine_outbox.py
+          tests/integration/test_rust_engine_api.py
+      - name: Config conformance, Rust models vs Python models (#39)
+        run: |
+          cargo build --locked --manifest-path engine/Cargo.toml -p opencap-core --example config_dump
+          python tests/conformance/config/compare.py --dumper engine/target/debug/examples/config_dump
+      - name: Phase 1 acceptance against the Rust engine
+        env:
+          OPENCAP_ENGINE: rust
+          OPENCAP_ENGINE_BIN: engine/target/debug/opencap-engine
+          OPENCAP_OUTAGE_S: ${{ inputs.outage_s || '8' }}
+        run: pytest -m acceptance -ra -s tests/integration/test_phase1_acceptance.py
+      - name: Engine log on failure
+        if: failure()
+        run: find /tmp -name engine.log -path '*rust-engine*' -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;
+
+  windows:
+    name: build and test on Windows (informational)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    # Desktop/service target (ADR-0010). Informational until the Windows CI issue (#35) makes it required.
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      - name: Build
+        run: cargo build --locked --all-targets
+      - name: Test
+        run: cargo test --locked

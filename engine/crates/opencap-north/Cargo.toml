@@ -1,0 +1,31 @@
+[package]
+name = "opencap-north"
+description = "opencap engine north side: SubDevice JSON payload, SQLite outbox, MQTT link, publisher"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencap-core.workspace = true
+base64.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+indexmap.workspace = true
+serde_json.workspace = true
+rumqttc.workspace = true
+rusqlite.workspace = true
+rustls.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

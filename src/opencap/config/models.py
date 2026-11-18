@@ -10,14 +10,17 @@ from __future__ import annotations
 import math
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DType = Literal[
     "bool", "int16", "uint16", "int32", "uint32", "int64", "uint64",
     "float32", "float64", "string",
 ]
-DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client"]
+DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client",
+                     "modbus_rtu", "ab_df1"]
 Quality = Literal["good", "bad_comm", "bad_config", "bad_decode", "stale"]
+
+DEFAULT_TOPIC_PREFIX = "opencap"   # poller.yaml mqtt.topic_prefix default
 
 
 class _Model(BaseModel):
@@ -65,7 +68,7 @@ class Tag(_Model):
 
 class PublishCfg(_Model):
     sub_device_id: str | None = None
-    topic: str | None = None       # None = "opencap/<site>/<device>/data" (slugged)
+    topic: str | None = None       # None = "<mqtt.topic_prefix>/<site>/<device>/data" (slugged)
     env: str = "prod"
     mode: Literal["interval", "on_change"] = "interval"
     interval_ms: int = 10_000
@@ -188,6 +191,9 @@ class DeviceOverride(_Model):
 class Overrides(_Model):
     channels: dict[str, dict[str, bool]] = Field(default_factory=dict)  # {"SITE": {"enabled": false}}
     devices: dict[str, DeviceOverride] = Field(default_factory=dict)    # key = device id
+    # KEPServer COM port -> where opencap reaches that line (serial drivers with transport: unmapped):
+    # "COM112": "192.0.2.50:4001" (raw TCP gateway), "rfc2217://host:port", "/dev/ttyUSB0"
+    serial_ports: dict[str, str] = Field(default_factory=dict)
 
 
 # --- poller.yaml ------------------------------------------------------------
@@ -202,6 +208,23 @@ class MqttCfg(_Model):
     client_id: str | None = None
     qos: int = 1
     keepalive_s: int = 30
+    # First level(s) of every topic opencap derives: <prefix>/<channel>/<device>/data|status and
+    # the LWT <prefix>/poller/<instance>/status. Used verbatim (not slugged); explicit
+    # `publish.topic` values are not affected.
+    topic_prefix: str = DEFAULT_TOPIC_PREFIX
+
+    @field_validator("topic_prefix")
+    @classmethod
+    def _check_topic_prefix(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("topic_prefix must not be empty")
+        if "+" in value or "#" in value or "\x00" in value:
+            raise ValueError(f"topic_prefix {value!r} must not contain '+', '#' or NUL")
+        if value.startswith("$"):
+            raise ValueError(f"topic_prefix {value!r} must not start with '$' (reserved by brokers)")
+        if any(level == "" for level in value.split("/")):
+            raise ValueError(f"topic_prefix {value!r} must not start or end with '/' or contain '//'")
+        return value
 
 
 class SafCfg(_Model):
@@ -209,10 +232,32 @@ class SafCfg(_Model):
     max_bytes: int = 2 * 1024**3
 
 
+class ApiToken(_Model):
+    """A named API token (also used to log in to the web UI). The secret lives in the env var
+    `token_env`, never in yaml."""
+
+    name: str = Field(min_length=1)   # shown in the audit log as "who"
+    role: Literal["viewer", "admin"] = "viewer"   # viewer = read-only (GET), admin = also changes
+    token_env: str = Field(min_length=1)
+
+
 class ApiCfg(_Model):
     bind: str = "127.0.0.1"
     port: int = 8080
-    token_env: str = "OPENCAP_API_TOKEN"
+    token_env: str = "OPENCAP_API_TOKEN"   # legacy single token: name "default", role admin
+    tokens: list[ApiToken] = Field(default_factory=list)
+    audit_log: str = "data/audit.jsonl"    # config-change audit log (JSON lines)
+    cors_origins: list[str] = Field(default_factory=list)   # other web origins allowed to call the API (desktop app)
+
+    @model_validator(mode="after")
+    def _unique_token_names(self) -> "ApiCfg":
+        names = [t.name for t in self.tokens]
+        if "default" in names:
+            raise ValueError("api.tokens: the name 'default' is reserved for api.token_env")
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise ValueError(f"api.tokens: duplicate names {dupes}")
+        return self
 
 
 class PayloadCfg(_Model):

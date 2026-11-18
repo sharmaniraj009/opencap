@@ -14,10 +14,11 @@ class FakePoller:
         self.reloads = 0
 
     def health(self):
-        return {"status": "ok", "mqtt_connected": True}
+        return {"status": "ok", "version": "0", "instance": "test", "mqtt_connected": True, "saf_queue": 0,
+                "channels": 1, "devices": {"ok": 1, "offline": 0, "demoted": 0}}
 
     def channels_summary(self):
-        return [{"name": "Site 001", "devices": [{"id": DEV, "state": "ok"}]}]
+        return [{"name": "Site 001", "devices": [{"id": DEV, "driver": "modbus_tcp", "state": "ok"}]}]
 
     def _check(self, device_id):
         if device_id != DEV:
@@ -25,7 +26,8 @@ class FakePoller:
 
     def device_detail(self, device_id):
         self._check(device_id)
-        return {"id": device_id, "state": "ok"}
+        return {"id": device_id, "channel": "Site 001", "driver": "modbus_tcp", "enabled": True, "tags": 1,
+                "blocks": [], "bad_config": [], "state": "ok"}
 
     def device_values(self, device_id):
         self._check(device_id)
@@ -41,10 +43,11 @@ class FakePoller:
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENCAP_TEST_TOKEN", "s3cret")
     poller = FakePoller()
-    app = create_app(poller, ApiCfg(bind="127.0.0.1", token_env="OPENCAP_TEST_TOKEN"))
+    app = create_app(poller, ApiCfg(bind="127.0.0.1", token_env="OPENCAP_TEST_TOKEN",
+                                    audit_log=str(tmp_path / "audit.jsonl")))
     return TestClient(app), poller
 
 
@@ -94,5 +97,6 @@ def test_no_token_on_public_bind_refused(monkeypatch):
 
 def test_no_token_on_loopback_is_open(monkeypatch):
     monkeypatch.delenv("OPENCAP_NO_TOKEN", raising=False)
-    c = TestClient(create_app(FakePoller(), ApiCfg(bind="127.0.0.1", token_env="OPENCAP_NO_TOKEN")))
+    c = TestClient(create_app(FakePoller(), ApiCfg(bind="127.0.0.1", token_env="OPENCAP_NO_TOKEN", audit_log="")),
+                   base_url="http://127.0.0.1:8080")
     assert c.get("/channels").status_code == 200

@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/opencap-core",
+    "crates/opencap-drivers",
+    "crates/opencap-north",
+    "crates/opencap-api",
+    "crates/opencap-engine",
+]
+
+[workspace.package]
+version = "0.1.0"          # FirmVersion in the payload is "opencap-<version>", same as the Python engine
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/sharmaniraj009/opencap"
+authors = ["opencap contributors"]
+publish = false            # not published to crates.io; internal path dependencies
+
+[workspace.dependencies]
+opencap-core = { path = "crates/opencap-core" }
+opencap-drivers = { path = "crates/opencap-drivers" }
+opencap-north = { path = "crates/opencap-north" }
+opencap-api = { path = "crates/opencap-api" }
+
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+clap = { version = "4", features = ["derive"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http-body-util = "0.1"
+indexmap = { version = "2", features = ["serde"] }
+prometheus = { version = "0.14", default-features = false }
+rand = "0.9"
+regex = "1"
+rumqttc = { version = "0.25", default-features = false, features = ["use-rustls-no-provider"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_path_to_error = "0.1"
+serde_yaml_ng = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util"] }
+tokio-modbus = { version = "0.17", default-features = false, features = ["tcp"] }
+tower = { version = "0.5", features = ["util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
+unicode-normalization = "0.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"

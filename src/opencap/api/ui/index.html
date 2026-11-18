@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opencap</title>
+<link rel="stylesheet" href="app.css">
+<!-- app.js registers the components on alpine:init, so it loads first; both are deferred. -->
+<script src="app.js" defer></script>
+<script src="vendor/alpine-csp-3.17.5.min.js" defer></script>
+</head>
+<body x-data="shell">
+<header class="top">
+  <a class="brand" href="#/dashboard">opencap</a>
+  <nav class="nav" x-show="app().name" x-cloak>
+    <a href="#/dashboard" :aria-current="active('dashboard device') ? 'page' : null">Dashboard</a>
+    <a href="#/config" :aria-current="active('config channel edit check') ? 'page' : null">Config</a>
+    <a href="#/import" :aria-current="active('import') ? 'page' : null">Import</a>
+    <a href="#/audit" :aria-current="active('audit') ? 'page' : null">Audit</a>
+  </nav>
+  <div class="who" x-show="app().name" x-cloak>
+    <span :class="'role-' + app().role" x-text="userText()"></span>
+    <button class="link" x-show="!app().open" @click="logout()">Log out</button>
+  </div>
+</header>
+<div class="banner info" x-show="app().open" x-cloak>No API token is configured, so this UI is read-only and answers only on localhost. Set <code>api.tokens</code> in poller.yaml to edit the configuration.</div>
+<div class="banner warn" id="readonly-config" x-show="app().name && isAdmin() && !app().writable" x-cloak>Configuration editing is off: <span x-text="app().writableReason"></span>. See docs/deployment.md (the config directory must be writable by opencap).</div>
+<div class="banner warn" id="pending" x-show="pendingShown()" x-cloak>
+  <span x-text="pendingText()"></span>
+  <button class="primary small" x-show="canReload()" @click="reload()">Reload now</button>
+</div>
+<div id="flash" x-show="flashText()" x-cloak>
+  <div :class="flashClass()" role="status"><span x-text="flashText()"></span><button class="link close" @click="closeFlash()" aria-label="close">×</button></div>
+</div>
+<noscript><p class="error">The opencap UI needs JavaScript.</p></noscript>
+
+<main>
+<!-- ============================================================ login -->
+<template x-if="view('login')">
+<section class="login" x-data="loginView" id="view-login">
+  <h1>Log in</h1>
+  <p class="muted">Use an API token from <code>poller.yaml</code> <code>api.tokens</code> (or <code>api.token_env</code>). Viewer tokens can look; admin tokens can also change the configuration. The token stays in this browser tab only.</p>
+  <p class="error" role="alert" x-show="error" x-text="error"></p>
+  <form class="stack" @submit.prevent="submit()">
+    <label>Token <input type="password" name="token" autocomplete="off" required x-model="token"></label>
+    <button type="submit" class="primary" :disabled="busy">Log in</button>
+  </form>
+</section>
+</template>
+
+<!-- ============================================================ dashboard -->
+<template x-if="view('dashboard')">
+<section x-data="dashboardView" id="view-dashboard">
+  <div class="toolbar">
+    <h1>Dashboard</h1>
+    <input type="search" placeholder="Filter devices…" aria-label="Filter devices" x-model="q">
+  </div>
+  <p class="error" x-show="error" x-text="error"></p>
+  <div class="cards" x-show="data">
+    <div class="card"><div class="label">MQTT link</div><div :class="mqttClass()" x-text="mqttText()"></div></div>
+    <div class="card"><div class="label">Outbox</div><div :class="outboxClass()" x-text="health().saf_queue"></div><div class="sub">messages waiting</div></div>
+    <div class="card"><div class="label">Devices</div>
+      <div class="value"><span class="ok" x-text="stateCount('ok')"></span> / <span class="muted" x-text="stateCount('offline')"></span> / <span class="warn" x-text="stateCount('demoted')"></span></div>
+      <div class="sub">ok / offline / demoted</div></div>
+    <div class="card"><div class="label">Instance</div><div class="value small" x-text="health().instance"></div><div class="sub" x-text="health().version"></div></div>
+  </div>
+  <p class="muted" x-show="noChannels()">No channel is polled. <a href="#/config">Open the config</a>.</p>
+  <template x-for="ch in sites()" :key="ch.name">
+    <section class="site">
+      <h2><span x-text="ch.name"></span> <small class="muted" x-text="count(ch.devices) + ' device(s)'"></small></h2>
+      <table class="devices responsive">
+        <thead><tr><th>Device</th><th>Driver</th><th>State</th><th>Last good</th><th>Errors</th><th>Cycle</th></tr></thead>
+        <tbody>
+          <template x-for="d in ch.devices" :key="d.id">
+            <tr>
+              <td data-label="Device"><a :href="deviceHref(d.id)" x-text="deviceName(d, ch)"></a></td>
+              <td data-label="Driver" x-text="d.driver"></td>
+              <td data-label="State"><span :class="stateClass(d.state)" x-text="d.state || 'offline'"></span></td>
+              <td data-label="Last good" :title="d.last_good" x-text="ago(d.last_good)"></td>
+              <td data-label="Errors" x-text="errorsText(d)"></td>
+              <td data-label="Cycle" x-text="ms(d.cycle_ms)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </section>
+  </template>
+</section>
+</template>
+
+<!-- ============================================================ device page -->
+<template x-if="view('device')">
+<section x-data="deviceView" id="view-device">
+  <div class="toolbar">
+    <h1 x-text="id"></h1>
+    <div class="actions">
+      <button class="primary" x-show="isAdmin() && !missing" :disabled="busy" @click="readOnce()" title="Read every tag of this device now (read-only)">Read once</button>
+      <a class="button" :href="editHref(id)">Edit config</a>
+    </div>
+  </div>
+  <div x-show="missing">
+    <p>This device is not polled by the running poller: its channel is disabled, not selected with <code>--site</code>, the change is not reloaded yet, or it does not exist.</p>
+  </div>
+  <p class="error" x-show="error" x-text="error"></p>
+  <div x-show="detail">
+    <p class="muted" x-text="subtitle()"></p>
+    <div class="cards">
+      <div class="card"><div class="label">State</div><div class="value"><span :class="stateClass(detail && detail.state)" x-text="(detail && detail.state) || 'offline'"></span></div>
+        <div class="sub" x-text="detail && detail.connected ? 'connected' : 'not connected'"></div></div>
+      <div class="card"><div class="label">Last good</div><div class="value small" x-text="ago(detail && detail.last_good)"></div></div>
+      <div class="card"><div class="label">Errors</div><div class="value" x-text="detail ? fmt(detail.errors) : ''"></div><div class="sub">failed cycles</div></div>
+      <div class="card"><div class="label">Cycle</div><div class="value" x-text="ms(detail && detail.cycle_ms)"></div></div>
+    </div>
+    <p class="error" x-show="detail && detail.last_error" x-text="'Last error: ' + (detail && detail.last_error)"></p>
+    <p class="flash flash-ok inline" x-show="readNote" x-text="readNote"></p>
+    <h2>Live values <small class="muted" x-text="'auto-refresh 2 s · ' + countsText()"></small></h2>
+    <div class="table-wrap">
+      <table class="values">
+        <thead><tr><th>Tag</th><th>Value</th><th>Quality</th><th>Source time</th></tr></thead>
+        <tbody>
+          <template x-for="v in values" :key="v.name">
+            <tr><td><code x-text="v.name"></code></td><td class="num" x-text="fmt(v.value)"></td><td><span :class="qualityClass(v.quality)" x-text="v.quality"></span></td><td class="muted small" x-text="v.ts || ''"></td></tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Identity</h2>
+    <div id="identity">
+      <p class="muted" x-show="!ident">asking the device…</p>
+      <p class="error" x-show="ident && ident.error" x-text="ident && ident.error"></p>
+      <p class="muted" x-show="ident && !ident.connected">Not connected right now: identity is read only over the device's existing connection (opencap does not open a second one).</p>
+      <p class="muted" x-show="ident && ident.connected && !has(ident.rows)">The device does not report an identity.</p>
+      <table class="compact kv" x-show="ident && has(ident.rows)">
+        <tbody><template x-for="row in (ident ? ident.rows : [])" :key="row.key"><tr><th x-text="row.key"></th><td class="wrap" x-text="fmt(row.value)"></td></tr></template></tbody>
+      </table>
+      <button class="small" x-show="isAdmin()" @click="loadIdentity(true)">Ask the device again</button>
+    </div>
+
+    <h2>Block plan</h2>
+    <p class="error" x-show="plan && plan.plan_error" x-text="'No plan: ' + (plan && plan.plan_error)"></p>
+    <div x-show="plan && !plan.plan_error">
+      <p class="muted" x-text="planText()"></p>
+      <details>
+        <summary x-text="count(blockRows()) + ' block(s)'"></summary>
+        <div class="table-wrap">
+          <table class="compact">
+            <thead><tr><th>Rate</th><th>Block</th><th>Requests</th><th>Tags</th></tr></thead>
+            <tbody><template x-for="(b, i) in blockRows()" :key="i"><tr><td x-text="rateText(b.rate_ms)"></td><td><code x-text="b.describe"></code></td><td x-text="b.wire_requests"></td><td class="wrap" x-text="join(b.tags)"></td></tr></template></tbody>
+          </table>
+        </div>
+      </details>
+      <h3>bad_config tags <small class="muted" x-text="'(' + count(invalidRows()) + ', never sent to the PLC)'"></small></h3>
+      <p class="muted" x-show="!has(invalidRows())">none</p>
+      <table class="compact" x-show="has(invalidRows())">
+        <thead><tr><th>Tag</th><th>Reason</th></tr></thead>
+        <tbody><template x-for="row in invalidRows()" :key="row.name"><tr><td><code x-text="row.name"></code></td><td class="wrap" x-text="row.reason"></td></tr></template></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+</template>
+
+<!-- ============================================================ config overview -->
+<template x-if="view('config')">
+<section x-data="configView" id="view-config">
+  <div class="toolbar">
+    <h1>Configuration</h1>
+    <div class="actions">
+      <a class="button" href="#/check">Check plan</a>
+      <button @click="exportConfig()">Export</button>
+      <button x-show="isAdmin()" class="primary" @click="reload()">Reload</button>
+    </div>
+  </div>
+  <p class="error" x-show="loadError" x-text="loadError"></p>
+  <p class="muted">Edits are written to the config files (revision <code x-text="rev"></code>) after the loader and the drivers accept them. <strong>Reload</strong> applies them; only changed channels restart. Channels, devices and tags live in <code>devices.json</code>, which a KEPServerEX re-import replaces: keep fixes that must survive a re-import in the device's <em>override</em>.</p>
+  <div class="error-box" x-show="summary && summary.error"><strong>The config on disk does not load: </strong><span x-text="summary && summary.error"></span>
+    <ul><template x-for="(e, i) in diskErrors()" :key="i"><li x-text="e"></li></template></ul></div>
+  <h2>Channels <small class="muted" x-text="counts().channels + ' channels · ' + counts().devices + ' devices · ' + counts().tags + ' tags · ' + counts().excluded + ' excluded at import'"></small></h2>
+  <div class="table-wrap">
+    <table class="responsive">
+      <thead><tr><th>Channel (site)</th><th>Enabled</th><th>Devices</th><th>Override</th></tr></thead>
+      <tbody>
+        <template x-for="c in channels" :key="c.name">
+          <tr>
+            <td data-label="Channel"><a :href="channelHref(c.name)" x-text="c.name"></a></td>
+            <td data-label="Enabled" x-text="c.enabled ? 'yes' : 'no'"></td>
+            <td data-label="Devices" x-text="c.devices"></td>
+            <td data-label="Override" x-text="overrideText(c)"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted" x-show="summary && !has(channels)">No channels yet: add one or <a href="#/import">import a KEPServerEX project</a>.</p>
+  <form id="channel-create" class="inline-form" x-show="canEdit()" @submit.prevent="addChannel()">
+    <div class="error-box" x-show="has(general)"><strong>Not saved:</strong><ul><template x-for="(g, i) in general" :key="i"><li x-text="g"></li></template></ul></div>
+    <label>New channel <input name="name" x-model="newChannel" placeholder="Plant A" required><span class="field-error" x-show="err('name')" x-text="err('name')"></span></label>
+    <button type="submit">Add channel</button>
+  </form>
+
+  <h2>Publish defaults <small class="muted">devices_map.yaml <code>defaults</code>, merged into every device's publish settings</small></h2>
+  <form id="map-defaults" class="stack" @submit.prevent="saveDefaults()">
+    <fieldset :disabled="!canEdit()">
+      <div class="error-box" x-show="has(defaultsErrors)"><strong>Not saved:</strong><ul><template x-for="(e, i) in defaultsErrors" :key="i"><li x-text="e"></li></template></ul></div>
+      <p class="flash flash-ok inline" x-show="defaultsNote" x-text="defaultsNote"></p>
+      <label>Defaults (JSON; publish settings: env, mode, interval_ms, heartbeat_ms, deadband)
+        <textarea name="defaults" rows="3" spellcheck="false" placeholder='{"env": "prod"}' x-model="defaultsText"></textarea></label>
+      <button type="submit" x-show="canEdit()">Save defaults</button>
+    </fieldset>
+  </form>
+
+  <template x-if="has(warnings())">
+    <section>
+      <h2>Warnings <small class="muted" x-text="count(warnings())"></small></h2>
+      <ul class="warnings"><template x-for="(w, i) in warnings()" :key="i"><li x-text="w"></li></template></ul>
+    </section>
+  </template>
+</section>
+</template>
+
+<!-- ============================================================ channel -->
+<template x-if="view('channel')">
+<section x-data="channelView" id="view-channel">
+  <p class="crumbs"><a href="#/config">Config</a> ›</p>
+  <div class="toolbar">
+    <h1 x-text="name"></h1>
+    <div class="actions" x-show="canEdit()"><button class="danger" @click="remove()">Delete channel</button></div>
+  </div>
+  <p class="error" x-show="loadError" x-text="loadError"></p>
+  <form id="channel-form" class="grid-form" @submit.prevent="save()" x-show="channel">
+    <fieldset :disabled="!canEdit()">
+      <div class="error-box" x-show="has(general)"><strong>Not saved:</strong><ul><template x-for="(g, i) in general" :key="i"><li x-text="g"></li></template></ul></div>
+      <p class="flash flash-ok inline" x-show="note" x-text="note"></p>
+      <label>Name <input name="name" x-model="form.name" required><span class="field-error" x-show="err('name')" x-text="err('name')"></span></label>
+      <div class="field"><label class="check"><input type="checkbox" name="enabled" x-model="form.enabled"> Enabled (devices.json)</label></div>
+      <label>Override (overrides.yaml)
+        <select name="override" x-model="form.override">
+          <option value="">none</option><option value="true">force enabled</option><option value="false">force disabled</option>
+        </select></label>
+      <div class="buttons" x-show="canEdit()"><button type="submit">Save channel</button></div>
+    </fieldset>
+  </form>
+  <h2>Devices</h2>
+  <div class="table-wrap">
+    <table class="responsive">
+      <thead><tr><th>Device</th><th>Driver</th><th>Host</th><th>Tags</th><th>Enabled</th><th>SubDeviceId</th></tr></thead>
+      <tbody>
+        <template x-for="d in devices()" :key="d.id">
+          <tr>
+            <td data-label="Device"><a :href="editHref(d.id)" x-text="d.name"></a> <span class="badge small" x-show="d.has_override">override</span></td>
+            <td data-label="Driver" x-text="d.driver"></td>
+            <td data-label="Host" x-text="d.host + ':' + d.port"></td>
+            <td data-label="Tags" x-text="d.tags"></td>
+            <td data-label="Enabled" x-text="d.enabled ? 'yes' : 'no'"></td>
+            <td data-label="SubDeviceId" x-text="d.sub_device_id || '—'"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+  <template x-if="canEdit()">
+    <section>
+      <h2>Add a device</h2>
+      <form id="device-create" class="grid-form" @submit.prevent="addDevice()">
+        <div class="error-box" x-show="has(devGeneral)"><strong>Not saved:</strong><ul><template x-for="(g, i) in devGeneral" :key="i"><li x-text="g"></li></template></ul></div>
+        <label>Name <input name="name" x-model="dev.name" placeholder="PLC1" required><span class="field-error" x-show="devErrors.name" x-text="devErrors.name"></span></label>
+        <label>Driver <select name="driver" x-model="dev.driver"><template x-for="d in drivers" :key="d"><option :value="d" x-text="d"></option></template></select><span class="field-error" x-show="devErrors.driver" x-text="devErrors.driver"></span></label>
+        <label>Host <input name="host" x-model="dev.host" placeholder="192.0.2.10" required><span class="field-error" x-show="devErrors.host" x-text="devErrors.host"></span></label>
+        <label>Port <input name="port" x-model="dev.port" inputmode="numeric" required><span class="field-error" x-show="devErrors.port" x-text="devErrors.port"></span></label>
+        <label class="wide">Params (JSON, see docs/driver_params.md)
+          <textarea name="params" rows="2" spellcheck="false" placeholder='{"unit_id": 1}' x-model="dev.params"></textarea><span class="field-error" x-show="devErrors.params" x-text="devErrors.params"></span></label>
+        <div class="buttons"><button type="submit">Add device</button></div>
+      </form>
+    </section>
+  </template>
+</section>
+</template>
+
+<!-- ============================================================ device editor -->
+<template x-if="view('edit')">
+<section x-data="editorView" id="view-edit">
+  <p class="crumbs"><a href="#/config">Config</a> › <a :href="channelHref(dev ? dev.channel : '')" x-text="dev ? dev.channel : ''"></a> ›</p>
+  <div class="toolbar">
+    <h1 x-text="dev ? dev.name : id"></h1>
+    <div class="actions">
+      <a class="button" :href="deviceHref(id)">Live values</a>
+      <button class="danger" x-show="canEdit() && dev" @click="removeDevice()">Delete device</button>
+    </div>
+  </div>
+  <p class="error" x-show="loadError" x-text="loadError"></p>
+  <p class="muted small" x-show="sourceText()" x-text="sourceText()"></p>
+  <div x-show="dev">
+  <h2>Device</h2>
+  <form id="device-form" class="grid-form" @submit.prevent="saveDevice()">
+    <fieldset :disabled="!canEdit()">
+      <div class="error-box" x-show="has(general)"><strong>Not saved:</strong><ul><template x-for="(g, i) in general" :key="i"><li x-text="g"></li></template></ul></div>
+      <p class="flash flash-ok inline" x-show="note" x-text="note"></p>
+      <label>Name <input name="name" x-model="form.name" required><span class="field-error" x-show="err('name')" x-text="err('name')"></span></label>
+      <label>Channel <select name="channel" x-model="form.channel"><template x-for="c in channels" :key="c"><option :value="c" x-text="c"></option></template></select><span class="field-error" x-show="err('channel')" x-text="err('channel')"></span></label>
+      <label>Driver <select name="driver" x-model="form.driver"><template x-for="d in drivers" :key="d"><option :value="d" x-text="d"></option></template></select><span class="field-error" x-show="err('driver')" x-text="err('driver')"></span></label>
+      <label>Host <input name="host" x-model="form.host" required><span class="field-error" x-show="err('host')" x-text="err('host')"></span></label>
+      <label>Port <input name="port" x-model="form.port" inputmode="numeric"><span class="field-error" x-show="err('port')" x-text="err('port')"></span></label>
+      <div class="field"><label class="check"><input type="checkbox" name="enabled" x-model="form.enabled"> Enabled</label></div>
+      <label>Scan ms <input name="scan_ms" x-model="form.scan_ms" inputmode="numeric"><span class="field-error" x-show="err('scan_ms')" x-text="err('scan_ms')"></span></label>
+      <label>Min scan ms <input name="min_scan_ms" x-model="form.min_scan_ms" inputmode="numeric" title="request data no faster than"><span class="field-error" x-show="err('min_scan_ms')" x-text="err('min_scan_ms')"></span></label>
+      <label>Timeout ms <input name="timeout_ms" x-model="form.timeout_ms" inputmode="numeric"><span class="field-error" x-show="err('timeout_ms')" x-text="err('timeout_ms')"></span></label>
+      <label>Retries <input name="retries" x-model="form.retries" inputmode="numeric"><span class="field-error" x-show="err('retries')" x-text="err('retries')"></span></label>
+      <label>Demote after <input name="demote_after" x-model="form.demote_after" inputmode="numeric" title="consecutive failed cycles"><span class="field-error" x-show="err('demote_after')" x-text="err('demote_after')"></span></label>
+      <label>Demote for ms <input name="demote_for_ms" x-model="form.demote_for_ms" inputmode="numeric"><span class="field-error" x-show="err('demote_for_ms')" x-text="err('demote_for_ms')"></span></label>
+      <label class="wide">Params (JSON, see docs/driver_params.md)
+        <textarea name="params" rows="4" spellcheck="false" x-model="form.params"></textarea><span class="field-error" x-show="err('params')" x-text="err('params')"></span></label>
+      <div class="buttons" x-show="canEdit()"><button type="submit" class="primary">Save device</button></div>
+    </fieldset>
+  </form>
+
+  <h2>Tags <small class="muted" x-text="count(tags)"></small></h2>
+  <div class="error-box" x-show="has(tagGeneral)"><strong>Not saved:</strong><ul><template x-for="(g, i) in tagGeneral" :key="i"><li x-text="g"></li></template></ul></div>
+  <div class="table-wrap">
+    <table class="tags">
+      <thead><tr><th>Name</th><th>Address</th><th>Type</th><th>Scan ms</th><th>On</th><th>Scale</th><th>Description</th><th></th></tr></thead>
+      <tbody id="tags-body">
+        <template x-for="t in tags" :key="t.name">
+          <tr :class="isEditing(t) ? 'editing' : rowClass(t)">
+            <template x-if="!isEditing(t)">
+              <td><code x-text="t.name"></code> <span class="badge small" x-show="hasTagOverride(t)" :title="tagOverrideText(t)">override</span></td>
+            </template>
+            <template x-if="isEditing(t)">
+              <td><input name="name" aria-label="name" x-model="tagEdit.name"><span class="field-error" x-show="tagErr('name')" x-text="tagErr('name')"></span></td>
+            </template>
+            <template x-if="!isEditing(t)"><td><code x-text="t.address"></code></td></template>
+            <template x-if="isEditing(t)"><td><input name="address" aria-label="address" x-model="tagEdit.address"><span class="field-error" x-show="tagErr('address')" x-text="tagErr('address')"></span></td></template>
+            <template x-if="!isEditing(t)"><td x-text="t.dtype"></td></template>
+            <template x-if="isEditing(t)"><td><select name="dtype" aria-label="type" x-model="tagEdit.dtype"><template x-for="d in dtypes" :key="d"><option :value="d" x-text="d"></option></template></select><span class="field-error" x-show="tagErr('dtype')" x-text="tagErr('dtype')"></span></td></template>
+            <template x-if="!isEditing(t)"><td x-text="scanText(t)"></td></template>
+            <template x-if="isEditing(t)"><td><input name="scan_ms" aria-label="scan ms" size="6" inputmode="numeric" x-model="tagEdit.scan_ms"><span class="field-error" x-show="tagErr('scan_ms')" x-text="tagErr('scan_ms')"></span></td></template>
+            <template x-if="!isEditing(t)"><td x-text="enabledText(t)"></td></template>
+            <template x-if="isEditing(t)"><td><input type="checkbox" name="enabled" aria-label="enabled" x-model="tagEdit.enabled"></td></template>
+            <template x-if="!isEditing(t)"><td class="small" x-text="scaleText(t)"></td></template>
+            <template x-if="isEditing(t)"><td><input name="scale" aria-label="scale" placeholder='{"raw_hi": 4095, "eng_hi": 10}' x-model="tagEdit.scale"><span class="field-error" x-show="tagErr('scale')" x-text="tagErr('scale')"></span></td></template>
+            <template x-if="!isEditing(t)"><td class="small" x-text="t.description || ''"></td></template>
+            <template x-if="isEditing(t)"><td><input name="description" aria-label="description" x-model="tagEdit.description"></td></template>
+            <td class="nowrap">
+              <span class="saved" x-show="savedTag === t.name && !isEditing(t)">saved</span>
+              <template x-if="canEdit() && !isEditing(t)"><span><button class="small" @click="startEdit(t)">Edit</button> <button class="small danger" @click="deleteTag(t)">Delete</button></span></template>
+              <template x-if="isEditing(t)"><span><button class="primary small" @click="saveTag()">Save</button> <button class="small" @click="cancelEdit()">Cancel</button></span></template>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+  <form id="tag-create" class="grid-form" x-show="canEdit()" @submit.prevent="addTag()">
+    <h3 class="wide">Add a tag</h3>
+    <div class="error-box" x-show="has(newTagGeneral)"><strong>Not saved:</strong><ul><template x-for="(g, i) in newTagGeneral" :key="i"><li x-text="g"></li></template></ul></div>
+    <label>Name <input name="name" x-model="newTag.name" required><span class="field-error" x-show="newTagErr('name')" x-text="newTagErr('name')"></span></label>
+    <label>Address <input name="address" x-model="newTag.address" placeholder="400001 · F8:0 · Tag.Member" required><span class="field-error" x-show="newTagErr('address')" x-text="newTagErr('address')"></span></label>
+    <label>Type <select name="dtype" x-model="newTag.dtype"><template x-for="d in dtypes" :key="d"><option :value="d" x-text="d"></option></template></select><span class="field-error" x-show="newTagErr('dtype')" x-text="newTagErr('dtype')"></span></label>
+    <label>Scan ms <input name="scan_ms" x-model="newTag.scan_ms" inputmode="numeric" placeholder="device default"><span class="field-error" x-show="newTagErr('scan_ms')" x-text="newTagErr('scan_ms')"></span></label>
+    <label>Scale (JSON) <input name="scale" x-model="newTag.scale" placeholder='{"raw_hi": 4095, "eng_hi": 10}'><span class="field-error" x-show="newTagErr('scale')" x-text="newTagErr('scale')"></span></label>
+    <label>Description <input name="description" x-model="newTag.description"></label>
+    <div class="field"><label class="check"><input type="checkbox" name="enabled" x-model="newTag.enabled"> Enabled</label></div>
+    <div class="buttons"><button type="submit">Add tag</button></div>
+  </form>
+
+  <h2>Publish map <small class="muted">devices_map.yaml</small></h2>
+  <form id="map-form" class="grid-form" @submit.prevent="saveMap()">
+    <fieldset :disabled="!canEdit()">
+      <div class="error-box" x-show="has(mapGeneral)"><strong>Not saved:</strong><ul><template x-for="(g, i) in mapGeneral" :key="i"><li x-text="g"></li></template></ul></div>
+      <p class="flash flash-ok inline" x-show="mapNote" x-text="mapNote"></p>
+      <p class="muted wide" x-show="!hasMap">No entry: the device publishes without a SubDeviceId.</p>
+      <label>SubDeviceId <input name="sub_device_id" x-model="map.sub_device_id"><span class="field-error" x-show="mapErr('sub_device_id')" x-text="mapErr('sub_device_id')"></span></label>
+      <label>Topic <input name="topic" x-model="map.topic" placeholder="default: <prefix>/<site>/<device>/data"><span class="field-error" x-show="mapErr('topic')" x-text="mapErr('topic')"></span></label>
+      <label>Env <input name="env" x-model="map.env" placeholder="default"><span class="field-error" x-show="mapErr('env')" x-text="mapErr('env')"></span></label>
+      <div class="field"><label class="check"><input type="checkbox" name="stub" x-model="map.stub"> Stub (generated guess: confirm before go-live)</label></div>
+      <div class="buttons" x-show="canEdit()">
+        <button type="submit">Save map entry</button>
+        <button type="button" class="danger" x-show="hasMap" @click="removeMap()">Remove entry</button>
+      </div>
+    </fieldset>
+  </form>
+
+  <h2>Override <small class="muted">overrides.yaml: survives a KEPServerEX re-import</small></h2>
+  <form id="override-form" class="stack" @submit.prevent="saveOverride()">
+    <fieldset :disabled="!canEdit()">
+      <div class="error-box" x-show="has(ovErrors)"><strong>Not saved:</strong><ul><template x-for="(e, i) in ovErrors" :key="i"><li x-text="e"></li></template></ul></div>
+      <p class="flash flash-ok inline" x-show="ovNote" x-text="ovNote"></p>
+      <label>Override (JSON; fields: enabled, host, port, scan_ms, min_scan_ms, timeout_ms, retries, demote_after, demote_for_ms, params, publish, tags). Empty removes it.
+        <textarea name="override" rows="8" spellcheck="false" placeholder='{"timeout_ms": 2000, "tags": {"FLOW_1": {"scan_ms": 10000}}}' x-model="overrideText"></textarea></label>
+      <button type="submit" x-show="canEdit()">Save override</button>
+    </fieldset>
+  </form>
+  </div>
+</section>
+</template>
+
+<!-- ============================================================ check -->
+<template x-if="view('check')">
+<section x-data="checkView" id="view-check">
+  <p class="crumbs"><a href="#/config">Config</a> ›</p>
+  <div class="toolbar">
+    <h1>Check: block plan and cycle estimates</h1>
+    <form class="inline-form" @submit.prevent="load()"><label>Site <input name="site" x-model="site" placeholder="all"></label><button type="submit">Show</button></form>
+  </div>
+  <p class="muted">The config on disk (what a reload would apply), like <code>opencap check</code>. Estimates assume <span x-text="report ? report.rtt_ms : '?'"></span> ms per request (poller.yaml <code>check.est_rtt_ms</code>).</p>
+  <p class="error" x-show="error" x-text="error"></p>
+  <div class="error-box" x-show="failed()"><strong x-text="report && report.error"></strong>
+    <ul><template x-for="(e, i) in (report && report.errors) || []" :key="i"><li x-text="e"></li></template></ul></div>
+  <template x-if="ok()">
+    <div>
+      <div class="error-box" x-show="has(report.errors)"><strong>Drivers reject some devices:</strong><ul><template x-for="(e, i) in report.errors" :key="i"><li x-text="e"></li></template></ul></div>
+      <div class="banner warn" x-show="has(report.overloaded)" x-text="'Estimated load over 100% (cycles will overrun): ' + join(report.overloaded)"></div>
+      <div class="cards">
+        <div class="card"><div class="label">Devices</div><div class="value" x-text="totals().devices"></div><div class="sub" x-text="totals().channels + ' channel(s), ' + totals().excluded_at_import + ' excluded at import'"></div></div>
+        <div class="card"><div class="label">Blocks</div><div class="value" x-text="totals().blocks"></div></div>
+        <div class="card"><div class="label">Requests / full pass</div><div class="value" x-text="totals().wire_requests"></div></div>
+        <div class="card"><div class="label">bad_config tags</div><div class="value" x-text="totals().bad_config"></div></div>
+      </div>
+      <div class="table-wrap">
+        <table class="responsive">
+          <thead><tr><th>Site / device</th><th>Driver</th><th>Tags</th><th>Bad</th><th>Rates</th><th>Blocks</th><th>Req</th><th>Cycle</th><th>Load</th></tr></thead>
+          <template x-for="ch in report.channels" :key="ch.name">
+            <tbody>
+              <tr class="group"><td colspan="9"><strong x-text="ch.name"></strong><span class="muted" x-text="(ch.enabled ? '' : ' (disabled)') + channelTotal(ch)"></span> <span class="badge state-demoted" x-show="ch.overloaded">overload</span></td></tr>
+              <template x-for="d in ch.devices" :key="d.id">
+                <tr>
+                  <td data-label="Device"><a :href="editHref(d.id)" x-text="d.name"></a></td>
+                  <td data-label="Driver" x-text="d.driver"></td>
+                  <td data-label="Tags" x-text="d.plan_error ? '—' : d.enabled_tags"></td>
+                  <td data-label="Bad" x-text="d.plan_error ? '—' : d.bad_config"></td>
+                  <td data-label="Rates" x-text="d.plan_error ? 'no plan: ' + d.plan_error : rates(d)"></td>
+                  <td data-label="Blocks" x-text="d.plan_error ? '—' : d.blocks"></td>
+                  <td data-label="Req" x-text="d.plan_error ? '—' : d.wire_requests"></td>
+                  <td data-label="Cycle" x-text="d.plan_error ? '—' : ms(d.est_cycle_ms)"></td>
+                  <td data-label="Load" x-text="d.plan_error ? '—' : pct(d.load)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </template>
+        </table>
+      </div>
+      <template x-if="has(report.warnings)"><div><h2>Warnings</h2><ul class="warnings"><template x-for="(w, i) in report.warnings" :key="i"><li x-text="w"></li></template></ul></div></template>
+    </div>
+  </template>
+</section>
+</template>
+
+<!-- ============================================================ import -->
+<template x-if="view('import')">
+<section x-data="importView" id="view-import">
+  <h1>Import</h1>
+  <p class="muted">A KEPServerEX <code>project.json</code> export replaces <code>devices.json</code> (as <code>opencap import-kep</code>) and adds stub SubDeviceIds for new devices to <code>devices_map.yaml</code>; your overrides and existing map entries are kept. An opencap export (Config › Export) restores the files it contains. Every import is a dry run first: nothing is written until you apply it, and the config must not change in between.</p>
+  <p class="error" x-show="!canEdit()" x-text="editBlockedText()"></p>
+  <form id="import-form" class="stack" x-show="canEdit()" @submit.prevent="preview()">
+    <label>File <input type="file" name="file" accept=".json,application/json" @change="pick($event)" required></label>
+    <div class="buttons"><button type="submit" class="primary" :disabled="busy">Preview changes (dry run)</button></div>
+  </form>
+  <div id="import-result">
+    <div class="error-box" x-show="has(errors)"><strong x-text="'Cannot import ' + fileName + ':'"></strong><ul><template x-for="(e, i) in errors" :key="i"><li x-text="e"></li></template></ul></div>
+    <template x-if="report">
+      <div>
+        <div class="flash flash-ok" x-show="applied" x-text="'Imported ' + fileName + ': wrote ' + filesText() + '. Reload to apply.'"></div>
+        <h2 x-show="!applied"><span x-text="'Dry run: ' + fileName"></span> <small class="muted" x-text="'(' + report.kind + ')'"></small></h2>
+        <template x-if="dj()">
+          <div>
+            <div class="cards">
+              <div class="card"><div class="label">Channels</div><div class="value small" x-text="changeCounts('channels')"></div></div>
+              <div class="card"><div class="label">Devices</div><div class="value small" x-text="changeCounts('devices')"></div><div class="sub" x-text="sum('devices', 'unchanged') + ' unchanged'"></div></div>
+              <div class="card"><div class="label">Tags</div><div class="value small" x-text="changeCounts('tags')"></div></div>
+              <div class="card"><div class="label">Files</div><div class="value small" x-text="filesText()"></div></div>
+            </div>
+            <details open x-show="has(dj().devices_added)"><summary x-text="count(dj().devices_added) + ' device(s) added'"></summary>
+              <ul><template x-for="d in dj().devices_added" :key="d.id"><li><code x-text="d.id"></code> <span x-text="d.driver + ' ' + d.host + ', ' + d.tags + ' tags'"></span></li></template></ul></details>
+            <details open x-show="has(dj().devices_removed)"><summary class="danger-text" x-text="count(dj().devices_removed) + ' device(s) removed'"></summary>
+              <ul><template x-for="d in dj().devices_removed" :key="d.id"><li><code x-text="d.id"></code> <span x-text="d.driver + ' ' + d.host + ', ' + d.tags + ' tags'"></span></li></template></ul></details>
+            <details x-show="has(dj().devices_changed)"><summary x-text="count(dj().devices_changed) + ' device(s) changed'"></summary>
+              <template x-for="d in dj().devices_changed" :key="d.id">
+                <div class="diff-device"><code x-text="d.id"></code>
+                  <ul>
+                    <template x-for="(c, i) in fieldChanges(d)" :key="i"><li x-text="c"></li></template>
+                    <li x-show="has(d.tags_added)" x-text="'tags added: ' + firstNames(d.tags_added)"></li>
+                    <li class="danger-text" x-show="has(d.tags_removed)" x-text="'tags removed: ' + firstNames(d.tags_removed)"></li>
+                    <template x-for="(c, i) in tagChanges(d)" :key="i"><li x-text="'tag ' + c"></li></template>
+                  </ul>
+                </div>
+              </template>
+            </details>
+          </div>
+        </template>
+        <p x-show="report.devices_map" x-text="'devices_map.yaml: ' + count(stubs()) + ' stub entr' + (count(stubs()) === 1 ? 'y' : 'ies') + ' for new devices.'"></p>
+        <template x-for="x in textDiffs()" :key="x.name">
+          <details :open="!x.d.unchanged"><summary x-text="x.name + ': ' + textState(x)"></summary><pre class="diff" x-show="!x.d.unchanged" x-text="x.d.diff"></pre></details>
+        </template>
+        <details x-show="has(problems())"><summary x-text="count(problems()) + ' importer problem(s)'"></summary><ul class="warnings"><template x-for="(p, i) in problems()" :key="i"><li x-text="p"></li></template></ul></details>
+        <details x-show="has(warnings())"><summary x-text="count(warnings()) + ' warning(s) after the import'"></summary><ul class="warnings"><template x-for="(w, i) in warnings()" :key="i"><li x-text="w"></li></template></ul></details>
+        <div class="buttons" x-show="canApply()"><button class="primary" :disabled="busy" @click="apply()">Apply import</button><span class="muted" x-text="'writes ' + filesText() + ' (the old files are kept as .bak)'"></span></div>
+        <p class="muted" x-show="nothing()">Nothing would change.</p>
+      </div>
+    </template>
+  </div>
+</section>
+</template>
+
+<!-- ============================================================ audit -->
+<template x-if="view('audit')">
+<section x-data="auditView" id="view-audit">
+  <div class="toolbar">
+    <h1>Audit log</h1>
+    <form class="inline-form" @submit.prevent="filter()">
+      <label>Action <input name="action" x-model="action" placeholder="device"></label>
+      <label>Who <input name="who" x-model="who"></label>
+      <label>Target <input name="target" x-model="target"></label>
+      <button type="submit">Filter</button>
+    </form>
+  </div>
+  <p class="error" x-show="error" x-text="error"></p>
+  <div class="table-wrap">
+    <table class="responsive audit">
+      <thead><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Target</th><th>What</th></tr></thead>
+      <tbody>
+        <template x-for="(e, i) in entries" :key="i">
+          <tr>
+            <td data-label="When" class="nowrap" :title="e.ts" x-text="when(e)"></td>
+            <td data-label="Who"><span x-text="e.who"></span> <span class="muted small" x-text="e.role + ' · ' + e.via"></span></td>
+            <td data-label="Action"><code x-text="e.action"></code></td>
+            <td data-label="Target" class="wrap" x-text="e.target"></td>
+            <td data-label="What" class="wrap">
+              <span class="muted small" x-text="filesText(e)"></span>
+              <details x-show="has(e.changes)"><summary x-text="count(e.changes) + ' change(s)'"></summary><ul class="changes"><template x-for="(c, j) in changeRows(e)" :key="j"><li x-text="c"></li></template></ul></details>
+              <div class="small" x-show="e.detail" x-text="detailText(e)"></div>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted" x-show="!has(entries)">no entries</p>
+  <p class="pager"><button class="link" x-show="offset > 0" @click="newer()">← newer</button><button class="link" x-show="more" @click="older()">older →</button></p>
+</section>
+</template>
+</main>
+<footer class="foot">read-only towards PLCs: this UI never writes a PLC value · <a href="vendor/alpine-LICENSE.md">Alpine.js licence</a></footer>
+</body>
+</html>

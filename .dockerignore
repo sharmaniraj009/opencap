@@ -1,0 +1,21 @@
+# Only pyproject.toml, README.md, LICENSE and src/ are needed to build the image.
+# Real site data must never enter a build context.
+.private/
+config/
+data/
+reports/
+tests/
+docs/
+deploy/
+.git/
+.github/
+.venv/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.pytest_cache/
+build/
+dist/

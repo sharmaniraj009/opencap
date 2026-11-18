@@ -1,0 +1,310 @@
+{
+  "$defs": {
+    "DeviceOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "demote_after": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Demote After"
+        },
+        "demote_for_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Demote For Ms"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host"
+        },
+        "min_scan_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Scan Ms"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port"
+        },
+        "publish": {
+          "additionalProperties": true,
+          "title": "Publish",
+          "type": "object"
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retries"
+        },
+        "scan_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan Ms"
+        },
+        "tags": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TagOverride"
+          },
+          "title": "Tags",
+          "type": "object"
+        },
+        "timeout_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Ms"
+        }
+      },
+      "title": "DeviceOverride",
+      "type": "object"
+    },
+    "Scale": {
+      "additionalProperties": false,
+      "description": "Kepware-style tag scaling. Defaults match Kepware's defaults.",
+      "properties": {
+        "clamp_hi": {
+          "default": false,
+          "title": "Clamp Hi",
+          "type": "boolean"
+        },
+        "clamp_lo": {
+          "default": false,
+          "title": "Clamp Lo",
+          "type": "boolean"
+        },
+        "eng_hi": {
+          "default": 1000.0,
+          "title": "Eng Hi",
+          "type": "number"
+        },
+        "eng_lo": {
+          "default": 0.0,
+          "title": "Eng Lo",
+          "type": "number"
+        },
+        "negate": {
+          "default": false,
+          "title": "Negate",
+          "type": "boolean"
+        },
+        "raw_hi": {
+          "default": 1000.0,
+          "title": "Raw Hi",
+          "type": "number"
+        },
+        "raw_lo": {
+          "default": 0.0,
+          "title": "Raw Lo",
+          "type": "number"
+        },
+        "type": {
+          "default": "linear",
+          "enum": [
+            "linear",
+            "sqrt"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "title": "Scale",
+      "type": "object"
+    },
+    "TagOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Address"
+        },
+        "dtype": {
+          "anyOf": [
+            {
+              "enum": [
+                "bool",
+                "int16",
+                "uint16",
+                "int32",
+                "uint32",
+                "int64",
+                "uint64",
+                "float32",
+                "float64",
+                "string"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dtype"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scale"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scan_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan Ms"
+        }
+      },
+      "title": "TagOverride",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/sharmaniraj009/opencap/schema/overrides.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "channels": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "type": "object"
+      },
+      "title": "Channels",
+      "type": "object"
+    },
+    "devices": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DeviceOverride"
+      },
+      "title": "Devices",
+      "type": "object"
+    },
+    "serial_ports": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Serial Ports",
+      "type": "object"
+    }
+  },
+  "title": "Overrides",
+  "type": "object",
+  "version": 1
+}

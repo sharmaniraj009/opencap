@@ -1,0 +1,12 @@
+{
+  "document": "devices_map",
+  "expected_error": "sub_device_id",
+  "semantic": false,
+  "data": {
+    "devices": {
+      "A/B": {
+        "topic": "t"
+      }
+    }
+  }
+}

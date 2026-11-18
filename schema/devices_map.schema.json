@@ -1,0 +1,67 @@
+{
+  "$defs": {
+    "DeviceMapEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Env"
+        },
+        "stub": {
+          "default": false,
+          "title": "Stub",
+          "type": "boolean"
+        },
+        "sub_device_id": {
+          "title": "Sub Device Id",
+          "type": "string"
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Topic"
+        }
+      },
+      "required": [
+        "sub_device_id"
+      ],
+      "title": "DeviceMapEntry",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/sharmaniraj009/opencap/schema/devices_map.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "defaults": {
+      "additionalProperties": true,
+      "title": "Defaults",
+      "type": "object"
+    },
+    "devices": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DeviceMapEntry"
+      },
+      "title": "Devices",
+      "type": "object"
+    }
+  },
+  "title": "DeviceMap",
+  "type": "object",
+  "version": 1
+}

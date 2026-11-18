@@ -31,17 +31,23 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import pytest
-from structlog.testing import capture_logs
 
-from opencap.config.models import Device, Tag
-from opencap.core.runtime import Poller
-from opencap.logsetup import configure_logging
-from tests.helpers.broker import TestBroker
-from tests.helpers.configdir import write_config
-from tests.helpers.mc_sim import McSim, make_mc_tags
-from tests.helpers.netcut import stable_port
-from tests.helpers.s7_sim import S7Sim, load, make_s7_tags
-from tests.integration.test_melsec_sim import expected as mc_expected
+# the simulators import python-snap7 and pymcprotocol: without them, skip this module instead
+# of failing collection for the whole suite
+pytest.importorskip("snap7")
+pytest.importorskip("pymcprotocol")
+
+from structlog.testing import capture_logs  # noqa: E402
+
+from opencap.config.models import Device, Tag  # noqa: E402
+from opencap.core.runtime import Poller  # noqa: E402
+from opencap.logsetup import configure_logging  # noqa: E402
+from tests.helpers.broker import TestBroker  # noqa: E402
+from tests.helpers.configdir import write_config  # noqa: E402
+from tests.helpers.mc_sim import McSim, make_mc_tags  # noqa: E402
+from tests.helpers.netcut import stable_port  # noqa: E402
+from tests.helpers.s7_sim import S7Sim, load, make_s7_tags  # noqa: E402
+from tests.integration.test_melsec_sim import expected as mc_expected  # noqa: E402
 
 pytestmark = pytest.mark.acceptance
 

@@ -1,0 +1,8 @@
+{
+  "document": "devices",
+  "expected_error": "channels",
+  "semantic": false,
+  "data": {
+    "version": 1
+  }
+}

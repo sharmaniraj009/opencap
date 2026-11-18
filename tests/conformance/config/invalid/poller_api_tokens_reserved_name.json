@@ -1,0 +1,12 @@
+{
+  "document": "poller",
+  "expected_error": "reserved for api.token_env",
+  "semantic": true,
+  "data": {
+    "api": {
+      "tokens": [
+        {"name": "default", "role": "admin", "token_env": "OPENCAP_TOKEN_A"}
+      ]
+    }
+  }
+}

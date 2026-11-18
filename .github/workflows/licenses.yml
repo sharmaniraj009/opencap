@@ -1,0 +1,46 @@
+name: Licences
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python licence gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install .[all,dev] in a clean venv
+        run: |
+          python -m venv /tmp/lic-venv
+          /tmp/lic-venv/bin/pip install --upgrade pip
+          /tmp/lic-venv/bin/pip install '.[all,dev]' pip-licenses   # pip-licenses: MIT, test-only
+      - name: Check licences against licenses/python-allow.toml
+        run: /tmp/lic-venv/bin/python scripts/check_licenses.py
+
+  rust:
+    name: Rust licence gate (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect engine/
+        id: detect
+        run: |
+          if [ -f engine/Cargo.toml ]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::engine/Cargo.toml not found: Rust licence gate skipped"; echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - name: cargo deny check licenses bans sources
+        if: steps.detect.outputs.present == 'true'
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: engine/Cargo.toml
+          command: check licenses bans sources
+          arguments: --config deny.toml

@@ -14,7 +14,10 @@ and returns validated models. Order of application for a device:
 3. publish settings, lowest priority first: devices.json `publish` ->
    `devices_map.yaml` `defaults` -> `overrides.yaml` `publish` ->
    `devices_map.yaml` entry (`sub_device_id`, `topic`, `env`)
-4. `publish.topic` still unset -> `default_topic(device)`
+4. `publish.topic` still unset -> `default_topic(device, poller.mqtt.topic_prefix)`
+5. serial drivers (`ab_df1`, `modbus_rtu`) still at `transport: unmapped` -> `overrides.yaml`
+   `serial_ports[<params.com_port>]` sets transport, host and port; with no mapping the device is
+   disabled with a warning (it cannot be reached). The resulting endpoint is validated.
 
 Unknown channel names, device ids and tag names in `overrides.yaml` / `devices_map.yaml`
 are warnings, not errors. Invalid values are errors (pydantic `ValidationError`).
@@ -32,6 +35,7 @@ from typing import Any
 import yaml
 
 from opencap.config.models import (
+    DEFAULT_TOPIC_PREFIX,
     Channel,
     Device,
     DeviceMap,
@@ -54,6 +58,10 @@ _DEVICE_SCALARS = (
     "demote_after", "demote_for_ms",
 )
 _TAG_FIELDS = ("enabled", "address", "dtype", "scan_ms", "scale")
+SERIAL_DRIVERS: dict[str, tuple[str, ...]] = {        # driver -> transports it supports
+    "ab_df1": ("tcp", "serial", "rfc2217"),
+    "modbus_rtu": ("tcp", "serial"),
+}
 
 
 @dataclass
@@ -75,8 +83,9 @@ def slug(s: str) -> str:
     return out or "_"
 
 
-def default_topic(device: Device) -> str:
-    return f"opencap/{slug(device.channel)}/{slug(device.name)}/data"
+def default_topic(device: Device, prefix: str = DEFAULT_TOPIC_PREFIX) -> str:
+    """`<prefix>/<slug(channel)>/<slug(device)>/data`; `prefix` is poller.yaml `mqtt.topic_prefix`."""
+    return f"{prefix}/{slug(device.channel)}/{slug(device.name)}/data"
 
 
 def _ids(ids: list[str]) -> str:
@@ -131,6 +140,55 @@ def _apply_device_override(dev: dict[str, Any], ov: Any, warnings: list[str]) ->
     return dict(ov.publish)
 
 
+def _serial_mapping(ports: dict[str, str], com: Any) -> tuple[str, str] | None:
+    """(key as written, target) for a COM port name, case-insensitive."""
+    if not com:
+        return None
+    wanted = str(com).strip().upper()
+    for key, target in ports.items():
+        if key.strip().upper() == wanted:
+            return key, target
+    return None
+
+
+def _resolve_serial(dev: dict[str, Any], ports: dict[str, str], used: set[str], warnings: list[str]) -> None:
+    """Map an unmapped serial device's COM port (overrides.yaml serial_ports), or disable it."""
+    from opencap.drivers._serial import parse_port_mapping
+
+    params = dev.setdefault("params", {})
+    if str(params.get("transport") or "tcp").strip().lower() != "unmapped":
+        return
+    com = params.get("com_port")
+    hit = _serial_mapping(ports, com)
+    if hit is None:
+        if dev.get("enabled", True):
+            where = com or "its serial port"
+            warnings.append(
+                f"{dev['id']}: {where} is not mapped to a transport (transport: unmapped); device skipped. "
+                f"Map it in {OVERRIDES_FILE} serial_ports, e.g. {com or 'COM1'}: 192.0.2.50:4001")
+        dev["enabled"] = False
+        return
+    key, target = hit
+    used.add(key)
+    try:
+        kind, host, port = parse_port_mapping(target)
+    except ValueError as exc:
+        raise ValueError(f"{OVERRIDES_FILE}: serial_ports {key}: {exc}") from None
+    params["transport"] = kind
+    dev["host"], dev["port"] = host, port
+
+
+def _check_serial_endpoint(device: Device) -> None:
+    from opencap.drivers._serial import TransportUnmapped, endpoint_for
+
+    try:
+        endpoint_for(device, allowed=SERIAL_DRIVERS[device.driver])
+    except TransportUnmapped:
+        pass
+    except ValueError as exc:
+        raise ValueError(f"{device.id}: {exc}") from None
+
+
 def load_config(config_dir: Path) -> LoadedConfig:
     config_dir = Path(config_dir)
     warnings: list[str] = []
@@ -167,6 +225,7 @@ def load_config(config_dir: Path) -> LoadedConfig:
     channels: list[Channel] = []
     unmapped: list[str] = []
     stubs: list[str] = []
+    serial_used: set[str] = set()
     for ch in devices_file.channels:
         ch_enabled = ch.enabled
         ch_ov = overrides.channels.get(ch.name)
@@ -199,11 +258,19 @@ def load_config(config_dir: Path) -> LoadedConfig:
                         )
                     publish[key] = value
             dev["publish"] = publish
+            if dev.get("driver") in SERIAL_DRIVERS:
+                _resolve_serial(dev, overrides.serial_ports, serial_used, warnings)
             new = Device.model_validate(dev)
+            if new.driver in SERIAL_DRIVERS:
+                _check_serial_endpoint(new)
             if new.publish.topic is None:
-                new.publish.topic = default_topic(new)
+                new.publish.topic = default_topic(new, poller.mqtt.topic_prefix)
             devices.append(new)
         channels.append(Channel(name=ch.name, enabled=ch_enabled, devices=devices))
+
+    for key in overrides.serial_ports:
+        if key not in serial_used:
+            warnings.append(f"{OVERRIDES_FILE}: serial_ports {key} is not used by any unmapped serial device")
 
     if unmapped:
         where = f"{MAP_FILE} is missing" if not map_path.exists() else f"no entry in {MAP_FILE}"

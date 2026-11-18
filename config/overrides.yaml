@@ -27,3 +27,10 @@ channels: {}
 #       FLOW_1: {scan_ms: 10000, address: "400047", dtype: float32}
 #       LEVEL_1: {scale: {raw_lo: 0, raw_hi: 4095, eng_lo: 0, eng_hi: 10}}
 devices: {}
+
+# Serial devices (ab_df1, modbus_rtu) imported from a KEPServer COM port start with
+# `transport: unmapped` and are skipped until their COM port is mapped here:
+#   COM112: 192.0.2.50:4001            # serial-over-TCP gateway, raw TCP (also tcp://host:port)
+#   COM7: rfc2217://192.0.2.51:4002    # RFC 2217 COM-port server (ab_df1 only)
+#   COM3: /dev/ttyUSB0                 # local serial port (baud/parity from the device params)
+serial_ports: {}

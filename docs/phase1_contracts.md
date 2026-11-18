@@ -80,7 +80,7 @@ probe read; scaling applied to good numeric values (`Tag.scale`); a scaling erro
 # payload.py
 def build_payload(device: Device, values: dict[str, TagValue], cfg: PayloadCfg, *, is_secure: bool) -> dict
 def encode(payload: dict) -> bytes
-def status_topic(device: Device) -> str   # "opencap/<slug(channel)>/<slug(device)>/status"
+def status_topic(device: Device, prefix: str = "opencap") -> str   # "<prefix>/<slug(channel)>/<slug(device)>/status"
 
 # saf.py
 class StoreAndForward:                     # SQLite WAL outbox
@@ -108,6 +108,6 @@ class Publisher:
     async def run(self) -> None            # interval timers, heartbeats, status topics
     def notify_cycle(self, device_id: str) -> None   # hooked to ChannelWorker.on_cycle (on_change mode)
 ```
-LWT: `opencap/poller/<instance>/status` = `offline` (retained); `online` (retained) after each
+LWT: `<prefix>/poller/<instance>/status` = `offline` (retained); `online` (retained) after each
 connect. Status topic per device is retained:
 `{"state":"ok|demoted|offline","last_good":"...","errors":N}`.

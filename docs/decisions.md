@@ -74,7 +74,7 @@ maps it to `bad_decode`. One shared frozen dataclass replaces the per-driver cop
   (229 duplicate Micro800 addresses). Tag lookup is case-sensitive.
 
 ### D-009 PCCC-style addresses on a Micro800 device are `bad_config`
-Device "2 PUMP" (Micro800 driver in KEPServer) has 132 PCCC-style addresses (`F28:0`,
+One device (Micro800 driver in KEPServer) has 132 PCCC-style addresses (`F28:0`,
 `B3:0/14`) that a Micro800 cannot serve. They fail in KEPServer too, so the device is
 probably set to the wrong driver. The 13 symbolic names on PCCC devices are `bad_config`
 as well.
@@ -93,7 +93,7 @@ as well.
 - Modbus port comes from the device key (502). The channel port key is not the PLC port.
 - Scan mode 2 ("all data at scan rate"): device `scan_ms` = rate, tag rates dropped.
   Scan mode 1 ("no faster than"): `min_scan_ms` = max(default, rate).
-- The trailing-space id string `"192.0.2.10 "` (Site 130) is recovered.
+- A trailing-space id string such as `"192.0.2.10 "` (one device) is recovered.
   kep2poller dropped this device.
 - Kepware's scaled data type has no field in `Scale` and is dropped (20 tags; 4 scale to Word).
 - Mitsubishi `plc_type = "Q"` for KEPServer model 5 is a guess. **Confirm on site.** The
@@ -112,8 +112,11 @@ SEWAGE_LAST_DAY vs SEWAGE_PREVIOUS_DAY_TOTALIZER) come out as suspect.
 Publish settings, lowest priority first: devices.json → `devices_map.yaml` `defaults` →
 `overrides.yaml` `publish` → the device's `devices_map.yaml` entry. Default topic:
 `opencap/<slug(channel)>/<slug(device)>/data`, lowercase, MQTT-safe (e.g.
-`opencap/site_001/8_pump/data`). `devices_map.yaml` is never rewritten. New devices are
+`opencap/site_001/8_pump/data`); the `opencap` level is `mqtt.topic_prefix` (D-028). `devices_map.yaml` is never rewritten by an import. New devices are
 appended as `stub: true`, or written to `devices_map.stubs.yaml` when appending is not safe.
+**Amended by D-041:** the config API and the web UI edit entries of `devices_map.yaml` in
+place when an operator changes them, keeping comments and key order (falling back to a
+rewrite that keeps the header and is reported); an import through the API still only appends.
 
 ## Phase 1
 
@@ -188,7 +191,7 @@ topic + payload bytes (not file size), and the oldest rows are dropped first
   The deadband is absolute and compared with the last published, rounded value.
 - Status messages (retained) are sent at start, on a state change (checked every 1 s) and
   every 60 s. `stop()` publishes `offline` (retained) before a clean disconnect. The
-  last-will topic is `opencap/poller/<slug(instance)>/status`.
+  last-will topic is `opencap/poller/<slug(instance)>/status` (prefix configurable, D-028).
 - aiomqtt's `publish(qos=1)` returns only on a real PUBACK (paho fires `on_publish` for
   QoS > 0 only from its PUBACK handler). A lost connection does not wake a waiting publish,
   so the link watches `client.messages` to detect a disconnect and opens a new client per
@@ -322,7 +325,7 @@ picks by catalog prefix. Stock pycomm3 `SLCDriver` works against it unmodified.
   hardware.
 - `tables_for(tags)` builds data tables that cover a device's addresses, so the 30 real
   PCCC devices can be simulated with their real tag lists and block plans.
-- **Real-project finding:** on Site 092/10 PUMP, `LT_1_CURRENTDAY_HOUR` is `F54:17`
+- **Real-project finding:** on one SLC device, one tag is `F54:17`
   while its 36 siblings use `N54` (`N54:17`, …). It cannot read on the PLC and is
   `bad_config`. Check it on site; it is almost certainly a typo in the KEPServer project.
 
@@ -357,6 +360,471 @@ picks by catalog prefix. Stock pycomm3 `SLCDriver` works against it unmodified.
   and block plans: 10,298 tags verified (KEPServer scaling included), 21 `bad_config` at plan
   time (RTC, symbolic), 1 rejected by the directory (`F54:17`), 694 blocks → 691 requests/s at
   a 1 s scan (one request per block).
+
+## Open-source project setup
+
+### D-028 Configurable MQTT topic prefix (`mqtt.topic_prefix`)
+Every derived topic used to start with a hard-coded `opencap/`. `poller.yaml`
+`mqtt.topic_prefix` (default `"opencap"`, so existing deployments are unchanged) now sets
+the first level(s) of the default data topic `<prefix>/<channel>/<device>/data` (applied
+by the loader), the device status topic `<prefix>/<channel>/<device>/status`, and the LWT
+and online topic `<prefix>/poller/<instance>/status`.
+- The prefix is used **verbatim**: it is not slugged, so `Acme/plant-1` stays as typed.
+  Channel, device and instance levels are still slugged. A prefix may have several
+  levels; it is rejected at load time if it is empty, contains `+`, `#` or NUL, starts with
+  `$`, or has an empty level (`/x`, `x/`, `x//y`).
+- An explicit `publish.topic` (`devices_map.yaml` or `overrides.yaml`) is used as is; the
+  prefix does not apply to it.
+- `default_topic()`, `status_topic()`, `lwt_topic()` and `Publisher` take the prefix as an
+  optional argument that defaults to `opencap`, so existing callers keep working.
+- **Reload:** a changed prefix moves the data and status topics at the next reload (the
+  loader and the publisher are rebuilt). The MQTT link, and with it the LWT topic and
+  every other `mqtt` setting, is built once at start, so those change only at restart.
+  A reload that changes `mqtt` logs `mqtt_settings_changed`. Retained status messages
+  under the old prefix stay on the broker until they are cleared.
+
+### D-029 CI runs on Python 3.12 and 3.13
+D-003: development was on 3.14 only. CI (`.github/workflows/ci.yml`) now runs
+`pytest -m "not acceptance"` on 3.12 and 3.13 for every push and pull request, and
+`pytest -m acceptance` on both nightly and on manual dispatch (`OPENCAP_OUTAGE_S` is an
+input, default 8 s). Running the suite on 3.12.3 and 3.13 exposed no incompatibility; no
+code change was needed. A third job builds the wheel, installs it in a clean virtualenv,
+builds the container image, and smoke-tests it (`--help`, `import-kep` of the sample
+project, `check`, non-root uid). `pyproject.toml` now needs setuptools ≥ 77, which is what
+reads the SPDX `license = "Apache-2.0"` expression and `license-files` (PEP 639).
+
+### D-030 Packaging: container image, systemd, logs
+- **Image:** `python:3.12-slim` (D-017: 3.12 accepts a CA without keyUsage), a
+  two-stage build (wheels, then a runtime image with no build tools). `tzdata` is
+  installed for `payload.timezone`. It runs as the non-root user `opencap` (uid 10001)
+  from `/opencap`, so the default `saf.path` `data/saf.sqlite` lands in the
+  `/opencap/data` volume; config is a second, read-only volume. Entrypoint `opencap`,
+  default command `run --config /opencap/config`. `EXTRAS` (build arg) selects drivers.
+  The health check probes `/health`, which is liveness only (it answers while the process
+  runs).
+- **API in a container:** the default `api.bind: 127.0.0.1` is not reachable through a
+  published port. The image does not change the default; the deployment guide says to set
+  `api.bind: 0.0.0.0` together with a token, which D-019 enforces.
+- **systemd:** `Restart=on-failure`, no start limit, secrets from an optional
+  `EnvironmentFile`, `StateDirectory=` as the working directory, a hardened sandbox, and
+  SIGHUP as `ExecReload`.
+- **Logs:** opencap never writes or rotates log files. JSON lines go to stdout, and
+  journald, Docker's log driver or WinSW rotate them (`docs/deployment.md`).
+
+### D-031 Windows: no SIGHUP, selector event loop, WinSW
+- `Poller.run_forever()` referenced `signal.SIGHUP`, which does not exist on Windows, so
+  `opencap run` failed there with an `AttributeError` before it started. The signal table
+  now includes SIGHUP only where it exists. On Windows, reload is `POST /reload`.
+- aiomqtt (paho) needs `loop.add_reader`, which the default Windows `ProactorEventLoop`
+  lacks. `opencap run` passes `asyncio.run(..., loop_factory=event_loop_factory())`:
+  `SelectorEventLoop` on Windows, the default loop elsewhere.
+- The service wrapper is WinSW v2 (`deploy/windows/opencap-service.xml`). It runs
+  `python.exe -m opencap run` (one process, so WinSW's Ctrl+C on stop reaches opencap;
+  asyncio turns it into a cancellation, and `run_forever()` then calls `stop()`; asyncio
+  then re-raises `KeyboardInterrupt`, which `opencap run` turns into a clean exit 0). It
+  restarts on failure and rolls logs by size. That stop path was checked on Linux with
+  `add_signal_handler` disabled, as on Windows: `poller_stopped` and every channel closed.
+- **Not tested on real Windows yet.** Both fixes are covered by unit tests on Linux; the
+  WinSW setup follows WinSW's documentation.
+
+## Rust engine
+
+### D-032 Rust engine slice 1: what is identical, how it is proven, and where it differs
+RFC 0001 (`docs/rfc/0001-rust-engine.md`) adds `engine/`: Modbus TCP, MQTT with the outbox,
+the admin API and `run`/`check`/`read`/`identity`, ported rule by rule from the Python engine.
+- **Proven identical:** the Phase 1 acceptance suite passes against the Rust binary with the
+  same simulators, broker and assertions (`OPENCAP_ENGINE=rust`, adapter in
+  `tests/helpers/engine.py`; also with a 60 s outage: 930 messages produced during the cut,
+  0 lost). 229 golden payload cases generated by Python are byte-identical
+  (`tests/helpers/payload_golden.py`). `check -v` (every block, warnings) and `read` print the
+  same text. An outbox file written by either engine is drained or read by the other.
+- **Byte identity needs CPython's float rules:** `round(x, n)` is exact decimal rounding with
+  ties to even (Rust's exact `{:.n}` formatting matches it); `json.dumps` writes floats with
+  `repr()` (shortest round-trip digits, exponent form below 1e-4 and from 1e16, two-digit
+  exponents); strings are escaped as with `ensure_ascii=False` (`\u00XX` in lower case).
+  Timestamps are truncated to microseconds, Python's precision.
+- **Deliberate differences** (RFC 0001 §2.9): an unknown `driver` name loads and is reported
+  as not implemented instead of rejecting `devices.json`; invalid driver `params` are a plan
+  error for that device instead of stopping the process; no pydantic lax coercion; YAML 1.2
+  (`yes`/`no` are strings: write `true`/`false`); a Modbus peer close on an idle socket is
+  seen on the next request (ConnectionLost, reopen, same attempt) instead of before it;
+  `read-once` on an unusable device returns 500 with a `detail` body; `/metrics` has no
+  `_created` samples; log lines carry the event name in `message` instead of `event`.
+- **rumqttc acknowledgements:** `publish()` returns when the request is queued, not on
+  PUBACK. The link matches each PUBACK to its outbox row through the order of rumqttc's
+  `Outgoing::Publish(pkid)` events, deletes a row only after its PUBACK, and uses a new client
+  and event loop per connection. rumqttc reports the same error for an invalid topic and for
+  a closed event loop; the link drops a row only if the topic is invalid, otherwise it treats
+  the error as a lost connection and keeps the row.
+- **Test-only hook:** `OPENCAP_PUBLISH_TAP=<file>` makes the engine append every message
+  handed to the MQTT link to that file (JSON lines) before it enters the outbox; the
+  conformance adapter uses it where the Python test spied on `link.publish`.
+
+## Serial PLCs: Allen-Bradley DF1, Modbus RTU (M1)
+
+### D-033 Serial transports, and one connection per physical line
+- `params.transport` selects how a serial line is reached: `tcp` (raw TCP to a serial-over-TCP gateway or
+  virtual COM server, the migrated site's setup), `serial` (a local port; the device path goes in `Device.host`,
+  `port` 0, so no new field and the API/`check` still show where the device is), `rfc2217`, or `unmapped`.
+  pyserial is the optional extra `serial`; a TCP gateway needs no extra package.
+- **Shared lines.** Several devices on one line (stations behind a bridge, unit ids on RS-485, several KEPServer
+  devices on one COM port) must share one connection: a serial port opens once (pymodbus opens it exclusively)
+  and many gateways accept one TCP client. `_serial.LinkPool` (one per event loop) hands every driver on the same
+  endpoint (kind, host, port) the same open link; an error that closes the line closes it for all of them (they
+  reconnect on their next request); the last driver to leave closes it. The ChannelWorker's wire lock already
+  allows one request per channel; a per-line lock also serialises devices of different channels pointed (by
+  mistake) at one line.
+- Errors: open failure, peer close, hang-up (EIO on a tty) → `TransportClosed`, a `ConnectionLost`; a read
+  timeout is a `TimeoutError` that the drivers turn into `CommError`.
+- RFC 2217 goes through pyserial's `rfc2217://` client (polled reads, no file descriptor), tested against
+  pyserial's own `PortManager`. pymodbus' serial transport needs a file descriptor, so modbus_rtu offers no RFC 2217.
+- Test artefact: a Linux pty refuses parity on every open but the first (EINVAL from tcsetattr); the pty tests
+  use 8N1. Real serial ports do not do this.
+
+### D-034 ab_df1: own DF1 full-duplex link layer, PCCC reads from the ab_pccc planner
+- No maintained Python DF1 library exists, so the link layer is in `drivers/ab_df1.py` (DF1 manual 1770-6.5.16):
+  DLE STX/ETX framing, DLE stuffing (check bytes are not stuffed), BCC and CRC-16/ARC (over data + ETX, low byte
+  first), DLE ACK/NAK/ENQ (also embedded in a frame), NAK → resend (`nak_retries` 3), ACK timeout → ENQ
+  (`ack_timeout_ms` 1000, `enq_retries` 3), duplicate detection on SRC/CMD/STS/TNS. The whole transaction is
+  bounded by `device.timeout_ms`; the ChannelWorker's retries use a new TNS.
+- **Reads:** one `ab_pccc` block = one protected typed logical read, CMD 0x0F FNC 0xA2 with exactly the fields
+  pycomm3 sends over EtherNet/IP (cross-checked against pycomm3's `parse_tag`); `read_fnc: a1` selects the
+  two-field variant. Reply bytes become exactly what pycomm3's `_parse_read_reply` returns (cross-checked on random
+  data for every block kind), so `ab_pccc.decode_block` decodes both drivers identically. `plan_pccc()` was pulled
+  out of `AbPcccDriver.plan` (behaviour unchanged) so both drivers share it.
+- **Reply matching by TNS and CMD | 0x40 only, not by SRC.** On a point-to-point full-duplex link the PLC answers
+  from its own configured station number whatever DST said; checking SRC would reject every reply of a PLC whose
+  station differs from the KEPServer device id. A different SRC is counted (`source_mismatch`) and logged once.
+  Late and duplicate replies are ACKed and dropped (a late reply after a timeout is never taken for a newer request).
+- `close_on_timeout` defaults to **false** (Modbus: true): TNS matching makes a late reply harmless, and closing a
+  serial port or gateway socket does not help a PLC that does not answer; demotion still closes the line.
+- No file-directory check over DF1 (reading system file 0 is ~35 extra requests on a slow line): a block for a
+  missing file is rejected by the PLC's STS 0x10 → `BlockConfigError`, as `ab_pccc` does without a directory.
+- **Known DF1 gap (spec behaviour):** if a frame is lost entirely after earlier traffic, the PLC answers our ENQ
+  with its last response (the ACK of the previous frame); we then wait for a reply that never comes and the
+  attempt fails within `timeout_ms`. The worker's retry succeeds. On a fresh line the last response is NAK and the
+  frame is resent at once.
+- Not supported: half duplex, PLC-5 typed reads (FNC 0x68), DH+/DH-485 routing beyond DST/SRC, unsolicited PLC
+  messages (ACKed, dropped), writes (only (0x0F, 0xA2), (0x0F, 0xA1), (0x06, 0x03) can be sent).
+
+### D-035 DF1 check vectors are not the manual's own
+The DF1 manual's worked example frames could not be retrieved from this environment (no copy of 1770-6.5.16
+reachable). The tests use instead: the CRC-16/ARC catalogue check value (b"123456789" → 0xBB3D, the algorithm the
+manual specifies), frames computed with an independent bitwise CRC and checked by hand for the BCC (including a
+check byte equal to DLE), random round trips split at every chunk boundary, and the simulator's separate link
+implementation. Breaking the CRC scope (no ETX), duplicate detection, TNS matching, ENQ, NAK, retransmission or
+word signedness each fails the tests (mutation-checked). **Still to do:** compare one captured frame from the site
+(or the manual) byte for byte.
+
+### D-036 modbus_rtu on pymodbus' RTU framer
+- `ModbusRtuDriver` subclasses `ModbusTcpDriver`: same params, parser, planner, decoder, error mapping and
+  identity (FC43/14). Wire: `AsyncModbusSerialClient(framer=RTU)` for `serial`, `AsyncModbusTcpClient(framer=RTU)`
+  for `tcp` (RTU over TCP). Units on one line share the client (D-033).
+- pymodbus does not keep the RTU inter-frame silence: the driver waits `inter_frame_ms` (default 3.5 characters at
+  `baudrate`, ≥ 1.75 ms) since the last frame on the line before each request.
+- RTU has no transaction id, so a reply that arrives after its request timed out could be taken for the next
+  request's (pymodbus only checks unit id and function code). `close_on_timeout` stays true by default: closing
+  the line throws such late bytes away.
+- The RTU simulator is pymodbus' own server with the RTU framer (`ModbusSim(framer="rtu")`, silent for unknown
+  unit ids like a serial bus, `add_unit` for multi-drop); `PtyBridge` puts it behind a tty for the serial path.
+
+### D-037 Importer and loader: DF1 devices are imported, unmapped until overrides.yaml maps the COM port
+- "Allen-Bradley DF1" devices are no longer excluded ("DF1 serial: Phase 7" is gone): they become `ab_df1` with
+  `transport: unmapped`, `host` = the COM port name (`COM112`), `port` 0, the channel's serial settings, the
+  device's station and error check. Raw KEPServer serial/DF1 values are kept in `source.kep_serial` / `kep_df1`.
+- `overrides.yaml` gets `serial_ports: {COMnnn: "host:port" | "tcp://…" | "rfc2217://…" | "/dev/…"}`. The loader
+  maps every unmapped serial device whose `params.com_port` matches (case-insensitive); per-device overrides win.
+  A device that stays unmapped is **disabled with a warning** (not polled, not published; `opencap check` shows
+  it `(disabled)` with its block plan); a bad mapping or an unsupported transport is a config error.
+- `opencap read` now prints the device's last error on stderr when tags are not good (it printed only
+  `bad_comm`; this helps every driver).
+- **Unverified KEPServer keys (no real DF1 export here):** serial settings are read from
+  `servermain.CHANNEL_SERIAL_COMMUNICATIONS_{COM_ID,BAUD_RATE,DATA_BITS,PARITY,STOP_BITS}` (with a suffix match as
+  fallback), parity as ASCII codes (78 N, 69 E, 79 O) or names; the error check from any DF1-prefixed key named
+  `*ERROR_CHECK*`/`*CHECKSUM*` (strings with CRC/BCC trusted; 0/1 read as BCC/CRC and flagged); absent → CRC,
+  flagged. The station id is read as decimal; ids ≥ 8 are flagged because the meaning of
+  `servermain.DEVICE_ID_FORMAT` (octal/decimal/hex codes) is not verified. Half duplex in a link-protocol key is
+  flagged. **Check all of these against the real export** (`reports/import_summary.json` lists each one).
+
+### D-038 Simulated serial acceptance; real hardware still to do
+`tests/integration/test_serial_acceptance.py` (acceptance): 5 DF1 devices on 4 lines (CRC, BCC, two stations on one
+line, one line behind a tty mapped as a local serial port) and 4 Modbus RTU devices on 3 lines (mapped through
+`serial_ports`, configured by hand, two units on one line), plus one unmapped DF1 device, through the whole poller
+and MQTT: correct values, values follow the PLC, NAKs and corrupted replies cost nothing, a gateway power-off
+demotes only its devices and they resume, nothing but reads on any line, the unmapped device is never polled.
+**Still to do on real hardware:** a MicroLogix/SLC on a real RS-232 port and through the site's router gateways
+(map the real COM ports; check error check, station numbers, `request_size` — a PLC that refuses large reads
+answers STS 0x10 and the block becomes `bad_config` — and ACK timing over the IPsec link); a Modbus RTU slave on
+RS-485 (inter-frame timing, local echo); one byte-for-byte frame capture (D-035); RFC 2217 against a real
+COM-port server.
+
+### D-059 Licence gate: allow-list over installed distributions, `OR`/`AND` aware (#6)
+`scripts/check_licenses.py` + `licenses/python-allow.toml` check every distribution installed from `.[all,dev]`.
+The pip classifier "BSD License" is ambiguous (2- or 3-clause) and is treated as BSD-3-Clause since both are allowed.
+`A OR B` passes when either side is allowed (cryptography, paho-mqtt); `A AND B` needs both. Exceptions: `asyncua`
+(LGPL-3.0, imported unmodified, ADR-0007). MPL-2.0 is allowed (certifi, unmodified). A root `deny.toml` is the
+project-wide Rust floor (adds MPL-2.0 and Unicode-DFS-2016); `engine/deny.toml` stays the engine owner's file.
+**Not verified here:** the cargo-deny job has not run locally (no network for installing it); it runs in CI.
+
+### D-060 Config JSON Schema exported from the Pydantic models (#2)
+`python -m opencap.config.schema --out schema/` writes `schema/{devices,poller,devices_map,overrides}.schema.json`
+(JSON Schema 2020-12, sorted keys, `$id`, top-level `version`; the `$id` base is the repo URL, not a hosted
+endpoint). A drift test regenerates and compares. Conformance fixtures in `tests/conformance/config/` are
+`{"document", "data"}` envelopes (invalid ones add `expected_error` and `semantic`, true when only Pydantic's
+validators, not the schema, can reject it) so the Rust engine can load them without knowing the file naming.
+`jsonschema` (MIT) is a dev dependency only. The CLI is not wired into `opencap.__main__` yet (issue scope).
+
+### D-061 Rust engine follow-ups from the #64 review (#66)
+- **Unknown `driver` is a config error** in Rust as in Python (`DriverName` literal). `KNOWN_DRIVERS` now lists all eight
+  names (adds `modbus_rtu`, `ab_df1`); the message is `<device id>: driver: Input should be 'a', 'b' ... or 'h' (got 'x')`.
+  A known driver the Rust build does not implement still loads and is reported "not implemented". This supersedes the
+  earlier "driver is an open string" note in `models.rs`.
+- **YAML 1.1 booleans** (`yes`/`no`/`on`/`off`, also `y`/`n`) are strings under YAML 1.2 (serde_yaml_ng). Where a bool is
+  expected, the error now names the spelling and says to use `true`/`false`. They are not silently accepted: files must mean
+  the same thing to both engines, and PyYAML-only spellings are a footgun.
+- **`driver_panics_total{device}`** (counter) is incremented each time a device loop restarts after `device.loop_error`.
+- **Read-only guard:** the Modbus function-code match is exhaustive; a block with FC outside 1-4 is `BlockConfig`, never
+  FC04. `tests/modbus_read_only.rs` scans the driver sources for write APIs and checks planned FCs.
+- **Advisories:** `cargo deny check advisories` runs in CI. Vulnerabilities fail; yanked releases warn; "unmaintained"
+  notices do not fail (`unmaintained = "none"`). First CI run showed why: `chrono` and `chrono-tz`, both direct dependencies,
+  are flagged unmaintained (RUSTSEC-2026-0543/0555, no fix). Follow-up: evaluate `jiff` or `time` for time zones.
+- **rusqlite 0.37 -> 0.41** (libsqlite3-sys 0.35 -> 0.39.1, bundled SQLite 3.54): the new advisories check flagged the
+  bundled SQLite of 0.35 (CVE-2026-119375, fixed in libsqlite3-sys 0.39). No code changes were needed. It adds two
+  wasm-only crates (`rsqlite-vfs`, `sqlite-wasm-rs`) to the lock file; the licence gate covers them in CI.
+- **RUSTSEC-2026-0382, -0049, -0098, -0099, -0104 ignored (temporary):** all are `rustls-webpki` 0.102.8, which
+  comes only through `rumqttc` 0.25.1 (latest; pins `^0.102.8`). rumqttc uses it only for the `webpki::Error` type;
+  verification runs in rustls 0.23 on the patched webpki 0.103.17 in the lock file. Ignored in `engine/deny.toml`,
+  each with the reason; remove when rumqttc moves to webpki >= 0.103.16. The lead should confirm these ignores.
+- **Not done:** pinning third-party actions in `rust-engine.yml` by commit SHA. The session could not read those
+  repositories to resolve tags to SHAs, and a SHA written from memory would be unsafe. Left on the issue as a follow-up.
+- **RFC 0001:** direct-dependency table completed with licence links at the lock-file versions (checked against the
+  crate sources); OPC DA bridge order made consistent with §8 (R5); "0600 token file" marked planned.
+- **Harness:** `rust_binary()` prefers `OPENCAP_ENGINE_BIN` and warns when it falls back to `target/{release,debug}`.
+
+## Configuration API and web UI
+
+### D-039 Configuration API: the 03 §3.6 contract, and where it differs
+- **Paths** follow [03 §3.6](architecture/03-deep-dive.md): `/api/v1/channels`, `/channels/{ch}/devices`,
+  `/devices/{id}`, `/devices/{id}/tags[/{tag}]`, `/project` (the four files), `/project/import`,
+  `/project/validate` (= `opencap check`), `/project/revisions`. Added because the v1 file layout has
+  them: `/map[/defaults|/devices/{id}]` (`devices_map.yaml`) and `/overrides/devices/{id}`,
+  `/overrides/channels/{ch}` (`overrides.yaml`); `/project/status`, `/project/pending`,
+  `/project/schema`, `/whoami`, `/status` (dashboard in one call), `/auth-info` (open: does the API
+  need a token?), and `/devices/{id}/status|values|plan|identity`, `POST …/read-once`, `POST /reload`
+  under `/api/v1` (the unversioned runtime routes stay for existing clients). `/north` and `/plugins`
+  wait for north plugins; the WebSocket feed and the committed OpenAPI document are #31 and #32.
+- **Reads return `revision` and `ETag`**, list reads included (`{"channels": […], "revision": …}`).
+  **Writes need `If-Match`** with the config revision: 428 without it, 412 when it is stale (409 stays
+  for name clashes). The revision is a hash of the four files' bytes, not a counter, so it also
+  changes on hand edits.
+- **Deviation: a write does not apply itself.** §3.6 reads "persisted, audited, and then applied";
+  the task for this PR says `POST /reload` applies, and an engineer editing twenty tags wants one
+  restart of the channel, not twenty. Writes change the files; `POST /api/v1/reload` applies, or
+  `?apply=true` on any write reloads right after it. `GET /api/v1/project/pending` says what a
+  reload would restart (per channel, and poller.yaml settings that need a process restart:
+  instance, log_level, mqtt, saf, api).
+- `PUT` replaces, `PATCH` is a JSON merge patch (RFC 7386). Device ids are `<channel>/<device>`, so
+  new or renamed channel/device names may not contain `/`, and a device may not be named `tags`,
+  `values`, `plan`, `identity`, `status` or `read-once` (they would collide with the
+  `/devices/{id}/<suffix>` routes).
+- **Every change** is validated by its pydantic model (errors keep a location relative to the
+  object, for inline UI errors), then the new texts are loaded by the real loader in a staging
+  directory, then the affected devices are planned: a driver that rejects the params, or an
+  enabled tag whose address/dtype/enabled changed and does not plan, is a 422. Plan-invalid tags the
+  change did not touch are warnings, so an imported `bad_config` tag does not block other edits.
+  A device whose driver is not implemented is a warning. Empty names, addresses and hosts are refused
+  (the models accept empty strings).
+- **Renames carry references** (a channel or device rename renames its keys in `devices_map.yaml`
+  and `overrides.yaml`, a tag rename its tag override); **deletes cascade** to the map entry and the
+  overrides. The audit entry holds everything removed.
+- `ConfigStore` (`config/store.py`) is the `ProjectStore` of [ADR-0013](adr/0013-project-file-v2.md)
+  over today's v1 layout: when project file v2 lands, the store changes and the API does not.
+  Channels, devices and tags are in `devices.json`, which a KEPServerEX re-import replaces; the
+  import dry run shows what would be lost, and fixes that must survive belong in `overrides.yaml`.
+- `GET /api/v1/devices/{id}/identity` asks the driver over the device's existing connection only
+  and never opens one (Micro800s have few CIP connections). Asking can cost a request on the wire
+  (Modbus FC43), so the answer is cached for 5 minutes and `?refresh=true` is admin-only: `ChannelWorker.identity()` and
+  `Poller.device_plan()/device_identity()` are new, additive. `core/plan_report.py` is the JSON form
+  of `opencap check`; `check.py` is unchanged.
+
+### D-040 Named tokens and roles (extends D-019)
+- `poller.yaml` `api.tokens: [{name, role, token_env}]`; the secret stays in the env var. A listed
+  token whose env var is unset, or two tokens with the same secret, stop the start. The legacy
+  `api.token_env` token is the admin named `default` (the name is reserved).
+- **viewer** = safe methods (GET/HEAD) only. **admin** = also every unsafe method: config changes,
+  import, reload and read-once. Read-once is a PLC *read*, but it puts a full extra cycle on the wire
+  on demand (≈23 s of requests on a non-batching Micro800), so it is not a viewer action. This is the
+  two-role subset of the viewer/operator/engineer/admin set the security RFC will define (03 §3.7).
+- Tokens are read at start; a change needs a restart, like the other `api` settings.
+- **Open mode** (no token at all, loopback bind only, D-019) is now **read-only**: everyone is the
+  viewer `anonymous`, every unsafe method gets 403, and only requests whose `Host` is `127.0.0.1`,
+  `localhost` or `[::1]` are answered. A page using DNS rebinding sends its own host name, so it
+  can neither read nor change anything. (Before, open mode allowed `POST /reload`; comparing
+  `Origin` with `Host` did not stop rebinding, review of #63.)
+- **Authentication happens before the body is read**: a pure ASGI guard (`api/guard.py`) in front of
+  the app authenticates every non-open route from its headers, so an unauthenticated caller gets
+  401 without a body byte read or parsed. It also caps bodies at 1 MiB (64 MiB for
+  `POST /api/v1/project/import`): a larger `Content-Length` gets 413 at once, and a chunked body
+  is counted while it is read.
+- `api.cors_origins` (default empty) lets the desktop app or another UI origin call the API
+  (ADR-0010); the API uses bearer tokens only, never cookies, so there is no CSRF surface.
+
+### D-041 Atomic writes and comments in the hand-owned YAML files
+- Each file is written to a temp file in the same directory, fsynced, renamed over the original;
+  the previous version is kept as `<file>.bak` (one generation, a hard link to the old inode).
+  Permissions are copied. `config/*.bak` and the temp files are git-ignored.
+- **A change touching several files** (e.g. a device rename) is committed in two phases: every temp
+  file is written and fsynced first, the `.bak` links are made, then the renames. If any step fails,
+  the files already renamed get their previous bytes back and nothing changed (503); only if that
+  restore also fails is the result a partial write (500, naming the files left new, audited as
+  `<action>.partial`). A fault-injection test makes the second rename of a device rename fail.
+  `POST /reload` takes the store's lock, so a reload never sees a change in progress; `SIGHUP` does
+  not.
+- **The audit entry is written inside the lock**, right after the files. If it cannot be written,
+  the change is rolled back (503): there are no unaudited changes.
+- **Read-only or full storage** gives 503 (507 for a full disk) with the path, never a bare 500.
+  `GET /api/v1/project/status` and `/whoami` report `writable` (`access()` plus the read-only mount
+  flag), and the UI turns editing off when it is false. `deploy/opencap.service` sets
+  `ReadWritePaths=/etc/opencap`; `docs/deployment.md` makes the directory sticky (1775,
+  root:opencap) with opencap owning only the config files, so opencap can replace them but not
+  `opencap.env`, and explains how to keep the config read-only (and the Docker mount for editing).
+  The sticky-bit layout follows POSIX semantics; it was not exercised on a real systemd host.
+- **Comments are kept** with ruamel.yaml's round-trip mode: the change is made on the plain data the
+  loader reads and synced into the existing document (new keys appended, renamed keys keep their
+  place). The result is parsed again with PyYAML (the loader's parser); if it differs from the
+  intended data, the file is rewritten from the data instead, keeping the leading comment block, and
+  the response lists it under `comments_lost`. Known effects: a renamed key's trailing comment is
+  re-aligned; a touched YAML 1.1 bare scalar (`off`, `yes`) is written as `false`/`true`; strings
+  PyYAML would misread are quoted. Without ruamel.yaml every YAML change takes the fallback.
+
+### D-042 Import through the API
+- `POST /api/v1/project/import` takes the file as the raw JSON body (no multipart parser): a
+  KEPServerEX `project.json` (top-level `project`), run through the existing importer, or an opencap
+  export (`GET /api/v1/project`). **Dry run is the default**; `?dry_run=false` writes and needs
+  `If-Match` (the UI sends the dry run's revision, so the diff seen is the change applied). The body
+  must be `application/json`, at most 64 MiB.
+- KEPServerEX import = `opencap import-kep` minus the reports: `devices.json` replaced, stub entries
+  appended below the existing `devices_map.yaml` text with the CLI's own helpers (never a rewrite),
+  or written to `devices_map.stubs.yaml` when appending is not safe; `overrides.yaml` template
+  written if missing. The summary and problems are in the response instead of `reports/`. **Deviation:** the API passes
+  poller.yaml `defaults` to the importer (as poller.yaml documents); the CLI passes the built-in
+  defaults. They differ only when poller.yaml changes `defaults`.
+- An export restores files byte-for-byte, also over files that no longer parse. It can replace
+  `poller.yaml` (including `api`), so it is admin-only like every import, and its audit entry holds
+  a unified diff of each YAML file and a device-level summary for `devices.json`.
+
+### D-043 Audit log
+JSON lines at `api.audit_log` (default `data/audit.jsonl`): time, token name, role, `via` (`ui` when
+the web UI sent it, else `api`), action, target, new revision, files and field-level changes
+(old → new, at most 200 per entry). Logged: every accepted change, import and reload. Not logged:
+rejected changes (nothing changed), reads, read-once. Logins are not logged because the UI has no
+server-side login (it sends the token with each request). Rotates to `.1` at 16 MiB;
+`GET /api/v1/audit` reads both, and `/project/revisions` lists the revisions it recorded.
+
+### D-044 Web UI: a static bundle on the public API, Alpine.js CSP build
+- Per [ADR-0010](adr/0010-one-ui-web-and-tauri.md): `src/opencap/api/ui/` (`index.html`, `app.js`,
+  `app.css`) is served as static files under `/ui/` and calls only `/api/v1` (a unit test checks
+  every call site). No build step. Hash routes (`#/device/<id>`, `#/edit/<id>`, …) so the same files
+  work from any origin and inside the Tauri shell; `window.OPENCAP_API_BASE` points it at a remote node.
+- **Alpine.js 3.17.5, CSP build** (`@alpinejs/csp`, MIT), vendored as
+  `ui/vendor/alpine-csp-3.17.5.min.js` with `alpine-LICENSE.md` (from the alpinejs/alpine repo at
+  tag v3.17.5; the npm package ships none) and listed in `NOTICE`; sha256
+  `48c170c92032e527cbae71b8ce75cf1f96ca06fa869a6120ef0fe438d8e92c36`. The CSP build evaluates
+  expressions without `eval`, so the UI runs under `script-src 'self'; style-src 'self'` with no
+  inline script or style. Its expressions cannot use template literals or globals, so formatting
+  lives in component methods. htmx was the other candidate; it swaps server-rendered HTML, which
+  ADR-0010 rules out.
+- **Login:** the token is checked with `GET /api/v1/whoami`, kept in the tab's `sessionStorage`
+  (gone when the tab closes; nothing is stored server-side) and sent as `Authorization: Bearer` with
+  `X-Opencap-Client: ui`. A 401 sends the UI back to the login page. Writes send `If-Match` with the
+  revision of the data on screen; a 412 tells the operator to load the page again.
+- Textareas for params, overrides and publish defaults take JSON (the API's format), not YAML.
+- Editing controls need the admin role **and** a writable config directory (`whoami` reports
+  `config_writable`); otherwise the UI says why editing is off. Open mode is read-only (D-040).
+- **Read-only towards PLCs:** the UI offers read-once and identity, never a value write.
+- A browser smoke test (`tests/ui/browser_smoke.js`, run by `tests/integration/test_ui_browser.py`,
+  marker `acceptance`) drives Chromium through every page at desktop and phone width and fails on any
+  script error or CSP violation; it is skipped where Node.js and Playwright are not installed.
+
+## Rust engine: API parity with #63
+
+### D-062 Named tokens, read-only open mode and auth before the body in `opencap-api` (#82)
+- **Config:** `api.tokens`, `api.audit_log` and `api.cors_origins` load in Rust (`ApiToken`, `Role`), with the
+  same checks and messages as `ApiCfg` (non-empty `name`/`token_env`, "default" reserved, duplicate names). A
+  `poller.yaml` written for the Python engine with named tokens is no longer refused by `deny_unknown_fields`.
+  `audit_log` and `cors_origins` are accepted and unused: the Rust engine has no config API and sends no CORS
+  headers yet.
+- **Roles and open mode as `auth.py`:** `token_env` is the admin "default"; `viewer` may use GET/HEAD only, so
+  `POST /reload` and `POST .../read-once` need `admin`. A listed token whose env var is unset, or two tokens with
+  the same secret, stop the start with Python's message. With no token the API still starts only on a loopback
+  bind (D-019) and is now read-only (the viewer "anonymous") and answers only loopback `Host` names (DNS
+  rebinding). 403 and 401 texts are Python's; 401 carries `WWW-Authenticate: Bearer`.
+- **Guard:** an axum middleware in front of every route and the fallback, with `guard.py`'s open paths. It
+  authenticates from the headers before any body byte is read, then caps the body at 1 MiB: a `Content-Length`
+  over the cap, or a chunked body passing it, gets 413 with `Connection: close`. Unknown paths need a token (401
+  before 404), as in Python.
+- **Refused bodies are drained (lingering close):** before the 413 the guard reads and drops the rest of the
+  body, up to 8 MiB or 5 s; a body declared larger than 8 MiB is refused without reading it. Without this the
+  server closed the socket with unread request bytes, the kernel sent a reset, and the client saw "connection
+  reset" instead of the 413: CI caught it, and over real TCP it happened in 2 of 5 tries at 1 MiB + 1 and in every
+  try from 4 MiB. Nothing is kept, and only an authenticated caller gets this far. The ASGI-level Python tests
+  cannot show the effect (no socket).
+- **Deliberate difference:** Rust reads every request body up front (at most 1 MiB, after auth), so a chunked
+  body over the cap gets 413 on any route. Python counts only the bodies a route reads, and its legacy routes
+  read none, so there such a body is ignored. Both refuse an oversized `Content-Length`. None of the Rust routes
+  takes a body, so buffering costs nothing and keeps the cap in one place.
+- **No body without a token (lead's note on #84):** the open paths (`/health`, `/metrics`, `/api/v1/auth-info`,
+  the UI paths) and `OPTIONS` skip authentication, so they read no body either: any body there gets 413 at once,
+  unread and undrained. An anonymous caller cannot make the server buffer or drain anything; drain only ever runs
+  for an authenticated caller. Python ignores such a body instead (no open route reads one).
+- **Host names (lead's note on #84):** open mode answers exactly Python's `LOOPBACK_HOSTS` (`127.0.0.1`,
+  `localhost`, `::1`); other 127/8 names are refused, as in Python. The start-up bind check still accepts any
+  loopback address, as Python's `_is_loopback` does.
+- **Dependency:** `http-body-util` 0.1 (MIT) becomes a direct dependency of `opencap-api` to read the body frame by
+  frame under the cap and to drain it. It was already in the lock file through axum; `tower-http` was not added.
+- **Tests:** `opencap-api` unit tests (roles, open mode, rebinding, 401 before the body, 413 by length and by
+  chunks, start-up errors); `tests/integration/test_rust_engine_api.py` runs the open-mode, rebinding, role,
+  401-before-body and 413 checks against both engines: Python through ASGI with `tests/helpers/fake_poller.py`,
+  Rust as the binary. The reload test now gives the engine a token.
+
+### D-063 Rust config models: the shared fixtures and a cross-language comparison (#39)
+- **Hand-written, not generated:** the serde types stay hand-written (`typify` output would need the same
+  validators, messages and `IndexMap` ordering added by hand). Drift is caught by data instead:
+  `tests/conformance/config/compare.py` runs the Rust dumper (`opencap-core` example `config_dump`) and the
+  Python models over every fixture. A valid fixture must give the same document with every default filled in
+  (`model_dump(mode="json")` against serde) and, for `devices`, the same resolved channels and warnings from
+  `load_config`; an invalid one must be refused by both. A field missing on one side shows as "only in
+  Python/Rust" for every model that appears in a valid fixture. A mutation check (one Rust default changed)
+  fails it. CI runs it in the `conformance` job.
+- **Rust test over the fixtures:** `engine/crates/opencap-core/tests/config_conformance.rs` loads every valid
+  fixture and refuses every invalid one with the fixture's `expected_error`. serde words one error
+  differently: pydantic's "Extra inputs are not permitted" is serde's "unknown field".
+- **Errors name the field:** serde errors now carry the location in pydantic's spelling
+  (`channels.0.devices.0.port: invalid type: ...`) through `serde_path_to_error` 0.1 (MIT OR Apache-2.0,
+  already in the lock file through axum). Before, a wrong type said only "invalid type".
+- **`overrides.yaml` `serial_ports`** (COM port -> gateway, D-037) loads in Rust. It is accepted and
+  unused until the serial drivers are ported (#47).
+- **New fixtures:** `poller_api_tokens` (valid) and the invalid `poller_api_tokens_duplicate_names`,
+  `poller_api_tokens_reserved_name` (semantic: the schema accepts them) and `poller_api_token_bad_role`.
+
+### D-064 OpenAPI contract of the admin + config API (#32)
+
+- **Committed and generated:** `api/openapi.json` comes from `scripts/gen_openapi.py` (FastAPI's `app.openapi()`
+  on an app built with no poller, no sockets, `sort_keys` JSON). The running server still has `openapi_url=None`
+  (D-019). `tests/unit/test_openapi_contract.py` fails with the regeneration command when the file drifts.
+- **Response models** live in `src/opencap/api/schemas.py` and are attached with `response_model=` plus
+  `response_model_exclude_unset=True`, so what the handlers return is unchanged. Handlers that return
+  `JSONResponse` (to set `ETag`) bypass validation, so the models only describe them; the contract test is what
+  checks them. Models allow extra keys (additive v1).
+- **Deviation: request bodies are not typed.** Configuration writes validate through `ConfigStore` and answer
+  422 with `loc`s relative to the resource, which a pydantic body model would change. The bodies stay free-form
+  JSON in the contract and point to `GET /api/v1/project/schema`. Typing them is a follow-up if the Rust engine
+  wants generated clients.
+- **Resource payloads** (device, tag, map entry, override) are open objects for the same reason; the envelope
+  (`revision`, lists, counts, `WriteResult`) is typed field by field.
+- **Versioning:** `/api/v1` was already applied by #63; the unversioned runtime routes stay as aliases and are
+  marked `deprecated` (rules in `api/README.md`). `info.version` is `1.0.0`.
+- **Licences:** no new dependency; `jsonschema` (MIT) was already a dev dependency and validates the contract.
 
 ## S7 and MELSEC MC drivers
 

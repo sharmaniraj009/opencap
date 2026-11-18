@@ -2,7 +2,7 @@
 # Every key is optional; a missing file means all defaults. Unknown keys are an error.
 # Secrets are never stored here: only the NAMES of environment variables that hold them.
 
-instance: opencap-1            # used in the LWT topic opencap/poller/<instance>/status
+instance: opencap-1            # used in the LWT topic <topic_prefix>/poller/<instance>/status
 
 mqtt:
   host: localhost
@@ -14,15 +14,23 @@ mqtt:
   client_id: null                # null = derived from instance
   qos: 1
   keepalive_s: 30
+  topic_prefix: opencap          # first level(s) of every derived topic, e.g. acme/plant-1:
+                                 #   <prefix>/<channel>/<device>/data|status, <prefix>/poller/<instance>/status
+                                 # explicit `topic:` values in devices_map.yaml are used as is
 
 saf:                             # store-and-forward when the broker is down (PLAN 7.3)
   path: data/saf.sqlite
   max_bytes: 2147483648          # 2 GiB, oldest messages dropped first
 
-api:                             # admin REST API (PLAN 9): bind to localhost or the VPN only
+api:                             # admin + config REST API and the web UI (/ui/): localhost or VPN only
   bind: 127.0.0.1
   port: 8080
-  token_env: OPENCAP_API_TOKEN    # env var holding the bearer token
+  token_env: OPENCAP_API_TOKEN    # env var holding the legacy bearer token (name "default", role admin)
+  tokens: []                     # named tokens; the secret is in the env var, never here:
+  #  - {name: alice, role: admin, token_env: OPENCAP_TOKEN_ALICE}      # admin: may change the config
+  #  - {name: grafana, role: viewer, token_env: OPENCAP_TOKEN_GRAFANA} # viewer: read-only (GET)
+  audit_log: data/audit.jsonl    # who changed what in the config, JSON lines
+  cors_origins: []               # other web origins allowed to call the API (e.g. the desktop app)
 
 payload:                         # SubDevice JSON (PLAN 7.1)
   float_decimals: 4              # round floats to remove float32 noise

@@ -1,0 +1,8 @@
+{
+  "document": "poller",
+  "expected_error": "allow_insecure_remote",
+  "semantic": true,
+  "data": {
+    "opcua_server": {"endpoint": "opc.tcp://0.0.0.0:4840/opencap"}
+  }
+}

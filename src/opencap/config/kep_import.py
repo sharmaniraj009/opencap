@@ -623,6 +623,9 @@ def _map_opcua(ch: dict, dev: dict, dev_id: str) -> _Mapped:
     if has_user or has_pass:
         names = " and ".join(n for n, on in ((user_env, has_user), (pass_env, has_pass)) if on)
         problems.append(f"{dev_id}: OPC UA credentials were not copied; set {names} in the environment")
+    if has_pass and params["security_policy"] == "None":
+        problems.append(f"{dev_id}: KEPServer sends this channel's password over security policy None; opencap "
+                        "refuses to until you pick a secure policy or set params.allow_insecure_password: true")
     source = {
         "kep_security_policy": ch.get(p + "CHANNEL_UA_SERVER_SECURITY_POLICY"),
         "kep_message_mode": ch.get(p + "CHANNEL_UA_SERVER_MESSAGE_MODE"),

@@ -14,7 +14,7 @@ def configure_logging(level: str | None = None, *, json: bool = True) -> None:
     numeric = logging.getLevelNamesMapping().get(level_name, logging.INFO)
     logging.basicConfig(level=numeric, stream=sys.stdout, format="%(message)s")
     # Library chatter (pymodbus, paho, uvicorn access) stays at WARNING unless DEBUG is asked for.
-    for noisy in ("pymodbus", "pycomm3", "paho", "aiomqtt", "uvicorn.access", "amqtt", "asyncio"):
+    for noisy in ("pymodbus", "pycomm3", "snap7", "paho", "aiomqtt", "uvicorn.access", "amqtt", "asyncio", "asyncua"):
         logging.getLogger(noisy).setLevel(numeric if numeric <= logging.DEBUG else logging.WARNING)
     renderer = structlog.processors.JSONRenderer() if json else structlog.dev.ConsoleRenderer()
     structlog.configure(

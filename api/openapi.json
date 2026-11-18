@@ -671,6 +671,16 @@
             "title": "Mqtt Connected",
             "type": "boolean"
           },
+          "opcua_server": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpcUaServerHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "saf_queue": {
             "title": "Saf Queue",
             "type": "integer"
@@ -806,6 +816,31 @@
           "devices"
         ],
         "title": "MapResource",
+        "type": "object"
+      },
+      "OpcUaServerHealth": {
+        "additionalProperties": true,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running"
+        ],
+        "title": "OpcUaServerHealth",
         "type": "object"
       },
       "Overrides": {

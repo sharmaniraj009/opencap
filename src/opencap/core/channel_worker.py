@@ -31,6 +31,9 @@ Faults (health rules and the "failed cycle" definition are in core/health.py)
   this worker. Plan-invalid tags are set to `bad_config` once, when the worker is built.
 - NotImplementedError from the driver (driver I/O not written yet) or a driver that cannot
   be built: the device stops being polled, state stays `offline`, `last_error` says why.
+- Stale: a good tag with no good read for 3 x its rate. Age is measured from `source_ts`, or,
+  for drivers with `stale_by_read_time` (OPC UA subscriptions, D-045), from when `read()` last
+  returned the tag good.
 - Demotion: the device's connection is closed when it is demoted. The probe cycle runs when
   the demotion period is over, the group is due, and no reconnect backoff is pending; it
   stops at its first failed block.
@@ -189,6 +192,8 @@ class _DeviceRunner:
         self.schedule: DeviceSchedule | None = None
         self.tags: dict[str, Tag] = {t.name: t for t in device.tags if t.enabled}
         self.max_age_s = {n: STALE_FACTOR * device.effective_rate_ms(t) / 1000 for n, t in self.tags.items()}
+        # Last good read per tag, kept only for drivers with `stale_by_read_time` (D-045).
+        self.read_at: dict[str, datetime] | None = None
         self.safety_s = safety_timeout_s(device.timeout_ms)
         usable = plan is not None and plan.ok
         self.groups: list[list[Block]] = [list(g.plan.blocks) for g in plan.groups] if usable else []
@@ -245,6 +250,9 @@ class _DeviceRunner:
                 self.driver = self.w.driver_factory(self.device, self.w.executor)
             except Exception as exc:
                 raise _Unsupported(f"cannot create driver: {_describe(exc)}") from exc
+            if type(self.driver).stale_by_read_time and self.read_at is None:
+                # Values cached before this worker (config reload) get one staleness period.
+                self.read_at = dict.fromkeys(self.tags, self.w.clock())
         return self.driver
 
     async def connect(self, *, force: bool) -> str | None:
@@ -421,6 +429,11 @@ class _DeviceRunner:
                 if abort:
                     break
         if values:
+            if self.read_at is not None:
+                read_ts = self.w.clock()
+                for name, tv in values.items():
+                    if tv.quality == "good":
+                        self.read_at[name] = read_ts
             self.w.cache.update(self.id, values)
         now = _mono()
         if any_ok:
@@ -717,7 +730,7 @@ class ChannelWorker:
             now = self.clock()
             for r in runners:
                 if r.id in self.cache:
-                    self.cache.expire(r.id, now, r.max_age_s)
+                    self.cache.expire(r.id, now, r.max_age_s, read_at=r.read_at)
             if self.stats_interval_s > 0 and _mono() >= next_stats:
                 next_stats = _mono() + self.stats_interval_s
                 for r in runners:

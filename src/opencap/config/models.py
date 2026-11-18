@@ -56,6 +56,11 @@ class Scale(_Model):
         return -value if self.negate else value
 
 
+# Each device's diagnostics live under `<channel>.<device>._System` (OPC UA server, D-046), so no
+# tag or tag group may use that name (compared without case, as KEPServerEX compares names).
+RESERVED_GROUP = "_System"
+
+
 class Tag(_Model):
     name: str                      # "PUMP_1_CURRENT_R" or "LTI002.Pv" (group path kept, dot-joined)
     address: str                   # native address: "400131", "F34:1", "FT_01", "MD232"
@@ -101,6 +106,10 @@ class Device(_Model):
         dupes = sorted({t.name for t in self.tags if t.name in seen or seen.add(t.name)})
         if dupes:
             raise ValueError(f"{self.id}: duplicate tag names {dupes}")
+        reserved = sorted(t.name for t in self.tags if t.name.split(".", 1)[0].lower() == RESERVED_GROUP.lower())
+        if reserved:
+            raise ValueError(f"{self.id}: tag names {reserved} use the reserved group name {RESERVED_GROUP!r} "
+                             "(the per-device diagnostics folder of the OPC UA server, D-046)")
         return self
 
     def effective_rate_ms(self, tag: Tag) -> int:
@@ -279,6 +288,75 @@ class CheckCfg(_Model):
     est_rtt_ms: float = 60.0       # assumed round trip per wire request over the IPsec link
 
 
+OpcUaServerPolicy = Literal[
+    "None", "Basic256Sha256_Sign", "Basic256Sha256_SignAndEncrypt",
+    "Aes128_Sha256_RsaOaep_Sign", "Aes128_Sha256_RsaOaep_SignAndEncrypt",
+    "Aes256_Sha256_RsaPss_Sign", "Aes256_Sha256_RsaPss_SignAndEncrypt",
+]
+
+
+class OpcUaServerCfg(_Model):
+    """Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046): the cache as a
+    read-only, KEPServer-style address space. Off by default."""
+
+    enabled: bool = False
+    endpoint: str = "opc.tcp://127.0.0.1:4840/opencap"   # bind address and advertised URL
+    server_name: str = "opencap"
+    application_uri: str = "urn:opencap:server"
+    namespace_uri: str = "urn:opencap"                    # registered first, so it is ns=2
+    security_policies: list[OpcUaServerPolicy] = Field(default_factory=lambda: ["None"])
+    certificate: str | None = None         # server certificate (DER/PEM); generated if missing with the key
+    private_key: str | None = None
+    trusted_certs_dir: str | None = None   # when set, only client certificates found here are accepted
+    anonymous: bool = False                # anonymous clients only when set (D-046)
+    username_env: str | None = None        # env var NAMES; the values are never in a file
+    password_env: str | None = None
+    update_ms: int = 250                   # how often cache changes are copied into the address space
+    allow_insecure_remote: bool = False    # offer policy None on a non-loopback endpoint (plaintext)
+
+    @model_validator(mode="after")
+    def _check(self) -> "OpcUaServerCfg":
+        if not self.endpoint.startswith("opc.tcp://"):
+            raise ValueError(f"opcua_server.endpoint {self.endpoint!r} must start with opc.tcp://")
+        if not self.security_policies:
+            raise ValueError("opcua_server.security_policies must not be empty")
+        if any(p != "None" for p in self.security_policies) and not (self.certificate and self.private_key):
+            raise ValueError("opcua_server: secure security_policies need certificate and private_key paths")
+        if bool(self.username_env) != bool(self.password_env):
+            raise ValueError("opcua_server: set both username_env and password_env, or neither")
+        if self.update_ms < 10:
+            raise ValueError("opcua_server.update_ms must be >= 10")
+        if "None" in self.security_policies and not self.allow_insecure_remote \
+                and not _is_loopback_host(self.endpoint_host()):
+            raise ValueError(
+                f"opcua_server: security policy None on {self.endpoint!r} would serve plaintext beyond this "
+                "computer: offer only Sign/SignAndEncrypt policies, bind to 127.0.0.1, or set "
+                "allow_insecure_remote: true")
+        if self.enabled and not self.anonymous and not self.username_env:
+            raise ValueError("opcua_server: anonymous is off and no user is configured: set "
+                             "username_env/password_env, or anonymous: true")
+        return self
+
+    def endpoint_host(self) -> str:
+        """Host part of `endpoint` (`opc.tcp://host:port/path`), without brackets."""
+        rest = self.endpoint[len("opc.tcp://"):].split("/", 1)[0]
+        if rest.startswith("["):
+            return rest[1:].split("]", 1)[0]
+        return rest.rsplit(":", 1)[0] if rest.count(":") == 1 else rest
+
+
+def _is_loopback_host(host: str) -> bool:
+    """`localhost` or a loopback IP (all of 127/8, ::1), as `server._is_loopback` decides for the API."""
+    import ipaddress
+
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class PollerConfig(_Model):
     instance: str = "opencap-1"
     log_level: str = "INFO"        # DEBUG logs every request
@@ -289,3 +367,4 @@ class PollerConfig(_Model):
     payload: PayloadCfg = Field(default_factory=PayloadCfg)
     defaults: DeviceDefaults = Field(default_factory=DeviceDefaults)
     check: CheckCfg = Field(default_factory=CheckCfg)
+    opcua_server: OpcUaServerCfg = Field(default_factory=OpcUaServerCfg)

@@ -110,6 +110,15 @@ impl Poller {
         let channels = rlock(&self.loaded).channels.clone();
         self.apply_channels(&channels);
         self.restart_publisher().await;
+        if cfg.opcua_server.enabled {
+            // Python serves it (D-046); the Rust server is #46. Polling and MQTT run as usual,
+            // as they do in Python when its server cannot start.
+            warn!(
+                endpoint = %cfg.opcua_server.endpoint,
+                error = "the Rust engine has no OPC UA server yet (#46); it is not started",
+                "opcua_server_start_failed"
+            );
+        }
         let devices: usize = self.active_channels().iter().map(|c| c.devices.len()).sum();
         info!(version = FIRM_VERSION, channels = rlock(&self.state).workers.len(), devices, "poller_started");
         Ok(())

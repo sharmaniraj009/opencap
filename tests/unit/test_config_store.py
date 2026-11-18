@@ -173,9 +173,15 @@ def test_driver_rejects_params_and_addresses(store: ConfigStore):
     store.create_tags(DEV, {"name": "X", "address": "999999", "dtype": "float32", "enabled": False})
 
 
-def test_unimplemented_driver_is_a_warning(store: ConfigStore):
+def test_unimplemented_driver_is_a_warning(store: ConfigStore, monkeypatch):
+    from opencap import drivers
+    # pretend the s7 driver module is not there: its devices are kept, warned about, not polled
+    monkeypatch.setitem(drivers.DRIVERS, "s7", "opencap.drivers._not_built_yet:Nope")
     res = store.update_device("SITE S7/PLC", {"timeout_ms": 1000}, partial=True)
     assert any("SITE S7/PLC" in w and "not polled" in w for w in res.warnings)
+    monkeypatch.undo()
+    res = store.update_device("SITE S7/PLC", {"timeout_ms": 1500}, partial=True)
+    assert not any("SITE S7/PLC" in w and "not polled" in w for w in res.warnings)   # s7 exists (#60)
 
 
 def test_put_device_replaces_and_requires_tags(store: ConfigStore, cfg: Path):

@@ -71,8 +71,9 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 - **What:** The channel shows how many static tags are defined under it, for troubleshooting and
   load balancing.
 - **Decision:** Adopt
-- **Status:** Not started (per-device counts are done, see DEV-05)
+- **Status:** Not started
 - **Requirements:**
+  - Per-device counts exist already (DEV-05 in plan 05); this adds the channel total.
   - `GET /api/v1/channels` and `GET /api/v1/channels/{channel}` return `tags` (all configured tags)
     and `tags_enabled` per channel.
   - The dashboard in `/ui` shows the count per site.
@@ -83,16 +84,16 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
   clients: replaced by zero (default) or passed through unchanged.
 - **Decision:** Adapt — a per-device driver param `nonnormal_float` (`zero` | `unmodified`) filled
   from the channel property at import, applied where the driver decodes floats from raw bytes.
-- **Status:** Done (Modbus family, both engines)
+- **Status:** Done
 - **Requirements:**
-  - Every driver that decodes IEEE-754 from raw bytes (`modbus_tcp`, `modbus_rtu`; later `s7`,
-    `melsec_mc`, FINS) honours `params.nonnormal_float`; default `zero`.
+  - `modbus_tcp` and `modbus_rtu` (Python) and `modbus_tcp` (Rust) honour `params.nonnormal_float`,
+    default `zero`; `opencap import-kep` fills it from the channel property and reports unknown codes.
   - With `unmodified`, a NaN or infinite value is never written as a JSON number: SubDevice JSON lists
-    the tag under `BadTags` (current `north/payload.py` rule); OPC UA passes the IEEE value through.
-  - Drivers with native float types (`ab_logix`, `ab_pccc`, `opcua_client`) document in
-    `docs/driver_params.md` whether they apply the param.
-- **Acceptance:** decode conformance vectors in `tests/conformance/` (#3) covering NaN, ±Inf,
-  denormal, −0.0 for both modes, run by Python and Rust; payload golden cases.
+    the tag under `BadTags` (`src/opencap/north/payload.py`).
+  - Every new driver that decodes IEEE-754 from raw bytes (`s7`, `melsec_mc`, FINS, …) takes the same
+    param as part of its ADR-0004 §5 acceptance.
+- **Acceptance:** `tests/unit/test_modbus_decode.py` and the Rust decoder tests today; decode
+  conformance vectors (#3) covering NaN, ±Inf, denormal and −0.0 in both modes, run by both engines.
 
 ### CH-05 Inter-device delay (manual p. 78)
 - **What:** After a reply from one device, the channel waits a set time before sending to the
@@ -126,21 +127,35 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 
 ### CH-07 Serial line settings and COM-port mapping (manual p. 76, 79–80)
 - **What:** Physical medium (COM port, modem, encapsulation, none), COM id, baud rate, data bits,
-  parity, stop bits; channels must not share a port unless the driver allows a shared connection,
-  which is then shown as "shared".
+  parity and stop bits for serial drivers.
 - **Decision:** Adapt — `params.transport` and line params per device; the KEPServerEX COM port is
-  mapped to a local port, a TCP gateway or an RFC 2217 server in `overrides.yaml` `serial_ports`;
-  devices on one line share one connection (D-033, D-037). Modem medium: plan 08.
-- **Status:** Done (Python); Rust ports planned (#47, #53)
+  mapped to a local port, a TCP gateway or an RFC 2217 server in `overrides.yaml` `serial_ports`
+  (D-033, D-037). Modem medium: plan 08.
+- **Status:** Done
 - **Requirements:**
-  - Devices that share a port or gateway with different line settings are a config error (#68).
-  - `GET /api/v1/devices/{id}/status` reports `shared_line: true` when the line is shared with other
-    devices (equivalent of the "shared" indicator).
-  - Unmapped COM ports keep the device disabled with a warning (done, D-037).
-- **Acceptance:** `tests/integration/test_serial_acceptance.py` (done); loader tests for mismatched
-  settings (#68); Rust: the same suite with `OPENCAP_ENGINE=rust` (#47, #53).
+  - `params.transport` is one of `tcp`, `serial`, `rfc2217` (DF1 only), `unmapped`; line params
+    `baudrate`, `bytesize`, `parity`, `stopbits` are validated; a bad mapping is a config error.
+  - The importer copies COM id and line settings from the channel; an unmapped COM port keeps the
+    device disabled with a warning, and `opencap check` shows it `(disabled)`.
+  - Devices on one port or gateway share one open connection; the last one leaving closes it.
+- **Acceptance:** `tests/unit/test_serial_config.py`, `tests/unit/test_kep_import_df1.py`,
+  `tests/integration/test_serial_acceptance.py`. Rust: the same suites with `OPENCAP_ENGINE=rust`
+  when #47 and #53 land.
 
-### CH-08 Flow control and manual RTS timing (manual p. 76, 80)
+### CH-08 Shared serial line: setting checks and "shared" indicator (manual p. 76, 79)
+- **What:** Channels may not claim the same port with different settings; when a driver allows a
+  shared connection, the channel shows that its port settings are shared.
+- **Decision:** Adapt — sharing is per physical line (D-033); mismatched settings on one line become
+  a config error, and the status shows which devices share a line.
+- **Status:** Planned (#68)
+- **Requirements:**
+  - Devices that share a port or gateway with different baud, parity, data bits, stop bits or error
+    check are a config error at load time, for `ab_df1` and `modbus_rtu` (#68).
+  - One silent unit on a multi-drop RTU line does not close the line for healthy units (#68).
+  - `GET /api/v1/devices/{id}/status` adds `shared_line: true|false` and the line endpoint (beyond #68).
+- **Acceptance:** loader unit tests for each mismatch; simulator test with two units, one muted (#68).
+
+### CH-09 Flow control and manual RTS timing (manual p. 76, 80)
 - **What:** How RTS/DTR lines are driven (none, DTR, RTS, both, RTS always, RTS manual with raise,
   drop and poll-delay times), mainly for RS-232 to RS-485 converters and radio modems.
 - **Decision:** Defer — not needed by the migrated project (TCP gateways own the line); revisit
@@ -154,7 +169,7 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 - **Acceptance:** unit test of the pyserial settings built from params; manual field check on a
   real converter (owner-run, ADR-0014 §5).
 
-### CH-09 Serial operational behaviour: error reporting and idle close (manual p. 80–81)
+### CH-10 Serial operational behaviour: error reporting and idle close (manual p. 80–81)
 - **What:** Low-level line errors can be kept out of the event log; the port can close when no
   client references any tag, after an idle time.
 - **Decision:** Adapt — opencap polls on its own schedule, not on client demand, so there is no
@@ -167,22 +182,23 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
   - Every failed request is counted in `poll_requests_total{result}` whatever the log level.
 - **Acceptance:** `tests/unit/test_channel_worker.py`, `tests/integration/test_serial_acceptance.py`.
 
-### CH-10 Ethernet encapsulation of serial protocols (manual p. 80–82, 89–91, 139)
+### CH-11 Ethernet encapsulation of serial protocols (manual p. 80–82, 89–91, 139)
 - **What:** A serial driver talks to devices behind a terminal server over the network: terminal
   server IP, port (default 2101), TCP or UDP, connect timeout; the serial protocol itself is
   unchanged.
 - **Decision:** Adapt — `params.transport: tcp` (raw TCP) or `rfc2217`, with the gateway in the
   device's `host`/`port` or in `serial_ports`; several devices behind one gateway share one
   connection (D-033).
-- **Status:** Done (TCP, RFC 2217); UDP not supported
+- **Status:** Done
 - **Requirements:**
-  - A UDP terminal server is reported by `opencap import-kep` as a problem and the device stays
-    disabled until a TCP transport is configured (open question below).
-  - Connect timeout: see DEV-15.
+  - `transport: tcp` carries the serial bytes on a raw TCP socket to the gateway, `rfc2217` negotiates
+    the line settings with the COM-port server (DF1); the protocol layer is the same as on a local port.
+  - A gateway that goes away demotes only the devices behind it; they resume when it is back.
+  - Connect timeout: DEV-16. UDP terminal servers: CH-12.
 - **Acceptance:** `tests/integration/test_serial_acceptance.py` (gateway power-off demotes only its
   devices); `tests/unit/test_serial_transport.py`.
 
-### CH-11 Import KEPServerEX encapsulation settings (manual p. 79, 81–82, 89–91)
+### CH-12 Import KEPServerEX encapsulation settings (manual p. 79, 81–82, 89–91)
 - **What:** KEPServerEX projects that already use encapsulation hold the terminal server address
   in the channel or device properties.
 - **Decision:** Adopt — import them straight into `transport: tcp` instead of `unmapped`.
@@ -191,25 +207,26 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
   - `opencap import-kep` maps a channel whose physical medium is Ethernet encapsulation to
     `transport: tcp`, `host`/`port` from the encapsulation properties (device-level IP wins over
     channel-level), with no `serial_ports` entry needed.
-  - Unknown medium codes are reported in `reports/import_summary.json`.
+  - A UDP terminal server is reported in `reports/import_summary.json` and the device stays disabled
+    until a TCP transport is configured (open question below); unknown medium codes are reported too.
 - **Acceptance:** importer unit tests with synthetic channels for each medium (COM, encapsulation,
   modem, none); addresses in 192.0.2.x.
 
-### CH-12 Operation with no communications (manual p. 79, 81)
+### CH-13 Operation with no communications (manual p. 79, 81)
 - **What:** A channel with no physical medium; explicit device reads are ignored or failed.
 - **Decision:** Out of scope — the only device without a medium in opencap is the simulator
   driver (#12), which needs no channel setting; explicit reads are the read-once API, which
   always reports what happened.
 - **Status:** Out of scope
 
-### CH-13 Communication serialization (virtual networks) (manual p. 82–83)
+### CH-14 Communication serialization (virtual networks) (manual p. 82–83)
 - **What:** Channels that share one physical pipe (for example an Ethernet radio) join a numbered
   virtual network; only one of them talks at a time, taking turns round-robin with a set number
   of transactions per turn; a global mode chooses load-balanced or priority order (writes, then
   explicit reads, then scans).
 - **Decision:** Adapt — an optional `serialization_group` on channels puts them under one shared
   wire lock with round-robin turns; priority mode reduces to "read-once before scheduled reads"
-  because there are no writes (ADR-0008). Recommended together with auto-demotion (DEV-10).
+  because there are no writes (ADR-0008). Recommended together with auto-demotion (DEV-10 in plan 05).
 - **Status:** Not started
 - **Requirements:**
   - `Channel.serialization_group: str | null` and `Channel.transactions_per_turn: int = 1` (1–99);
@@ -222,14 +239,14 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 - **Acceptance:** simulator test with three channels in one group: request intervals never overlap,
   turns follow the configured count; a muted device delays the others until demoted; both engines.
 
-### CH-14 Write optimizations (manual p. 84–85)
+### CH-15 Write optimizations (manual p. 84–85)
 - **What:** How queued client writes are sent (all values, latest value for non-Boolean tags, latest
   value for all tags) and a write-to-read duty cycle.
 - **Decision:** Out of scope — write path; opencap never writes PLC values (ADR-0008). Any write
   design goes through RFC 0002 write safety (#19).
 - **Status:** Out of scope
 
-### CH-15 Device discovery (manual p. 85–86)
+### CH-16 Device discovery (manual p. 85–86)
 - **What:** For drivers that can find devices on the network, a dialog scans with driver-specific
   settings (range, timeout, scope), lists name, id and description, and adds the chosen ones.
 - **Decision:** Defer — M5, with the first driver that has a discovery service (BACnet Who-Is,
@@ -246,13 +263,15 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
   identity services were sent; UI smoke test of the candidate list.
 
 ## Open questions
-- Do any sites put several channels behind one radio or shared pipe (CH-13), or is the per-line
+- Do any sites put several channels behind one radio or shared pipe (CH-14), or is the per-line
   lock of D-033 enough?
-- Is UDP encapsulation (CH-10) used by any migrated terminal server, or can opencap stay TCP-only?
+- Is UDP encapsulation (CH-12) used by any migrated terminal server, or can opencap stay TCP-only?
 - Should `bind_address` (CH-06) be per device or per channel? Per device is simpler and covers both.
+- Drivers with native float types (`ab_logix`, `ab_pccc`, `opcua_client`) pass NaN/Inf through today
+  (SubDevice JSON then marks the tag bad): should they also honour `nonnormal_float` (CH-04)?
 - Device discovery sends broadcast traffic onto plant networks: may opencap offer it at all, and
   behind which role?
-- Per-channel concurrency (FR-3, ADR-0004 `max_inflight`) is the opposite of CH-13; confirm both
+- Per-channel concurrency (FR-3, ADR-0004 `max_inflight`) is the opposite of CH-14; confirm both
   can be options on the same `Channel` model.
 
 ## Checklist rows
@@ -264,12 +283,13 @@ write optimizations, and a driver-specific device discovery dialog (manual p. 76
 | CH-04 | Non-normalized float handling | Adapt | Done | #64 | M2 |
 | CH-05 | Inter-device delay | Adopt | Not started | — | — |
 | CH-06 | Network adapter / interface selection | Adapt | Not started | — | — |
-| CH-07 | Serial line settings and COM-port mapping | Adapt | Done | #62; #68, #47, #53 | M1 |
-| CH-08 | Flow control and manual RTS timing | Defer | Not started | — | — |
-| CH-09 | Serial operational behaviour: error reporting, idle close | Adapt | Done | #62 | M1 |
-| CH-10 | Ethernet encapsulation of serial protocols | Adapt | Done | #62 | M1 |
-| CH-11 | Import KEPServerEX encapsulation settings | Adopt | Not started | — | — |
-| CH-12 | Operation with no communications | Out of scope | Out of scope | — | — |
-| CH-13 | Communication serialization (virtual networks) | Adapt | Not started | — | — |
-| CH-14 | Write optimizations | Out of scope | Out of scope | #19 | — |
-| CH-15 | Device discovery | Defer | Not started | — | M5 |
+| CH-07 | Serial line settings and COM-port mapping | Adapt | Done | #62 (Rust: #47, #53) | M1 |
+| CH-08 | Shared serial line: setting checks and "shared" indicator | Adapt | Planned (#68) | #68 | M1 |
+| CH-09 | Flow control and manual RTS timing | Defer | Not started | — | — |
+| CH-10 | Serial operational behaviour: error reporting, idle close | Adapt | Done | #62 | M1 |
+| CH-11 | Ethernet encapsulation of serial protocols | Adapt | Done | #62 | M1 |
+| CH-12 | Import KEPServerEX encapsulation settings | Adopt | Not started | — | — |
+| CH-13 | Operation with no communications | Out of scope | Out of scope | — | — |
+| CH-14 | Communication serialization (virtual networks) | Adapt | Not started | — | — |
+| CH-15 | Write optimizations | Out of scope | Out of scope | #19 | — |
+| CH-16 | Device discovery | Defer | Not started | — | M5 |

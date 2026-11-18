@@ -27,7 +27,10 @@ cargo build --release
 `SIGTERM`/`SIGINT` stop cleanly (the link publishes `offline`, the outbox stays on disk);
 `SIGHUP` or `POST /reload` re-reads the config and restarts only the channels that changed.
 Logs are JSON lines on stdout. Secrets come from the same environment variables as Python
-(`OPENCAP_MQTT_PASSWORD`, `OPENCAP_API_TOKEN`).
+(`OPENCAP_MQTT_PASSWORD`, `OPENCAP_API_TOKEN`, and the env vars named in `api.tokens`).
+The API applies the same roles as Python: a `viewer` token may only read, an `admin` token may
+also `POST /reload` and `read-once`; with no token the API is read-only and answers only
+requests to `localhost` (D-062).
 
 ## Crates
 

@@ -213,6 +213,7 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
     let poller_path = config_dir.join(POLLER_FILE);
     let poller: PollerConfig = model(&poller_path, Json::Object(read_yaml(&poller_path)?))?;
     poller.mqtt.validate().map_err(|e| invalid(format!("{}: mqtt: {e}", poller_path.display())))?;
+    poller.api.validate().map_err(|e| invalid(format!("{}: api: {e}", poller_path.display())))?;
     let devices_file = load_devices(&config_dir.join(DEVICES_FILE))?;
     let ov_path = config_dir.join(OVERRIDES_FILE);
     let overrides_raw = read_yaml(&ov_path)?;

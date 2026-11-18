@@ -52,6 +52,11 @@
       li.querySelector(".name").textContent = p.name;
       li.querySelector(".url").textContent = p.base_url + (p.keychain_error ? " · keychain unavailable: " + p.keychain_error
         : (p.has_token ? " · token in keychain" : " · no token stored"));
+      if (p.cleartext && p.has_token) {
+        var warn = li.querySelector(".warn");
+        warn.textContent = "The token is sent unencrypted (http:// to another computer). Put TLS (https) in front of the engine.";
+        warn.hidden = false;
+      }
       li.querySelector(".open").addEventListener("click", function () {
         invoke("open_engine", { id: p.id }).catch(function (e) { showError(document.getElementById("error"), String(e)); });
       });
@@ -68,6 +73,7 @@
 
   function load() {
     showError(document.getElementById("error"), "");
+    showError(document.getElementById("notice"), "");
     return invoke("list_profiles").then(render).catch(function (e) { showError(document.getElementById("error"), String(e)); });
   }
 
@@ -92,10 +98,10 @@
       token: form.elements.token.value || null,
       clear_token: form.elements.clear_token.checked,
     };
-    invoke("save_profile", { input: input }).then(function () {
+    invoke("save_profile", { input: input }).then(function (saved) {
       form.elements.token.value = "";
       dialog.close();
-      load();
+      load().then(function () { showError(document.getElementById("notice"), saved && saved.notice); });
     }).catch(function (e) { showError(document.getElementById("form-error"), String(e)); });
   });
   document.getElementById("cancel").addEventListener("click", function () { dialog.close(); });

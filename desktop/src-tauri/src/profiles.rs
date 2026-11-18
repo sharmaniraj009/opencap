@@ -45,6 +45,10 @@ pub struct Profile {
     pub id: String,
     pub name: String,
     pub base_url: String,
+    /// The address the stored token was saved for. A token is only ever sent to that address:
+    /// change the address and the token is no longer used (and is deleted from the keychain).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_origin: Option<String>,
 }
 
 /// What the launcher sees: a profile plus whether a token is stored for it (never the token).
@@ -56,6 +60,10 @@ pub struct ProfileSummary {
     pub has_token: bool,
     /// Set when the keychain could not be asked (no Secret Service running, locked keychain).
     pub keychain_error: Option<String>,
+    /// `http://` to a host that is not this computer: a token would travel unencrypted.
+    pub cleartext: bool,
+    /// Something the launcher should tell the user after a save (e.g. a token was removed).
+    pub notice: Option<String>,
 }
 
 /// A create or update request from the launcher.
@@ -129,6 +137,45 @@ impl SecretStore for MemoryStore {
     fn delete(&self, id: &str) -> Result<(), ProfileError> {
         self.0.lock().unwrap().remove(id);
         Ok(())
+    }
+}
+
+/// The stored token was saved for the profile's current address.
+fn token_is_for(p: &Profile) -> bool {
+    p.token_origin.as_deref() == Some(p.base_url.as_str())
+}
+
+fn summary(
+    p: Profile,
+    has_token: bool,
+    keychain_error: Option<String>,
+    notice: Option<String>,
+) -> ProfileSummary {
+    let cleartext = is_cleartext_remote(&p.base_url);
+    ProfileSummary {
+        id: p.id,
+        name: p.name,
+        base_url: p.base_url,
+        has_token,
+        keychain_error,
+        cleartext,
+        notice,
+    }
+}
+
+/// `http://` to a host other than this computer: what is sent (a token) is readable on the way.
+pub fn is_cleartext_remote(base_url: &str) -> bool {
+    let Ok(u) = url::Url::parse(base_url) else {
+        return false;
+    };
+    if u.scheme() != "http" {
+        return false;
+    }
+    match u.host() {
+        Some(url::Host::Domain(d)) => !d.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => !ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => !ip.is_loopback(),
+        None => false,
     }
 }
 
@@ -211,6 +258,7 @@ impl ProfileStore {
                     id: "local".into(),
                     name: "This computer".into(),
                     base_url: DEFAULT_BASE_URL.into(),
+                    token_origin: None,
                 }])
             }
             Err(source) => {
@@ -258,16 +306,10 @@ impl ProfileStore {
             .into_iter()
             .map(|p| {
                 let (has_token, keychain_error) = match self.secrets.get(&p.id) {
-                    Ok(t) => (t.is_some(), None),
+                    Ok(t) => (t.is_some() && token_is_for(&p), None),
                     Err(e) => (false, Some(e.to_string())),
                 };
-                ProfileSummary {
-                    id: p.id,
-                    name: p.name,
-                    base_url: p.base_url,
-                    has_token,
-                    keychain_error,
-                }
+                summary(p, has_token, keychain_error, None)
             })
             .collect())
     }
@@ -279,7 +321,11 @@ impl ProfileStore {
             .ok_or_else(|| ProfileError::NotFound(id.to_string()))
     }
 
+    /// The token to send to the profile's address: only one saved for that very address.
     pub fn token(&self, id: &str) -> Result<Option<String>, ProfileError> {
+        if !token_is_for(&self.get(id)?) {
+            return Ok(None);
+        }
         self.secrets.get(id)
     }
 
@@ -299,26 +345,29 @@ impl ProfileStore {
                 "a profile named {name:?} already exists"
             )));
         }
-        let id = match &input.id {
+        let (idx, address_changed) = match &input.id {
             Some(id) => {
-                let p = profiles
-                    .iter_mut()
-                    .find(|p| &p.id == id)
+                let idx = profiles
+                    .iter()
+                    .position(|p| &p.id == id)
                     .ok_or_else(|| ProfileError::NotFound(id.clone()))?;
-                p.name = name;
-                p.base_url = base_url;
-                id.clone()
+                let changed = profiles[idx].base_url != base_url;
+                profiles[idx].name = name;
+                profiles[idx].base_url = base_url.clone();
+                (idx, changed)
             }
             None => {
-                let id = new_id(&profiles);
                 profiles.push(Profile {
-                    id: id.clone(),
+                    id: new_id(&profiles),
                     name,
-                    base_url,
+                    base_url: base_url.clone(),
+                    token_origin: None,
                 });
-                id
+                (profiles.len() - 1, false)
             }
         };
+        let id = profiles[idx].id.clone();
+        let mut notice = None;
         if let Some(token) = input
             .token
             .as_deref()
@@ -326,22 +375,25 @@ impl ProfileStore {
             .filter(|t| !t.is_empty())
         {
             self.secrets.set(&id, token)?;
+            profiles[idx].token_origin = Some(base_url);
         } else if input.clear_token {
             self.secrets.delete(&id)?;
+            profiles[idx].token_origin = None;
+        } else if address_changed && profiles[idx].token_origin.is_some() {
+            // The token belongs to the old address: never send it to the new one. Even if the
+            // keychain cannot delete it now, `token()` refuses it (its token_origin is gone).
+            profiles[idx].token_origin = None;
+            let _ = self.secrets.delete(&id);
+            notice = Some(
+                "The stored token was removed because the address changed. \
+                 Enter the token for the new engine."
+                    .to_string(),
+            );
         }
         self.save(&profiles)?;
-        let p = profiles
-            .into_iter()
-            .find(|p| p.id == id)
-            .expect("just saved");
-        let has_token = self.secrets.get(&p.id)?.is_some();
-        Ok(ProfileSummary {
-            id: p.id,
-            name: p.name,
-            base_url: p.base_url,
-            has_token,
-            keychain_error: None,
-        })
+        let p = profiles.swap_remove(idx);
+        let has_token = token_is_for(&p) && self.secrets.get(&p.id)?.is_some();
+        Ok(summary(p, has_token, None, notice))
     }
 
     pub fn remove(&self, id: &str) -> Result<(), ProfileError> {
@@ -460,7 +512,19 @@ mod tests {
             })
             .unwrap();
         assert_eq!(p2.name, "A2");
-        assert_eq!(s.token(&p.id).unwrap().as_deref(), Some("t1"));
+        // the address changed and no new token was given: the old engine's token is gone
+        assert_eq!(s.token(&p.id).unwrap(), None);
+        assert!(!p2.has_token);
+        assert!(p2.notice.as_deref().unwrap().contains("address changed"));
+        s.upsert(ProfileInput {
+            id: Some(p.id.clone()),
+            name: "A2".into(),
+            base_url: "http://192.0.2.2:8080".into(),
+            token: Some("t1b".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(s.token(&p.id).unwrap().as_deref(), Some("t1b"));
         s.upsert(ProfileInput {
             id: Some(p.id.clone()),
             name: "A2".into(),
@@ -479,8 +543,119 @@ mod tests {
         })
         .unwrap();
         s.remove(&p.id).unwrap();
-        assert_eq!(s.token(&p.id).unwrap(), None);
+        assert_eq!(
+            s.secrets.get(&p.id).unwrap(),
+            None,
+            "remove deletes the keychain entry"
+        );
         assert!(matches!(s.get(&p.id), Err(ProfileError::NotFound(_))));
+        assert!(matches!(s.token(&p.id), Err(ProfileError::NotFound(_))));
+    }
+
+    #[test]
+    fn a_token_never_follows_an_address_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = store(&dir);
+        let save = |id: Option<String>, name: &str, url: &str, token: Option<&str>| {
+            s.upsert(ProfileInput {
+                id,
+                name: name.into(),
+                base_url: url.into(),
+                token: token.map(String::from),
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        let p = save(None, "A", "http://192.0.2.1:8080", Some("engine-a-token"));
+        // renaming, or re-entering the same origin in another spelling, keeps the token
+        let same = save(
+            Some(p.id.clone()),
+            "A renamed",
+            "http://192.0.2.1:8080/ui/",
+            None,
+        );
+        assert!(same.has_token && same.notice.is_none());
+        assert_eq!(s.token(&p.id).unwrap().as_deref(), Some("engine-a-token"));
+        // changing only the address removes it, and says so
+        let moved = save(
+            Some(p.id.clone()),
+            "A renamed",
+            "http://192.0.2.99:8080",
+            None,
+        );
+        assert!(!moved.has_token);
+        assert!(moved.notice.is_some());
+        assert_eq!(s.token(&p.id).unwrap(), None);
+        // changing the address and giving a new token stores the new token for the new address
+        let next = save(
+            Some(p.id.clone()),
+            "A renamed",
+            "http://192.0.2.50:8080",
+            Some("engine-b-token"),
+        );
+        assert!(next.has_token && next.notice.is_none());
+        assert_eq!(s.token(&p.id).unwrap().as_deref(), Some("engine-b-token"));
+    }
+
+    struct UndeletableKeychain(MemoryStore);
+    impl SecretStore for UndeletableKeychain {
+        fn get(&self, id: &str) -> Result<Option<String>, ProfileError> {
+            self.0.get(id)
+        }
+        fn set(&self, id: &str, token: &str) -> Result<(), ProfileError> {
+            self.0.set(id, token)
+        }
+        fn delete(&self, _: &str) -> Result<(), ProfileError> {
+            Err(ProfileError::Keychain("keychain locked".into()))
+        }
+    }
+
+    #[test]
+    fn a_token_the_keychain_cannot_delete_is_still_never_sent_elsewhere() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = ProfileStore::new(
+            dir.path().join("profiles.json"),
+            Box::new(UndeletableKeychain(MemoryStore::default())),
+        );
+        let p = s
+            .upsert(ProfileInput {
+                name: "A".into(),
+                base_url: "http://192.0.2.1:8080".into(),
+                token: Some("engine-a-token".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let moved = s
+            .upsert(ProfileInput {
+                id: Some(p.id.clone()),
+                name: "A".into(),
+                base_url: "http://192.0.2.99:8080".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!moved.has_token);
+        assert_eq!(s.token(&p.id).unwrap(), None);
+        // the secret is still in the keychain; only the address binding decides
+        let path = dir.path().join("profiles.json");
+        let write = |base: &str, origin: &str| {
+            let doc = serde_json::json!([{"id": p.id, "name": "A", "base_url": base, "token_origin": origin}]);
+            fs::write(&path, doc.to_string()).unwrap();
+        };
+        // profiles.json edited by hand to point elsewhere: the token is not sent there
+        write("http://192.0.2.99:8080", "http://192.0.2.1:8080");
+        assert_eq!(s.token(&p.id).unwrap(), None);
+        write("http://192.0.2.1:8080", "http://192.0.2.1:8080");
+        assert_eq!(s.token(&p.id).unwrap().as_deref(), Some("engine-a-token"));
+    }
+
+    #[test]
+    fn cleartext_warning_only_for_http_to_another_host() {
+        assert!(is_cleartext_remote("http://192.0.2.10:8080"));
+        assert!(is_cleartext_remote("http://opencap.example"));
+        assert!(!is_cleartext_remote("https://192.0.2.10"));
+        assert!(!is_cleartext_remote("http://127.0.0.1:8080"));
+        assert!(!is_cleartext_remote("http://localhost:8080"));
+        assert!(!is_cleartext_remote("http://[::1]:8080"));
     }
 
     struct BrokenKeychain;

@@ -29,6 +29,17 @@ and Windows (MSI). Read-only towards PLCs, like the engine.
 - Engine windows load remote pages and get no Tauri IPC.
 - The launcher page has a strict CSP (`script-src 'self'`) and builds every element with
   `textContent`.
+- A token is bound to the address it was saved for (`token_origin` in `profiles.json`). Change
+  a profile's address without typing a new token and the old token is deleted, and the launcher
+  says so. A token saved for another address is never sent, even if the keychain could not
+  delete it or `profiles.json` was edited by hand.
+- A profile that sends its token over `http://` to another computer is flagged in the launcher:
+  put TLS (https) in front of the engine.
+- `tauri` and `tauri-build` are pinned to the reviewed minor versions, and CI builds with
+  `--locked`. The "engine windows get no IPC" guarantee depends on Tauri's remote-origin checks.
+- Windows: the MSI downloads the WebView2 runtime only if it is missing. Windows 10 and 11
+  normally have it already. A PC with no internet access and no WebView2 needs the offline
+  WebView2 installer from Microsoft first.
 
 ## Develop
 

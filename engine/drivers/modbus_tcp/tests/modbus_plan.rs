@@ -2,7 +2,7 @@
 
 use opencap_core::config::{DType, Device, Tag};
 use opencap_core::driver::{Driver, DriverError, Plan};
-use opencap_drivers::modbus_tcp::{ModbusBlock, ModbusTcpDriver};
+use opencap_driver_modbus_tcp::{ModbusBlock, ModbusTcpDriver};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};

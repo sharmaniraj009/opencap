@@ -4,12 +4,12 @@
 use std::path::Path;
 
 use opencap_core::config::{DType, Device, Tag};
-use opencap_drivers::modbus_tcp::{ModbusBlock, ModbusTcpDriver};
+use opencap_driver_modbus_tcp::{ModbusBlock, ModbusTcpDriver};
 use serde_json::json;
 
 #[test]
 fn driver_sources_never_name_a_write_api() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("modbus_tcp");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = 0;
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();

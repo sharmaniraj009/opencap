@@ -5,7 +5,7 @@
 
 use opencap_core::config::{DType, Device, Scale, Tag};
 use opencap_core::value::Value;
-use opencap_drivers::modbus_tcp::{decode_block, DecodeError, ModbusBlock, ModbusParams, ModbusTcpDriver, Reply};
+use opencap_driver_modbus_tcp::{decode_block, DecodeError, ModbusBlock, ModbusParams, ModbusTcpDriver, Reply};
 use serde_json::{json, Value as Json};
 
 fn one_block(tags: &[Tag], params: &Json) -> (ModbusBlock, ModbusParams) {

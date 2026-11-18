@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "opencap-desktop",
+  "version": "0.1.0",
+  "identifier": "org.opencap.desktop",
+  "build": {
+    "frontendDist": "../launcher"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "opencap",
+        "width": 960,
+        "height": 680,
+        "minWidth": 360,
+        "minHeight": 480,
+        "url": "index.html"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "opencap desktop: manage and open opencap engines",
+    "longDescription": "Connection profiles for local and remote opencap engines (read-only PLC connectivity servers), with the engine's web UI in a native window. Tokens are kept in the OS keychain.",
+    "copyright": "opencap contributors, Apache-2.0",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": { "depends": [] }
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  }
+}

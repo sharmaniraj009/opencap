@@ -29,6 +29,7 @@ from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from opencap.api import schemas as S
 from opencap.api.context import ApiContext
 from opencap.config.models import Channel, Device, DeviceMapEntry, DeviceOverride, PublishCfg, Tag
 from opencap.config.store import CURRENT_WRITER, MAX_IMPORT_BYTES, ConfigError, ConfigStore, Invalid, Result
@@ -108,7 +109,7 @@ def build_router() -> APIRouter:
     r = APIRouter(prefix="/api/v1")
 
     # --- who / status ------------------------------------------------------------
-    @r.get("/whoami")
+    @r.get("/whoami", response_model=S.Whoami, response_model_exclude_unset=True, responses=S.ERR_READ)
     def whoami(request: Request) -> dict[str, Any]:
         p = request.state.principal
         ctx = _ctx(request)
@@ -116,7 +117,7 @@ def build_router() -> APIRouter:
         return {"name": p.name, "role": p.role, "open": ctx.auth.open,
                 "config_writable": w["writable"], "config_writable_reason": w["reason"]}
 
-    @r.get("/status")
+    @r.get("/status", response_model=S.Status, response_model_exclude_unset=True, responses=S.ERR_READ)
     def status(request: Request) -> dict[str, Any]:
         """Dashboard in one call: process health, every polled device, pending reload."""
         ctx = _ctx(request)
@@ -124,54 +125,54 @@ def build_router() -> APIRouter:
                 "config": ctx.tracker.status()}
 
     # --- runtime per device (device ids contain "/": suffix routes come first) ----
-    @r.get("/devices/{device_id:path}/tags")
+    @r.get("/devices/{device_id:path}/tags", response_model=S.TagList, response_model_exclude_unset=True, responses=S.ERR_READ)
     def list_tags(request: Request, device_id: str) -> JSONResponse:
         dev = _store(request).get_device(device_id)
         return with_rev({"tags": dev["device"]["tags"], "revision": dev["revision"]})
 
-    @r.post("/devices/{device_id:path}/tags", status_code=201)
+    @r.post("/devices/{device_id:path}/tags", status_code=201, response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def create_tags(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
                           apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).create_tags(device_id, body, if_match=if_match),
                             if_match=if_match, apply=apply, status=201)
 
-    @r.get("/devices/{device_id:path}/tags/{tag}")
+    @r.get("/devices/{device_id:path}/tags/{tag}", response_model=S.TagResource, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_tag(request: Request, device_id: str, tag: str) -> JSONResponse:
         return with_rev(_store(request).get_tag(device_id, tag))
 
-    @r.put("/devices/{device_id:path}/tags/{tag}")
+    @r.put("/devices/{device_id:path}/tags/{tag}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def put_tag(request: Request, device_id: str, tag: str, body: JsonBody, if_match: IfMatch = None,
                       apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).update_tag(device_id, tag, body, partial=False,
                                                                         if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.patch("/devices/{device_id:path}/tags/{tag}")
+    @r.patch("/devices/{device_id:path}/tags/{tag}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def patch_tag(request: Request, device_id: str, tag: str, body: JsonBody, if_match: IfMatch = None,
                         apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).update_tag(device_id, tag, body, partial=True,
                                                                         if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.delete("/devices/{device_id:path}/tags/{tag}")
+    @r.delete("/devices/{device_id:path}/tags/{tag}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def delete_tag(request: Request, device_id: str, tag: str, if_match: IfMatch = None,
                          apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).delete_tag(device_id, tag, if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.get("/devices/{device_id:path}/status")
+    @r.get("/devices/{device_id:path}/status", response_model=S.DeviceDetail, response_model_exclude_unset=True, responses=S.ERR_READ)
     def device_status(request: Request, device_id: str) -> dict[str, Any]:
         return _lookup(_ctx(request).poller.device_detail, device_id)
 
-    @r.get("/devices/{device_id:path}/values")
+    @r.get("/devices/{device_id:path}/values", response_model=S.TagValues, response_model_exclude_unset=True, responses=S.ERR_READ)
     def device_values(request: Request, device_id: str) -> dict[str, Any]:
         return _lookup(_ctx(request).poller.device_values, device_id)
 
-    @r.get("/devices/{device_id:path}/plan")
+    @r.get("/devices/{device_id:path}/plan", response_model=S.DevicePlan, response_model_exclude_unset=True, responses=S.ERR_READ)
     def device_plan(request: Request, device_id: str) -> dict[str, Any]:
         return _lookup(_ctx(request).poller.device_plan, device_id)
 
-    @r.get("/devices/{device_id:path}/identity")
+    @r.get("/devices/{device_id:path}/identity", response_model=S.DeviceIdentity, response_model_exclude_unset=True, responses=S.ERR_READ)
     async def device_identity(request: Request, device_id: str, refresh: bool = False) -> dict[str, Any]:
         """Identity over the existing connection. Cached for IDENTITY_TTL_S because asking can
         cost a request on the wire (Modbus FC43); `?refresh=true` (admin) asks again now."""
@@ -192,7 +193,7 @@ def build_router() -> APIRouter:
         except Exception as exc:  # noqa: BLE001 - e.g. the safety timeout: report, do not 500
             return {"connected": True, "identity": {}, "error": f"{type(exc).__name__}: {exc}"}
 
-    @r.post("/devices/{device_id:path}/read-once")
+    @r.post("/devices/{device_id:path}/read-once", response_model=S.TagValues, response_model_exclude_unset=True, responses=S.ERR_RUN)
     async def read_once(request: Request, device_id: str) -> dict[str, Any]:
         try:
             return await _ctx(request).poller.read_once(device_id)
@@ -201,7 +202,7 @@ def build_router() -> APIRouter:
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
-    @r.post("/reload")
+    @r.post("/reload", response_model=S.ReloadResult, response_model_exclude_unset=True, responses=S.ERR_RUN)
     async def reload(request: Request) -> dict[str, Any]:
         try:
             return await _ctx(request).reload(request.state.principal)
@@ -209,155 +210,155 @@ def build_router() -> APIRouter:
             raise HTTPException(status_code=400, detail=f"reload failed, old config kept: {exc}") from None
 
     # --- channels ----------------------------------------------------------------
-    @r.get("/channels")
+    @r.get("/channels", response_model=S.ChannelList, response_model_exclude_unset=True, responses=S.ERR_READ)
     def list_channels(request: Request) -> JSONResponse:
         return with_rev(_store(request).list_channels())
 
-    @r.post("/channels", status_code=201)
+    @r.post("/channels", status_code=201, response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def create_channel(request: Request, body: JsonBody, if_match: IfMatch = None,
                              apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).create_channel(body, if_match=if_match),
                             if_match=if_match, apply=apply, status=201)
 
-    @r.get("/channels/{channel}/devices")
+    @r.get("/channels/{channel}/devices", response_model=S.DeviceList, response_model_exclude_unset=True, responses=S.ERR_READ)
     def list_channel_devices(request: Request, channel: str) -> JSONResponse:
         store = _store(request)
         store.get_channel(channel)                      # 404 for an unknown channel
         return with_rev(store.list_devices(channel))
 
-    @r.post("/channels/{channel}/devices", status_code=201)
+    @r.post("/channels/{channel}/devices", status_code=201, response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def create_device(request: Request, channel: str, body: JsonBody, if_match: IfMatch = None,
                             apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).create_device(channel, body, if_match=if_match),
                             if_match=if_match, apply=apply, status=201)
 
-    @r.get("/channels/{channel}")
+    @r.get("/channels/{channel}", response_model=S.ChannelResource, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_channel(request: Request, channel: str) -> JSONResponse:
         return with_rev(_store(request).get_channel(channel))
 
-    @r.patch("/channels/{channel}")
+    @r.patch("/channels/{channel}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def patch_channel(request: Request, channel: str, body: JsonBody, if_match: IfMatch = None,
                             apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).update_channel(channel, body, if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.delete("/channels/{channel}")
+    @r.delete("/channels/{channel}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def delete_channel(request: Request, channel: str, if_match: IfMatch = None,
                              apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).delete_channel(channel, if_match=if_match),
                             if_match=if_match, apply=apply)
 
     # --- devices -----------------------------------------------------------------
-    @r.get("/devices")
+    @r.get("/devices", response_model=S.DeviceList, response_model_exclude_unset=True, responses=S.ERR_READ)
     def list_devices(request: Request, channel: str | None = None) -> JSONResponse:
         return with_rev(_store(request).list_devices(channel))
 
-    @r.get("/devices/{device_id:path}")
+    @r.get("/devices/{device_id:path}", response_model=S.DeviceResource, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_device(request: Request, device_id: str) -> JSONResponse:
         return with_rev(_store(request).get_device(device_id))
 
-    @r.put("/devices/{device_id:path}")
+    @r.put("/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def put_device(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
                          apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).update_device(device_id, body, partial=False,
                                                                            if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.patch("/devices/{device_id:path}")
+    @r.patch("/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def patch_device(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
                            apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).update_device(device_id, body, partial=True,
                                                                            if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.delete("/devices/{device_id:path}")
+    @r.delete("/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def delete_device(request: Request, device_id: str, if_match: IfMatch = None,
                             apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).delete_device(device_id, if_match=if_match),
                             if_match=if_match, apply=apply)
 
     # --- devices_map.yaml --------------------------------------------------------
-    @r.get("/map")
+    @r.get("/map", response_model=S.MapResource, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_map(request: Request) -> JSONResponse:
         return with_rev(_store(request).get_map())
 
-    @r.put("/map/defaults")
+    @r.put("/map/defaults", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def put_map_defaults(request: Request, body: JsonBody, if_match: IfMatch = None,
                                apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).put_map_defaults(body, if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.get("/map/devices/{device_id:path}")
+    @r.get("/map/devices/{device_id:path}", response_model=S.MapEntry, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_map_entry(request: Request, device_id: str) -> JSONResponse:
         return with_rev(_store(request).get_map_entry(device_id))
 
-    @r.put("/map/devices/{device_id:path}")
+    @r.put("/map/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def put_map_entry(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
                             apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).put_map_entry(device_id, body, partial=False,
                                                                            if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.patch("/map/devices/{device_id:path}")
+    @r.patch("/map/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def patch_map_entry(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
                               apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).put_map_entry(device_id, body, partial=True,
                                                                            if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.delete("/map/devices/{device_id:path}")
+    @r.delete("/map/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def delete_map_entry(request: Request, device_id: str, if_match: IfMatch = None,
                                apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).delete_map_entry(device_id, if_match=if_match),
                             if_match=if_match, apply=apply)
 
     # --- overrides.yaml ----------------------------------------------------------
-    @r.get("/overrides")
+    @r.get("/overrides", response_model=S.Overrides, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_overrides(request: Request) -> JSONResponse:
         return with_rev(_store(request).get_overrides())
 
-    @r.get("/overrides/channels/{channel}")
+    @r.get("/overrides/channels/{channel}", response_model=S.ChannelOverride, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_channel_override(request: Request, channel: str) -> JSONResponse:
         return with_rev(_store(request).get_channel_override(channel))
 
-    @r.put("/overrides/channels/{channel}")
+    @r.put("/overrides/channels/{channel}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def put_channel_override(request: Request, channel: str, body: JsonBody, if_match: IfMatch = None,
                                    apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).put_channel_override(channel, body, if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.delete("/overrides/channels/{channel}")
+    @r.delete("/overrides/channels/{channel}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def delete_channel_override(request: Request, channel: str, if_match: IfMatch = None,
                                       apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).delete_channel_override(channel, if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.get("/overrides/devices/{device_id:path}")
+    @r.get("/overrides/devices/{device_id:path}", response_model=S.DeviceOverride, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_device_override(request: Request, device_id: str) -> JSONResponse:
         return with_rev(_store(request).get_device_override(device_id))
 
-    @r.put("/overrides/devices/{device_id:path}")
+    @r.put("/overrides/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def put_device_override(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
                                   apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).put_device_override(device_id, body, partial=False,
                                                                                  if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.patch("/overrides/devices/{device_id:path}")
+    @r.patch("/overrides/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def patch_device_override(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
                                     apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).put_device_override(device_id, body, partial=True,
                                                                                  if_match=if_match),
                             if_match=if_match, apply=apply)
 
-    @r.delete("/overrides/devices/{device_id:path}")
+    @r.delete("/overrides/devices/{device_id:path}", response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def delete_device_override(request: Request, device_id: str, if_match: IfMatch = None,
                                      apply: Apply = False) -> JSONResponse:
         return await _write(request, lambda: _store(request).delete_device_override(device_id, if_match=if_match),
                             if_match=if_match, apply=apply)
 
     # --- project -----------------------------------------------------------------
-    @r.get("/project")
+    @r.get("/project", response_model=S.ProjectExport, response_model_exclude_unset=True, responses=S.ERR_READ)
     def project(request: Request, download: bool = False) -> JSONResponse:
         """The whole config (the four files' texts): a backup, or a body for /project/import."""
         data = _store(request).export()
@@ -366,32 +367,32 @@ def build_router() -> APIRouter:
             resp.headers["Content-Disposition"] = f'attachment; filename="opencap-config-{data["revision"]}.json"'
         return resp
 
-    @r.get("/project/status")
+    @r.get("/project/status", response_model=S.ProjectStatus, response_model_exclude_unset=True, responses=S.ERR_READ)
     def project_status(request: Request) -> JSONResponse:
         store = _store(request)
         w = store.writable()
         return with_rev({**store.summary(), "writable": w["writable"], "writable_reason": w["reason"],
                          "status": _ctx(request).tracker.status()})
 
-    @r.get("/project/pending")
+    @r.get("/project/pending", response_model=S.Pending, response_model_exclude_unset=True, responses=S.ERR_READ)
     def project_pending(request: Request) -> dict[str, Any]:
         """Does the config on disk differ from the running config? (cheap; the UI polls it)"""
         return _ctx(request).tracker.status()
 
-    @r.get("/project/schema")
+    @r.get("/project/schema", response_model=S.ProjectSchema, response_model_exclude_unset=True, responses=S.ERR_READ)
     def project_schema() -> dict[str, Any]:
         models = {"channel": Channel, "device": Device, "tag": Tag, "map_entry": DeviceMapEntry,
                   "map_defaults": PublishCfg, "device_override": DeviceOverride}
         return {name: m.model_json_schema() for name, m in models.items()}
 
-    @r.get("/project/validate")
+    @r.get("/project/validate", response_model=S.ValidateReport, response_model_exclude_unset=True, responses=S.ERR_READ)
     def project_validate(request: Request, site: str | None = None, verbose: bool = False) -> dict[str, Any]:
         """`opencap check` as JSON: validation, block plan and cycle estimates of the files."""
         from opencap.core.plan_report import check_report
 
         return check_report(_store(request).dir, site=site, verbose=verbose)
 
-    @r.get("/project/revisions")
+    @r.get("/project/revisions", response_model=S.ProjectRevisions, response_model_exclude_unset=True, responses=S.ERR_READ)
     def project_revisions(request: Request, limit: int = Query(50, ge=1, le=500)) -> dict[str, Any]:
         """Revisions written through the API, newest first (from the audit log)."""
         entries = [e for e in _ctx(request).audit.tail(limit * 4) if e.get("revision") and e.get("files")]
@@ -399,7 +400,7 @@ def build_router() -> APIRouter:
                 "revisions": [{k: e.get(k) for k in ("revision", "ts", "who", "action", "target", "files")}
                               for e in entries[:limit]]}
 
-    @r.post("/project/import")
+    @r.post("/project/import", response_model=S.ImportReport, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def project_import(request: Request, dry_run: bool = True, filename: str | None = None,
                              if_match: IfMatch = None, apply: Apply = False) -> JSONResponse:
         """A KEPServerEX project.json or an opencap export (GET /api/v1/project). Dry run by default."""
@@ -425,7 +426,7 @@ def build_router() -> APIRouter:
         return with_rev(report)
 
     # --- audit -------------------------------------------------------------------
-    @r.get("/audit")
+    @r.get("/audit", response_model=S.AuditList, response_model_exclude_unset=True, responses=S.ERR_READ)
     def audit(request: Request, limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0),
               action: str | None = None, who: str | None = None, target: str | None = None) -> dict[str, Any]:
         entries = _ctx(request).audit.tail(limit, offset, action=action, who=who, target=target)

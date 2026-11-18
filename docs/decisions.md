@@ -585,6 +585,9 @@ validators, not the schema, can reject it) so the Rust engine can load them with
 - **Advisories:** `cargo deny check advisories` runs in CI. Vulnerabilities fail; yanked releases warn; "unmaintained"
   notices do not fail (`unmaintained = "none"`). First CI run showed why: `chrono` and `chrono-tz`, both direct dependencies,
   are flagged unmaintained (RUSTSEC-2026-0543/0555, no fix). Follow-up: evaluate `jiff` or `time` for time zones.
+- **rusqlite 0.37 -> 0.41** (libsqlite3-sys 0.35 -> 0.39.1, bundled SQLite 3.54): the new advisories check flagged the
+  bundled SQLite of 0.35 (CVE-2026-119375, fixed in libsqlite3-sys 0.39). No code changes were needed. It adds two
+  wasm-only crates (`rsqlite-vfs`, `sqlite-wasm-rs`) to the lock file; the licence gate covers them in CI.
 - **Not done:** pinning third-party actions in `rust-engine.yml` by commit SHA. The session could not read those
   repositories to resolve tags to SHAs, and a SHA written from memory would be unsafe. Left on the issue as a follow-up.
 - **RFC 0001:** direct-dependency table completed with licence links at the lock-file versions (checked against the

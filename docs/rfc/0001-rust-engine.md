@@ -276,7 +276,7 @@ oss-reuse.md.
 | Modbus TCP client (and server, later) | tokio-modbus 0.17 | MIT OR Apache-2.0 (lock) | maintained by slowtec, used in production; client and `tcp-server` feature | Adopt |
 | MQTT 3.1.1/5 client | rumqttc 0.25 | Apache-2.0 (lock) | widely used (bytebeam); explicit event loop gives the packet ids we need | Adopt |
 | TLS for MQTT | rustls 0.23 + ring 0.17 | Apache-2.0 / ISC (lock) | standard Rust TLS; ring avoids a cmake/NASM toolchain | Adopt |
-| SQLite outbox | rusqlite 0.37, bundled SQLite | MIT; SQLite public domain (lock) | mature | Adopt |
+| SQLite outbox | rusqlite 0.41, bundled SQLite | MIT; SQLite public domain (lock) | mature | Adopt |
 | HTTP API | axum 0.8 (hyper, tower) | MIT (lock) | tokio project | Adopt |
 | Metrics | prometheus 0.14 | Apache-2.0 (lock) | mature (TiKV); classic 0.0.4 text format, same exposition as Python | Adopt (oss-reuse lists prometheus-client; either works, this one matches Python's format) |
 | Config | serde, serde_json, serde_yaml_ng 0.10 | MIT OR Apache-2.0; MIT (lock) | serde_yaml_ng is the maintained fork of the archived serde_yaml | Adopt |

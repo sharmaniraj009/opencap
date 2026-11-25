@@ -1,0 +1,77 @@
+name: SCADA L1
+
+# L1 SCADA compatibility (docs/architecture/scada-compatibility.md, tests/scada/README.md): the
+# OPC UA server, run as `opencap run` with simulated devices, against three OPC UA client stacks:
+# Eclipse Milo (Ignition's stack), open62541 and asyncua. Results: JUnit XML and a markdown
+# matrix (job summary and artefact). The clients are test-only tools (oss-reuse.md).
+
+on:
+  pull_request:
+    paths: ["src/opencap/north/**", "engine/crates/opencap-north/**", "tests/scada/**",
+            ".github/workflows/scada-l1.yml"]
+  push:
+    branches: [main]
+    paths: ["src/opencap/north/**", "engine/crates/opencap-north/**", "tests/scada/**",
+            ".github/workflows/scada-l1.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scada-l1-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  OPEN62541_PREFIX: ${{ github.workspace }}/.cache/open62541-v1.4.22
+
+jobs:
+  l1:
+    name: L1 matrix (Milo, open62541, asyncua)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: tests/scada/milo-client/pom.xml
+      - name: Install opencap
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,all]'
+      - name: Build the Eclipse Milo client
+        run: mvn -B -q -f tests/scada/milo-client/pom.xml package
+      - name: Cache open62541
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.OPEN62541_PREFIX }}
+          key: open62541-${{ runner.os }}-${{ hashFiles('tests/scada/open62541-client/build.sh') }}
+      - name: Build the open62541 client
+        run: |
+          sudo apt-get install -y --no-install-recommends libssl-dev
+          tests/scada/open62541-client/build.sh
+      - name: L1 suite
+        env:
+          OPENCAP_SCADA_REQUIRE: milo,open62541,asyncua      # a client that did not build fails the run
+          OPENCAP_SCADA_SUMMARY: scada-l1/summary.md
+        run: pytest -m scada tests/scada -ra --junitxml=scada-l1/junit.xml --basetemp="$RUNNER_TEMP/scada"
+      - name: Job summary
+        if: always()
+        run: test -f scada-l1/summary.md && cat scada-l1/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Collect engine logs
+        if: always()
+        run: find "$RUNNER_TEMP/scada" -name engine.log -exec cp {} scada-l1/ \; 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scada-l1-results
+          path: scada-l1/
+          if-no-files-found: warn

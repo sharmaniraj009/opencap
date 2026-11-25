@@ -175,7 +175,7 @@ deterministic for a given clock, `epoch` and seed. Read-only by construction: me
 configured value and there is no write path. The importer does not map KEPServerEX's Simulator driver (its
 address syntax differs), and `overrides.yaml` cannot change a device's `driver` yet: a test-bench project sets
 `"driver": "simulator"` and simulator addresses in `devices.json`. Both engines follow the formulas below; the
-shared vectors are in `tests/conformance/simulator/` (ADR-0014). Decision D-066.
+shared vectors are in `tests/conformance/simulator/` (ADR-0014). Decision D-071.
 
 | key | type | default | meaning |
 |---|---|---|---|

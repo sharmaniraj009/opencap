@@ -102,7 +102,7 @@ def outbound(monkeypatch):
     return peers
 
 
-async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch, outbound):
+async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch, outbound, no_gc):
     monkeypatch.setenv("OPENCAP_API_TOKEN", API_TOKEN)
     configure_logging("WARNING")
     devices = [sim_device(i) for i in range(N_DEVICES)]

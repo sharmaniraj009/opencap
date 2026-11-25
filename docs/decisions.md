@@ -1404,7 +1404,7 @@ ADR-0005 / 03 §3.2 would expect:
   a Rust engine reports such a device's connect error ("COM4 is not mapped ...") instead of skipping it with a
   warning. Configure Rust-engine RTU devices with `transport: tcp|serial` directly.
 
-### D-066 Simulator driver: time base, determinism and grammar (#12)
+### D-071 Simulator driver: time base, determinism and grammar (#12)
 - **Expected:** a KEPServerEX-style Simulator whose waveforms start when the device starts, with KEPServerEX's
   own address syntax and writable memory registers.
 - **Did:** `simulator` computes every value from the address and the read time, in **whole milliseconds since

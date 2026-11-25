@@ -1,5 +1,7 @@
 # Simulator driver conformance vectors
 
+See also the [conformance suite overview](../README.md) (layout, regeneration, how an engine consumes the vectors).
+
 `vectors.json` pins the `simulator` driver's address grammar and value functions (#12) for both engines
 ([ADR-0014](../../../docs/adr/0014-conformance-by-simulators-and-vectors.md)). The formulas are in
 [`docs/driver_params.md`](../../../docs/driver_params.md) (section `simulator`).

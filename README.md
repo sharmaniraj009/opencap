@@ -183,7 +183,7 @@ Addresses and data types:
   memory registers `K<n>` (`params.memory`), `TIME`, `COUNTER`. No network; deterministic for a
   given clock, `params.epoch` and seed, so both engines return the same values at the same
   instant. Fault switches `fail_connect`, `fail_every_n_reads`, `latency_ms` and
-  `bad_decode_tags` make every quality visible in a demo (D-066).
+  `bad_decode_tags` make every quality visible in a demo (D-071).
 
 ### OPC UA server for SCADA
 

@@ -22,7 +22,7 @@ The running server does not serve this document (`openapi_url=None`, D-019).
   `POST /reload`) are aliases of the `/api/v1` runtime routes, marked `deprecated`; they stay for at least
   one release after the first tagged release and are then removed in the first non-additive change.
 - **Open routes** (no token): `/health`, `/metrics`, `/api/v1/auth-info`.
-- **WebSocket:** `GET /api/v1/ws` is the live-values feed (protocol `opencap.v1`, D-066). OpenAPI cannot describe
+- **WebSocket:** `GET /api/v1/ws` is the live-values feed (protocol `opencap.v1`, D-067). OpenAPI cannot describe
   WebSocket messages, so the operation documents the upgrade (101 and the refusals) and its `x-websocket` block
   points to the message schemas (`Ws*` in `components.schemas`). The same additive rules apply to the messages:
   new message types and fields may appear, clients ignore what they do not know.

@@ -826,7 +826,7 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
   marked `deprecated` (rules in `api/README.md`). `info.version` is `1.0.0`.
 - **Licences:** no new dependency; `jsonschema` (MIT) was already a dev dependency and validates the contract.
 
-### D-066 Live values over WebSocket, `GET /api/v1/ws` (#31)
+### D-067 Live values over WebSocket, `GET /api/v1/ws` (#31)
 
 - **Contract:** protocol `opencap.v1`, JSON text frames. OpenAPI 3.1 has no WebSocket operations, so
   `api/openapi.json` documents the upgrade as `GET /api/v1/ws` (101, 400, 401, 403, 503) with an `x-websocket` block

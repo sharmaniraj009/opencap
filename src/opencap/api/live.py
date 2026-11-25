@@ -17,7 +17,7 @@ WebSocket, the subprotocol `opencap.bearer.<base64url(token)>` offered next to `
 The server answers with `opencap.v1` and never echoes the token. Subscribing is a read, so
 viewers may. A browser's `Origin` must be the API's own origin or one of `api.cors_origins`:
 CORS does not cover WebSockets, so without this check a foreign page could read live values
-through a token-less loopback API (cross-site WebSocket hijacking, D-066).
+through a token-less loopback API (cross-site WebSocket hijacking, D-067).
 
 Fan-out and conflation (ADR-0005): one `LiveHub` per app. Every `TICK_S` it reads the change
 counter (`poller.live_version`) of each subscribed device. A device whose values changed and
@@ -59,7 +59,7 @@ MAX_QUEUE_BYTES = 4 * 1024 * 1024
 MAX_SUBSCRIBE_ITEMS = 100_000
 # uvicorn settings for the API server (runtime._start_api). permessage-deflate is off: it compresses
 # per connection on the poll loop, and with 50 clients x 5,000 changing tags it stalled the loop
-# 40-150 ms every second; without it the load test shows no stall (D-066).
+# 40-150 ms every second; without it the load test shows no stall (D-067).
 UVICORN_WS = {"ws_max_size": MAX_MESSAGE, "ws_per_message_deflate": False}
 NOT_POLLED = ("not polled: unknown device, its channel is disabled or not selected, "
               "or the change is not reloaded yet")

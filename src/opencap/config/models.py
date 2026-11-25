@@ -79,6 +79,9 @@ class PublishCfg(_Model):
     interval_ms: int = 10_000
     heartbeat_ms: int = 300_000
     deadband: float = 0.0
+    # "subdevice_json" = the SubDevice message; "iotgw_json" = KEPServerEX IoT Gateway standard
+    # template (docs/spec/payload-iotgw-json.md). Applies to the data topic only.
+    format: Literal["subdevice_json", "iotgw_json"] = "subdevice_json"
 
 
 class Device(_Model):

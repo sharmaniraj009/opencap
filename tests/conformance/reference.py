@@ -18,6 +18,7 @@ from opencap.core.channel_worker import scale_value
 from opencap.drivers import ab_logix, ab_pccc
 from opencap.drivers.modbus_tcp import ModbusBlock, ModbusTcpDriver
 from opencap.north import payload as payload_mod
+from opencap.north import payload_iotgw as payload_iotgw_mod
 from tests.conformance.vectors import decode_value, encode_value
 
 _HOST = "192.0.2.1"
@@ -92,6 +93,17 @@ def payload(inp: dict[str, Any]) -> dict[str, Any]:
               for name, tv in inp["values"].items()}
     cfg = PayloadCfg.model_validate(inp["cfg"])
     built = payload_mod.build_payload(device, values, cfg, is_secure=inp["is_secure"], now=_ts(inp["now"]))
+    return {"bytes": payload_mod.encode(built).decode("utf-8")}
+
+
+def payload_iotgw(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {device, values, cfg, now} -> {bytes}: the UTF-8 text of
+    `encode(build_iotgw_payload(...))` (publish.format iotgw_json)."""
+    device = Device.model_validate(inp["device"])
+    values = {name: TagValue(decode_value(tv["value"]), tv["quality"], _ts(tv["source_ts"]))
+              for name, tv in inp["values"].items()}
+    cfg = PayloadCfg.model_validate(inp["cfg"])
+    built = payload_iotgw_mod.build_iotgw_payload(device, values, cfg, now=_ts(inp["now"]))
     return {"bytes": payload_mod.encode(built).decode("utf-8")}
 
 
@@ -171,6 +183,7 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "modbus/decode": modbus_decode,
     "scaling": scaling,
     "payload": payload,
+    "payload/iotgw": payload_iotgw,
     "ab_logix/plan": ab_logix_plan,
     "ab_logix/decode": ab_logix_decode,
     "ab_pccc/plan": ab_pccc_plan,

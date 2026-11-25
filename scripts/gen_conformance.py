@@ -1005,6 +1005,88 @@ def payload_datetime() -> list[Case]:
 
 # --- files ---------------------------------------------------------------------------------------
 
+# --- payload/iotgw -------------------------------------------------------------------------------
+
+def iot_case(cid: str, desc: str, device: Device, values: dict[str, dict[str, Any]], *,
+             cfg: PayloadCfg | None = None, now: datetime = T0) -> Case:
+    _, _, inp = pl_case(cid, desc, device, values, cfg=cfg, now=now)
+    del inp["firm_version"], inp["is_secure"]
+    return cid, desc, inp
+
+
+def payload_iotgw_shape() -> list[Case]:
+    three = pl_device([("FLOW_1", "float32"), ("RUN", "bool"), ("COUNT", "uint32")])
+    good3 = {"FLOW_1": tv(12.5), "RUN": tv(True), "COUNT": tv(7)}
+    t1 = datetime(2026, 11, 16, 10, 15, 0, 987654, tzinfo=UTC)
+    return [
+        iot_case("all-good", "Standard template: timestamp, then values of id, v, q, t (ms since the epoch).",
+                 three, good3),
+        iot_case("id-is-channel-device-tag", "id is Channel.Device.Tag with the names as configured.",
+                 pl_device([("A", "int16")], channel="Plant B", name="Line 2 PLC"), {"A": tv(1)}),
+        iot_case("group-path-in-tag-name", "A tag name that already holds a group path is appended as is.",
+                 pl_device([("LTI002.Pv", "float32")]), {"LTI002.Pv": tv(1.5)}),
+        iot_case("values-in-device-order", "values keep the device's tag order.",
+                 pl_device([("Z", "int16"), ("A", "int16"), ("M", "int16")]),
+                 {"A": tv(1), "M": tv(2), "Z": tv(3)}),
+        iot_case("disabled-not-listed", "Disabled tags are not in values.",
+                 pl_device([("ON", "int16"), ("OFF", "int16", False)]), {"ON": tv(1), "OFF": tv(2)}),
+        iot_case("no-tags", "A device with no tags: empty values, timestamp is now.", pl_device([]), {}),
+        iot_case("t-is-source-ts", "t is each tag's own source timestamp, timestamp is the publish time.",
+                 pl_device([("A", "int16"), ("B", "int16")]),
+                 {"A": tv(1, ts=t1), "B": tv(2)}, now=T0 + timedelta(seconds=2)),
+        iot_case("t-floors-to-ms", "Sub-millisecond parts are cut, never rounded up.",
+                 pl_device([("A", "int16")]),
+                 {"A": tv(1, ts=datetime(2026, 11, 16, 10, 15, 0, 999999, tzinfo=UTC))}),
+        iot_case("t-non-utc-offset", "A source_ts with a UTC offset is converted to epoch time.",
+                 pl_device([("A", "int16")]), {"A": {**tv(1), "source_ts": "2026-11-16T15:45:01.123456+05:30"}}),
+        iot_case("timezone-setting-ignored", "PayloadCfg.timezone does not move epoch times.",
+                 pl_device([("A", "int16")]), {"A": tv(1)}, cfg=PayloadCfg(timezone="UTC")),
+        iot_case("types", "bool stays a JSON bool, int an int, float a float, string a string.",
+                 pl_device([("B", "bool"), ("I", "int16"), ("F", "float32"), ("S", "string")]),
+                 {"B": tv(False), "I": tv(0), "F": tv(0.0), "S": tv("RUN")}),
+        iot_case("big-ints", "64-bit integers are written exactly.",
+                 pl_device([("U", "uint64"), ("I", "int64")]), {"U": tv((1 << 64) - 1), "I": tv(-(1 << 63))}),
+        iot_case("arrays", "Array tags are JSON arrays, cleaned element by element.",
+                 pl_device([("A", "float32"), ("M", "int16")]),
+                 {"A": tv([1.23456, -0.0, 2.0]), "M": tv([[1, 2], [3, 4]])}),
+        iot_case("rounding", "Floats are rounded to float_decimals places, -0.0 becomes 0.0.",
+                 pl_device([("A", "float32"), ("B", "float32"), ("C", "float64")]),
+                 {"A": tv(123.40000152587891), "B": tv(-0.00001), "C": tv(2.675)}, cfg=PayloadCfg(float_decimals=2)),
+        iot_case("non-ascii-and-escapes", "Non-ASCII is raw UTF-8; quotes and control characters are escaped.",
+                 pl_device([("Temp °C", "float32"), ('quo"te', "string")], channel="Ünï", name='PLC "1"'),
+                 {"Temp °C": tv(21.5), 'quo"te': tv("a\nb\\")}),
+    ]
+
+
+def payload_iotgw_quality() -> list[Case]:
+    dev = pl_device([("A", "int16"), ("B", "int16"), ("C", "int16"), ("D", "int16"), ("E", "int16")])
+    return [
+        iot_case("every-bad-quality",
+                 "bad_comm, bad_config, bad_decode and stale give q false; the last value is kept.",
+                 dev, {"A": tv(1), "B": tv(2, "bad_comm"), "C": tv(None, "bad_config", None),
+                       "D": tv(4, "bad_decode"), "E": tv(5, "stale")}),
+        iot_case("missing-tag", "A tag missing from the snapshot is listed with v null, q false, t = timestamp.",
+                 dev, {"A": tv(1)}),
+        iot_case("never-read", "A tag never read (no value, no source_ts) is v null, q false, t = timestamp.",
+                 pl_device([("A", "int16")]), {"A": tv(None, "stale", None)},
+                 now=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)),
+        iot_case("good-none", "A good tag with no value is q false.", pl_device([("A", "int16")]), {"A": tv(None)}),
+        iot_case("nan-and-inf", "NaN and infinite floats are v null, q false.",
+                 pl_device([("N", "float32"), ("P", "float32"), ("OK", "float32")]),
+                 {"N": tv(math.nan), "P": tv(math.inf), "OK": tv(1.0)}),
+        iot_case("nan-in-array", "A NaN element makes the whole array v null, q false.",
+                 pl_device([("A", "float32")]), {"A": tv([1.0, math.nan])}),
+        iot_case("bad-keeps-source-ts", "A bad tag keeps the source timestamp of its last good read.",
+                 pl_device([("A", "int16")]),
+                 {"A": tv(3, "bad_comm", ts=datetime(2026, 11, 16, 10, 0, 0, tzinfo=UTC))}),
+        iot_case("bad-tags-field-ignored", "bad_tags_field has no meaning here: bad tags are always listed.",
+                 pl_device([("A", "int16"), ("B", "int16")]), {"A": tv(1), "B": tv(2, "bad_comm")},
+                 cfg=PayloadCfg(bad_tags_field=False)),
+        iot_case("unknown-values-ignored", "Snapshot entries for names that are not tags of the device are ignored.",
+                 pl_device([("A", "int16")]), {"A": tv(1), "GHOST": tv(2)}),
+    ]
+
+
 SPECS: dict[str, list[FileSpec]] = {
     "modbus/plan": [
         ("merge_and_gaps", "Block merging by function code, max_gap and overlaps (D-006).", plan_merge()),
@@ -1042,6 +1124,11 @@ SPECS: dict[str, list[FileSpec]] = {
         ("rounding", "Float rounding to float_decimals places, -0.0, repr forms (D-017).", payload_rounding()),
         ("quality", "Good and bad tags: Data, BadTags, DataValid (D-017).", payload_quality()),
         ("datetime", "DateTime: newest good source_ts, time zones, now fallback (D-017).", payload_datetime()),
+    ],
+    "payload/iotgw": [
+        ("shape", "IoT Gateway standard template: ids, ms timestamps, types, rounding, order.",
+         payload_iotgw_shape()),
+        ("quality", "Bad, stale, missing and non-finite tags: v, q and t.", payload_iotgw_quality()),
     ],
 }
 

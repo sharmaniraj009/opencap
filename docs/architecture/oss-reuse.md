@@ -32,6 +32,7 @@ policy-level summary, reconciled with it after #64.
 | Web UI framework, vendored in `src/opencap/api/ui/vendor/` | Alpine.js 3.17.5, CSP build | MIT ([LICENSE.md](https://github.com/alpinejs/alpine/blob/v3.17.5/LICENSE.md)) | yes (3.17.5) | Adopt (vendored, listed in `NOTICE`; D-044) |
 | Metrics | prometheus-client | Apache-2.0 | no | Adopt (in use) |
 | Test broker | amqtt | MIT | no | Test-only |
+| Sparkplug conformance vectors (`tests/helpers/sparkplug_ref.py`) | protobuf (Google's Python runtime) | BSD-3-Clause | yes (7.36 metadata) | Test-only (`dev` extra, #51) |
 
 ## Rust engine
 
@@ -53,7 +54,8 @@ policy-level summary, reconciled with it after #64.
 | Modbus TCP/RTU client and server | tokio-modbus | MIT or Apache-2.0 | no | Adopt |
 | Serial ports | tokio-serial / serialport | MIT; MPL-2.0 | no | Adopt (MPL-2.0 is file-level copyleft: OK unmodified) |
 | MQTT | rumqttc | Apache-2.0 | no | Adopt |
-| Sparkplug B payload | `sparkplug_b.proto` from the Eclipse Sparkplug specification + prost; or the `srad` crate | EPL-2.0 (the .proto); srad *verify* | no | Evaluate in #51: srad first if its licence and maturity pass, else .proto + prost (keep the .proto unmodified with its notice) |
+| Sparkplug B payload | `sparkplug_b.proto` (Eclipse Tahu v1.0.19, vendored unmodified in `proto/third_party/`) + prost 0.14 | EPL-2.0 (the .proto, file-level: [header](https://github.com/eclipse-tahu/tahu/blob/v1.0.19/sparkplug_b/sparkplug_b.proto)); prost Apache-2.0 | yes (v1.0.19 file + SHA-256) | Adopt (#51, `engine/north/sparkplug`, listed in `NOTICE`). The `srad` crates (MIT OR Apache-2.0) were evaluated and not used: pre-1.0 (0.4 → 0.7 in eight months), and `srad-types` ships prost code generated from the EPL proto under MIT/Apache with no EPL notice (D-087) |
+| Protobuf code generation (build time only) | prost-build 0.14 + protox 0.10 (pure-Rust protobuf compiler: no system `protoc`) | Apache-2.0; MIT OR Apache-2.0 | yes (crates.io metadata; `cargo deny` passes) | Adopt (#51, build-dependencies of `opencap-north-sparkplug`) |
 | OPC UA client + server | async-opcua (successor of locka99/opcua) | MPL-2.0 | no | Evaluate against the memory/throughput gate (04 §4.1) |
 | OPC UA (alternative) | open62541 via FFI | MPL-2.0 | no | Evaluate as fallback |
 | EtherNet/IP, Logix, PCCC | native CIP client (RFC 0001 default) vs rseip / rust-ethernet-ip | — ; MIT (*verify*) | no | **Decided in #43: native CIP client, no new dependency** (D-076) |

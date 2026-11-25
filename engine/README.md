@@ -47,6 +47,7 @@ requests to `localhost` (D-062).
 | `drivers/melsec_mc` (`opencap-driver-melsec-mc`) | Mitsubishi MELSEC MC protocol, 3E binary frame over TCP or UDP: Kepware Q Series address parser, planner, decoder, native read-only client (batch read in word units, read CPU model); whole-frame reads |
 | `drivers/s7` (`opencap-driver-s7`) | Siemens S7-300/400/1200/1500 over ISO-on-TCP: Kepware address parser, planner, decoder, native S7comm read subset (COTP connect with rack/slot TSAPs, setup communication, read var, SZL read for identity); blocks split to the negotiated PDU |
 | `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
+| `north/sparkplug` (`opencap-north-sparkplug`) | Sparkplug B 3.0 payload codec (#51, `docs/spec/payload-sparkplug.md`): types generated at build time from the vendored `proto/third_party/sparkplug_b.proto` (prost + protox, no `protoc`), topics, datatypes and packed arrays, ADR-0006 quality, birth/data/death payloads, aliases, seq/bdSeq, NCMD/DCMD classification (only Rebirth), STATE |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
 | `opencap-conformance` | test harness for the shared vectors in `tests/conformance` (ADR-0014): vector loader, value codec, structural diff, `run_area`; the adapters for Modbus, scaling and payload are in its `tests/` |
 | `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity`, `drivers` |

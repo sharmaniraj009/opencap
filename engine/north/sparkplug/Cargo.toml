@@ -1,0 +1,31 @@
+[package]
+name = "opencap-north-sparkplug"
+description = "Sparkplug B 3.0 payload codec for the opencap edge node (#51, docs/spec/payload-sparkplug.md)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[dependencies]
+opencap-core.workspace = true
+prost = "0.14"
+serde_json.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+# Code generation from the vendored, unmodified proto/third_party/sparkplug_b.proto (EPL-2.0).
+# protox is a pure-Rust protobuf compiler: no system `protoc` needed.
+prost = "0.14"
+prost-build = "0.14"
+protox = "0.10"
+
+[dev-dependencies]
+base64.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

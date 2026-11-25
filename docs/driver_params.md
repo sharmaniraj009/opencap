@@ -137,7 +137,7 @@ parser, planner and decoder. Plus the serial keys above and:
 
 The importer does not create modbus_rtu devices (the migrated project has none); configure them by hand.
 
-**Rust engine** (`engine/drivers/modbus_rtu`, D-066): same keys and messages. Its serial library cannot open a
+**Rust engine** (`engine/drivers/modbus_rtu`, D-070): same keys and messages. Its serial library cannot open a
 port with mark/space parity or 1.5 stop bits (the connect error says so), and its loader does not apply
 `serial_ports` yet: give Rust-engine RTU devices `transport: tcp` or `serial` directly.
 

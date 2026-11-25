@@ -231,6 +231,7 @@ def _matches(engine, dev_id: str, image) -> bool:
 
 
 @pytest.mark.acceptance
+@pytest.mark.drivers("modbus_rtu")
 @needs_pyserial
 async def test_rtu_lines_through_the_engine(tmp_path, engine_factory):
     base = make_sim_devices(3, 25, seed=91)

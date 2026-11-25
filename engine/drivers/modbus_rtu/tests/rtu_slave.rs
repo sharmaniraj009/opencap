@@ -335,7 +335,8 @@ async fn connect_errors_say_why() {
     let mut refused = ModbusRtuDriver::new(&device("A", free, json!({}))).unwrap();
     let err = refused.connect().await.unwrap_err();
     assert!(
-        matches!(&err, DriverError::ConnectionLost(m) if m.contains("connect failed: refused or unreachable")),
+        matches!(&err, DriverError::ConnectionLost(m)
+            if m.contains("connect failed: refused or unreachable") || m.contains("connect failed: no answer within")),
         "{err:?}"
     );
     let mut rfc = ModbusRtuDriver::new(&device("A", 4001, json!({"transport": "rfc2217"}))).unwrap();

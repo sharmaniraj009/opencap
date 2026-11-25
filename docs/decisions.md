@@ -1362,7 +1362,7 @@ ADR-0005 / 03 §3.2 would expect:
   from first guesses: a count of 0 is a normal completion; a missing EM bank is `1101`; SRES
   bit 7 is the fatal and bit 6 the non-fatal CPU error flag.
 
-### D-066 Modbus RTU in the Rust engine: tokio-modbus RTU over an `opencap-serial` line (#47)
+### D-070 Modbus RTU in the Rust engine: tokio-modbus RTU over an `opencap-serial` line (#47)
 - **Layout.** `engine/drivers/modbus_rtu` (`opencap-driver-modbus-rtu`, feature `driver-modbus-rtu`) is its own
   crate (#67) and reuses `opencap-driver-modbus-tcp` for everything above the wire: params, parser, planner,
   decoder, exception mapping, identity objects (`plan_tags`, `values_from_reply`, `identity_from_objects` were

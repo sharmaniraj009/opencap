@@ -139,12 +139,17 @@ pub enum DriverError { Comm(String), ConnectionLost(String), BlockConfig(String)
 - **Registration.** Rust drivers are crates compiled in behind Cargo features and registered
   in a static driver table, like `src/opencap/drivers/__init__.py`. No dynamic loading of
   Rust code (Rust has no stable ABI).
-- **Out-of-process drivers** speak `opencap.plugin.v1` over gRPC (Unix socket, named pipe
-  or loopback TCP): `Plan`, `Connect`, `Read`, `Close`, `Identity`, `Browse`, `Subscribe`
-  (server stream), `Health`. The engine supervises the process (spawn, restart with
-  backoff, kill on stop) and maps a dead plugin to `ConnectionLost` for its devices. Used
-  for the Python driver host during migration and for libraries that must stay in a
-  separate process (GPL, crash-prone C code).
+- **Out-of-process drivers** speak `opencap.plugin.v1` over gRPC (Unix socket, or loopback
+  TCP with a per-run token): `Hello`, `Plan`, `Open`, `Connect`, `Read`, `Close`, `Identity`,
+  `Browse`, `Subscribe` (server stream), `Health`. The engine supervises the process (spawn,
+  restart with backoff, kill on stop) and maps a dead plugin to `ConnectionLost` for its
+  devices. Used for the Python driver host during migration and for libraries that must stay
+  in a separate process (GPL, crash-prone C code). *As built (#49):* contract and launch rules
+  in `proto/README.md`; engine side `engine/crates/opencap-plugin` (`PluginRegistry` prepares
+  plans before the registry is built, so `plan()` stays pure; `PluginDriver` implements the
+  trait; `PluginHost` supervises one process per channel); host side `src/opencap/plugin_host.py`
+  (the Python driver classes unchanged, one channel executor per process). A device opts in
+  with `plugin: python`. Added latency per read ~0.6 ms p50 / ~1.1 ms p99 (04 §4.1, D-087).
 
 ## 3.4 Error and retry handling
 

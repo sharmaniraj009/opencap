@@ -30,9 +30,11 @@ use tracing::info;
 
 use opencap_api::EngineView as _;
 use opencap_core::config::{load_config, Channel, Device, LoadedConfig};
+use opencap_core::driver::DriverFactory;
 use opencap_core::registry::plan_device;
 use opencap_core::store::TagStore;
 use opencap_core::worker::{ChannelWorker, WorkerOptions};
+use opencap_plugin::PluginRegistry;
 
 #[derive(Parser)]
 #[command(name = "opencap-engine", version, about = "opencap Rust engine: read-only PLC poller -> MQTT")]
@@ -116,6 +118,15 @@ fn configure_logging(level: &str) {
     };
 }
 
+/// The driver factory for one-off commands: devices with `plugin: python` are prepared in
+/// their plugin host first. Call `shutdown()` on the registry when done.
+async fn factory_for(loaded: &LoadedConfig, channels: &[Channel]) -> (Arc<PluginRegistry>, DriverFactory) {
+    let plugins = PluginRegistry::new();
+    plugins.prepare(&loaded.poller.plugins.python, channels).await;
+    let factory = plugins.factory(opencap_drivers::default_factory());
+    (plugins, factory)
+}
+
 fn find_device(config_dir: &Path, device_id: &str) -> Result<(LoadedConfig, Channel, Device)> {
     let loaded = load_config(config_dir).map_err(|e| anyhow::anyhow!("{e}"))?;
     for channel in &loaded.channels {
@@ -129,10 +140,11 @@ fn find_device(config_dir: &Path, device_id: &str) -> Result<(LoadedConfig, Chan
 
 async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Result<i32> {
     configure_logging("WARNING");
-    let (_, channel, device) = find_device(config_dir, device_id)?;
-    let factory = opencap_drivers::default_factory();
+    let (loaded, channel, device) = find_device(config_dir, device_id)?;
+    let (plugins, factory) = factory_for(&loaded, std::slice::from_ref(&channel)).await;
     let plan = plan_device(&device, &factory);
     if let Some(e) = &plan.error {
+        plugins.shutdown().await;
         bail!("{device_id}: {e}");
     }
     let single = Channel { devices: vec![device.clone()], ..channel };
@@ -141,6 +153,7 @@ async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Resu
     let worker = ChannelWorker::new(&single, &plans, store, factory, WorkerOptions::default());
     let result = worker.read_once(&device.id).await;
     worker.stop().await;
+    plugins.shutdown().await;
     let values = result.map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut names: Vec<String> = match tag {
         Some(t) => vec![t.to_string()],
@@ -164,11 +177,18 @@ async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Resu
 
 async fn cmd_identity(config_dir: &Path, device_id: &str) -> Result<i32> {
     configure_logging("WARNING");
-    let (_, _, device) = find_device(config_dir, device_id)?;
-    let mut driver = opencap_drivers::create_driver(&device).map_err(anyhow::Error::msg)?;
-    driver.connect().await.map_err(|e| anyhow::anyhow!("{}", e.describe()))?;
-    let identity = driver.identity().await;
-    driver.close().await;
+    let (loaded, channel, device) = find_device(config_dir, device_id)?;
+    let (plugins, factory) = factory_for(&loaded, std::slice::from_ref(&channel)).await;
+    let result = async {
+        let mut driver = factory(&device).map_err(anyhow::Error::msg)?;
+        driver.connect().await.map_err(|e| anyhow::anyhow!("{}", e.describe()))?;
+        let identity = driver.identity().await;
+        driver.close().await;
+        Ok::<_, anyhow::Error>(identity)
+    }
+    .await;
+    plugins.shutdown().await;
+    let identity = result?;
     println!("{}", serde_json::to_string_pretty(&identity)?);
     Ok(0)
 }
@@ -186,6 +206,9 @@ fn drivers_json() -> serde_json::Value {
         "implemented": pick(&|d| compiled.contains(&d)),
         "not_compiled_in": pick(&|d| has_crate(d) && !compiled.contains(&d)),
         "not_implemented": pick(&|d| !has_crate(d)),
+        // Plugin hosts this build can start: a device with `plugin: python` runs any driver the
+        // Python driver host serves, whether or not it has a Rust port (#49).
+        "plugins": [opencap_plugin::registry::PYTHON],
     })
 }
 
@@ -247,7 +270,13 @@ async fn cmd_run(
         .with_context(|| format!("cannot bind the API to {}:{}", api_cfg.bind, api_cfg.port))?;
 
     let only = if sites.is_empty() { None } else { Some(sites) };
-    let poller = runtime::Poller::new(config_dir.to_path_buf(), loaded, only, opencap_drivers::default_factory());
+    let poller = runtime::Poller::new(
+        config_dir.to_path_buf(),
+        loaded,
+        only,
+        opencap_drivers::default_factory(),
+        PluginRegistry::new(),
+    );
     poller.start().await?;
     let view: Arc<dyn opencap_api::EngineView> = poller.clone();
     let (api_stop_tx, api_stop_rx) = tokio::sync::oneshot::channel::<()>();
@@ -304,14 +333,32 @@ fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime");
     let code = rt.block_on(async {
         match cli.cmd {
-            Cmd::Check { config, site, verbose } => Ok(check::run_check(
-                &config,
-                site.as_deref(),
-                verbose,
-                &opencap_drivers::default_factory(),
-                &mut |line| println!("{line}"),
-                &mut |line| eprintln!("{line}"),
-            )),
+            Cmd::Check { config, site, verbose } => {
+                // Devices with `plugin: python` are planned by their host; a config that does
+                // not load is reported by run_check itself.
+                let (plugins, factory) = match load_config(&config) {
+                    Ok(loaded) => {
+                        let channels: Vec<Channel> = loaded
+                            .channels
+                            .iter()
+                            .filter(|c| site.as_deref().is_none_or(|s| s == c.name))
+                            .cloned()
+                            .collect();
+                        factory_for(&loaded, &channels).await
+                    }
+                    Err(_) => (PluginRegistry::new(), opencap_drivers::default_factory()),
+                };
+                let code = check::run_check(
+                    &config,
+                    site.as_deref(),
+                    verbose,
+                    &factory,
+                    &mut |line| println!("{line}"),
+                    &mut |line| eprintln!("{line}"),
+                );
+                plugins.shutdown().await;
+                Ok(code)
+            }
             Cmd::Read { device_id, tag, config } => cmd_read(&config, &device_id, tag.as_deref()).await,
             Cmd::Identity { device_id, config } => cmd_identity(&config, &device_id).await,
             Cmd::Run { config, site } => {

@@ -29,6 +29,7 @@ opencap-core.workspace = true
 opencap-drivers.workspace = true
 opencap-north.workspace = true
 opencap-api.workspace = true
+opencap-plugin.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true

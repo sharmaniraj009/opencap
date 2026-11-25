@@ -57,7 +57,7 @@ _LIST_LIMIT = 5          # ids listed in an aggregate warning
 _PUBLISH_FIELDS = set(PublishCfg.model_fields)
 _DEVICE_SCALARS = (
     "enabled", "host", "port", "scan_ms", "min_scan_ms", "timeout_ms", "retries",
-    "demote_after", "demote_for_ms",
+    "demote_after", "demote_for_ms", "plugin",
 )
 _TAG_FIELDS = ("enabled", "address", "dtype", "scan_ms", "scale")
 SERIAL_DRIVERS: dict[str, tuple[str, ...]] = {        # driver -> transports it supports

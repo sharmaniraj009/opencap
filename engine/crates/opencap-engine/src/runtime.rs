@@ -25,6 +25,7 @@ use opencap_north::mqtt::{LinkOptions, MqttLink};
 use opencap_north::plugin::{self, DeviceStatusReader, NorthContext, NorthHandle};
 use opencap_north::publisher::{Publisher, PublisherOptions, Sink};
 use opencap_north::saf::StoreAndForward;
+use opencap_plugin::PluginRegistry;
 
 /// Agent name of the MQTT link's publisher (`north_lagged_total{agent}`).
 pub const MQTT_AGENT: &str = "mqtt";
@@ -45,6 +46,8 @@ pub struct Poller {
     config_dir: PathBuf,
     only: Option<HashSet<String>>,
     factory: DriverFactory,
+    /// Hosts and plans of `plugin: python` devices; `factory` routes those devices to it.
+    plugins: Arc<PluginRegistry>,
     loaded: RwLock<LoadedConfig>,
     store: Arc<TagStore>,
     state: RwLock<RtState>,
@@ -69,6 +72,7 @@ impl Poller {
         loaded: LoadedConfig,
         only: Option<Vec<String>>,
         factory: DriverFactory,
+        plugins: Arc<PluginRegistry>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             config_dir,
@@ -78,7 +82,8 @@ impl Poller {
                 workers: IndexMap::new(),
                 channel_cfg: HashMap::new(),
             }),
-            factory,
+            factory: plugins.factory(factory),
+            plugins,
             loaded: RwLock::new(loaded),
             store: Arc::new(TagStore::new()),
             link: StdMutex::new(None),
@@ -112,6 +117,7 @@ impl Poller {
         *lock(&self.link_task) = Some(tokio::spawn(link.clone().run()));
         *lock(&self.link) = Some(link);
         let channels = rlock(&self.loaded).channels.clone();
+        self.plugins.prepare(&cfg.plugins.python, &self.selected(&channels)).await;
         self.apply_channels(&channels);
         self.restart_publisher().await;
         if cfg.opcua_server.enabled {
@@ -135,6 +141,7 @@ impl Poller {
         for w in workers {
             w.stop().await;
         }
+        self.plugins.shutdown().await;
         if let Some(link) = self.link() {
             link.stop();
             let task = lock(&self.link_task).take();
@@ -262,6 +269,7 @@ impl Poller {
             warn!(detail = "restart opencap to apply mqtt connection/LWT settings", "mqtt_settings_changed");
         }
         let channels = loaded.channels.clone();
+        self.plugins.prepare(&loaded.poller.plugins.python, &self.selected(&channels)).await;
         *wlock(&self.loaded) = loaded;
         let changed = self.apply_channels(&channels);
         self.restart_publisher().await;

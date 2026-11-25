@@ -268,6 +268,27 @@ CI installs, starts (against a simulator and the test broker), checks `/health`,
 on windows-latest (`deploy/windows/engine_service_smoke.py`). It has not been tried on plant
 hardware yet. Please report what you find.
 
+## Drivers without a Rust port: the Python driver host
+
+The Rust engine runs any Python driver out of process ([ADR-0004](adr/0004-driver-contract-and-plugin-model.md) §3,
+`proto/README.md`). Give the device `plugin: python`, in `devices.json` or in `overrides.yaml`:
+
+```yaml
+# overrides.yaml
+devices:
+  "Plant A/SLC1":
+    plugin: python
+```
+
+The engine starts one host process per channel that has such devices
+(`python -m opencap.plugin_host`, from `plugins.python.command` in `poller.yaml`; install
+`opencap[plugin]` in that Python), talks to it over a private Unix socket (loopback TCP on Windows,
+with a per-run token), restarts it with backoff (1 s up to 60 s) if it dies, and stops it with the
+engine. While the host is down, the channel's devices are `bad_comm`; they recover on their own.
+`opencap-engine check`, `read` and `identity` use the host too. Each read through the host costs
+about 1 ms more than in process (`docs/architecture/04-scale-reliability.md` §4.1), little next to
+a PLC round trip. The Python engine ignores `plugin`: it runs every driver itself.
+
 ## Commissioning a Siemens S7 or Mitsubishi PLC
 
 The S7 and MC drivers are tested against simulators only (D-058). On the first real PLC of

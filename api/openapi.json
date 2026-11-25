@@ -526,6 +526,19 @@
             "title": "Params",
             "type": "object"
           },
+          "plugin": {
+            "anyOf": [
+              {
+                "const": "python",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plugin"
+          },
           "port": {
             "title": "Port",
             "type": "integer"
@@ -632,6 +645,19 @@
             "additionalProperties": true,
             "title": "Params",
             "type": "object"
+          },
+          "plugin": {
+            "anyOf": [
+              {
+                "const": "python",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plugin"
           },
           "port": {
             "title": "Port",
@@ -855,6 +881,19 @@
             "title": "Params",
             "type": "object"
           },
+          "plugin": {
+            "anyOf": [
+              {
+                "const": "python",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plugin"
+          },
           "port": {
             "anyOf": [
               {
@@ -1024,6 +1063,26 @@
                 "additionalProperties": true,
                 "title": "Params",
                 "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plugin": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "const": "python",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Plugin"
               },
               {
                 "type": "null"
@@ -1265,6 +1324,26 @@
               }
             ]
           },
+          "plugin": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "const": "python",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Plugin"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "port": {
             "anyOf": [
               {
@@ -1410,6 +1489,19 @@
             "additionalProperties": true,
             "title": "Params",
             "type": "object"
+          },
+          "plugin": {
+            "anyOf": [
+              {
+                "const": "python",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plugin"
           },
           "port": {
             "title": "Port",

@@ -79,6 +79,28 @@ shared by the layout and the index). The bus keeps only batches some subscriber 
 yet: at most `capacity` × batch size, 4,096 × ~1.9 KB ≈ 7.6 MB for 25-tag batches, reached
 only by a subscriber a full ring behind.
 
+### Measured: a read through the Python driver host (#49)
+
+`plugin_read_latency` example (`engine/crates/opencap-plugin/examples/`, release build) against the
+PCCC simulator, same VM as above: the Rust client's `Read` round trip through the host over its Unix
+socket, minus the driver's own time in the host (`ReadReply.driver_us`), 2,500 reads of 5 blocks.
+
+| | p50 | p99 |
+|---|---|---|
+| Added latency per read (round trip minus driver time) | 0.63–0.65 ms | 1.05–1.09 ms |
+| of which an empty gRPC call (`Health`) | 0.48–0.50 ms | 0.84–1.03 ms |
+| Whole read through the host (simulator on loopback) | 1.10–1.14 ms | 1.85–1.87 ms |
+
+**The 0.5 ms p99 target of #49 is missed (~1.1 ms p99).** Almost all of it is the fixed cost of one
+unary call in Python grpcio: an empty call costs the same whether the server is `grpc.aio` or the
+thread-pool server (measured within 15 %), and `optimization_target=latency` does not change it. The
+host's own work per read (block lookup, value conversion) is ~0.15 ms; verified block payloads are
+cached, so the HMAC check and unpickling happen once per block per process. In context: one request
+on the wire per channel means ~1 ms more per block, so a PCCC device with 23 blocks at 60 ms RTT
+(~1.4 s cycle) spends ~1.6 % longer per cycle. If this ever matters, the options are a
+leaner transport for a `v2` (length-prefixed protobuf on the socket, no HTTP/2) or porting the
+driver; D-087.
+
 ### Store-and-forward sizing
 ```
 outage covered = max_bytes / (msg/s × avg message bytes)

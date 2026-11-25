@@ -49,7 +49,8 @@ def pytest_runtest_setup(item):
 
     gap = item.config.stash[_PORT_GAP]
     gap[item.nodeid] = {"drivers": drivers, "outcome": None, "reason": ""}
-    reason = unsupported_reason("rust", drivers)                 # raises when there is no binary
+    plugins = [m.kwargs["plugin"] for m in item.iter_markers("drivers") if "plugin" in m.kwargs]
+    reason = unsupported_reason("rust", drivers, plugins[0] if plugins else None)   # raises with no binary
     if reason is None and "engine_factory" not in getattr(item, "fixturenames", ()):
         reason = f"{NOT_AGNOSTIC}: drives the Python engine directly, not through engine_factory"
     if reason is None:

@@ -1,0 +1,204 @@
+// opencap out-of-process driver plugin protocol, version 1 (ADR-0004 §3, 03-deep-dive §3.3).
+//
+// The engine (client) spawns a plugin process (server), which serves one or more drivers.
+// Semantics are the in-process driver contract's (src/opencap/drivers/base.py,
+// engine/crates/opencap-core/src/driver.rs): `Plan` is pure; `Connect`, `Read` and
+// `Identity` make one attempt; retries, backoff, demotion, scaling and staleness belong to
+// the engine. There is no write RPC: plugins are read-only toward PLCs (ADR-0008).
+//
+// Compatibility rules: proto/README.md.
+syntax = "proto3";
+
+package opencap.plugin.v1;
+
+service Driver {
+  // Protocol version and the drivers this process serves. First call of a connection.
+  rpc Hello(HelloRequest) returns (HelloReply);
+  // Pure: split tags into wire blocks. Stateless: no device needs to be open.
+  rpc Plan(PlanRequest) returns (PlanReply);
+  // Create (or replace) the driver instance for a device. Idempotent for the same config.
+  rpc Open(OpenRequest) returns (OpenReply);
+  // One connect attempt. Errors: CONNECTION_LOST (or COMM).
+  rpc Connect(DeviceRef) returns (StatusReply);
+  // One attempt to read one block planned by `Plan`.
+  rpc Read(ReadRequest) returns (ReadReply);
+  // Close the connection; idempotent, never fails. The device stays open.
+  rpc Close(DeviceRef) returns (StatusReply);
+  // Vendor / model / firmware as a JSON object; "{}" when the device reports none.
+  rpc Identity(DeviceRef) returns (IdentityReply);
+  // Tag discovery (automatic tag generation). UNSUPPORTED when the driver cannot browse.
+  rpc Browse(DeviceRef) returns (BrowseReply);
+  // Push drivers: value notifications for the given blocks until the call is cancelled.
+  // UNSUPPORTED when the driver has no push path (version 1 hosts: always; push drivers
+  // are served through Read, which returns their latest notifications).
+  rpc Subscribe(SubscribeRequest) returns (stream Notification);
+  // Liveness and counters. Never touches a device.
+  rpc Health(HealthRequest) returns (HealthReply);
+}
+
+// --- values ---------------------------------------------------------------------------
+
+enum Quality {
+  QUALITY_UNSPECIFIED = 0;   // never sent; a receiver treats it as BAD_DECODE
+  GOOD = 1;
+  BAD_COMM = 2;
+  BAD_CONFIG = 3;
+  BAD_DECODE = 4;
+  STALE = 5;
+}
+
+// A decoded value: the engine's Value (bool, int, uint above int64, float, string, array).
+message Variant {
+  oneof kind {
+    bool bool_value = 1;
+    sint64 int_value = 2;      // every integer that fits int64
+    uint64 uint_value = 3;     // only above int64 max (uint64 registers)
+    double float_value = 4;
+    string string_value = 5;
+    VariantList list_value = 6;
+  }
+}
+
+message VariantList {
+  repeated Variant items = 1;
+}
+
+message TagValue {
+  Variant value = 1;           // absent: no value (any quality but GOOD)
+  Quality quality = 2;
+  optional int64 source_ts_us = 3;   // UTC microseconds since the Unix epoch; absent = not set
+}
+
+// --- errors ---------------------------------------------------------------------------
+
+// A driver error, as the driver contract defines them. Transport errors (the process is
+// gone, a deadline passed) are gRPC statuses, and the engine maps them to CONNECTION_LOST.
+message DriverError {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;      // treated as OTHER
+    COMM = 1;                  // one attempt failed; the engine retries
+    CONNECTION_LOST = 2;       // connection gone; the engine closes and reconnects with backoff
+    BLOCK_CONFIG = 3;          // the device permanently rejects the block
+    UNSUPPORTED = 4;           // not implemented by this driver (device is not polled)
+    OTHER = 5;
+    NOT_OPEN = 6;              // the device is not open in this process (e.g. after a restart)
+  }
+  Kind kind = 1;
+  string message = 2;
+}
+
+// --- requests -------------------------------------------------------------------------
+
+message HelloRequest {
+  string protocol = 1;         // "opencap.plugin.v1"
+  string engine = 2;           // e.g. "opencap-engine 0.1.0"
+}
+
+message HelloReply {
+  string protocol = 1;         // "opencap.plugin.v1"
+  string host = 2;             // e.g. "opencap-python 0.1.0"
+  repeated string drivers = 3; // config `driver:` names this process serves
+}
+
+// The device configuration as the shared config schema's JSON (one `Device` object).
+message DeviceConfig {
+  string json = 1;
+}
+
+message PlanRequest {
+  DeviceConfig device = 1;
+  repeated string tags = 2;    // names of the device's tags to plan (one rate group), in order
+}
+
+message Block {
+  bytes payload = 1;           // opaque to the engine; returned as is in Read
+  repeated string tags = 2;    // names of the tags this block serves
+  uint32 wire_requests = 3;    // round trips this block costs
+  string describe = 4;         // short text for `check`
+}
+
+// Facts about the driver the engine needs without a call. Plan and Open report them for a new
+// instance; Connect and Close report them again, since some change once connected (a PCCC
+// connect budget shrinks once the file directory is cached).
+message DriverInfo {
+  bool reports_connection = 1;     // `connected` is meaningful (Python: class overrides it)
+  optional uint32 connect_timeout_ms = 2;  // absent: the engine's per-call safety net
+  bool stale_by_read_time = 3;     // source_ts is the device's change time (D-045)
+}
+
+message PlanReply {
+  DriverError error = 1;           // set: the device cannot be planned (bad params, unknown driver)
+  repeated Block blocks = 2;
+  map<string, string> invalid = 3; // tag name -> reason; those tags are bad_config, never sent
+  DriverInfo info = 4;
+}
+
+message OpenRequest {
+  string device_id = 1;
+  DeviceConfig device = 2;
+}
+
+message OpenReply {
+  DriverError error = 1;
+  DriverInfo info = 2;
+}
+
+message DeviceRef {
+  string device_id = 1;
+}
+
+message StatusReply {
+  DriverError error = 1;
+  bool connected = 2;              // the driver's `connected` after the call
+  DriverInfo info = 3;             // current facts: a connect timeout can change once connected
+}
+
+message ReadRequest {
+  string device_id = 1;
+  bytes block = 2;                 // Block.payload from Plan
+}
+
+message ReadReply {
+  DriverError error = 1;
+  map<string, TagValue> values = 2; // one per tag of the block, any quality
+  bool connected = 3;
+  uint64 driver_us = 4;            // time the driver's read took in the plugin (overhead = round trip - this)
+}
+
+message IdentityReply {
+  DriverError error = 1;           // only NOT_OPEN; a device without identity returns "{}"
+  string json = 2;
+  bool connected = 3;
+}
+
+message BrowsedTag {
+  string name = 1;
+  string address = 2;
+  string dtype = 3;                // config dtype ("float32", "bool", ...)
+  string description = 4;
+}
+
+message BrowseReply {
+  DriverError error = 1;
+  repeated BrowsedTag tags = 2;
+}
+
+message SubscribeRequest {
+  string device_id = 1;
+  repeated bytes blocks = 2;       // Block.payload from Plan
+}
+
+message Notification {
+  DriverError error = 1;           // set once, then the stream ends
+  map<string, TagValue> values = 2;
+}
+
+message HealthRequest {}
+
+message HealthReply {
+  string protocol = 1;
+  uint32 pid = 2;
+  double uptime_s = 3;
+  uint32 open_devices = 4;
+  uint64 reads = 5;
+}

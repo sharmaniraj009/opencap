@@ -1551,3 +1551,29 @@ reader would expect:
   sizes. Untested on real controllers, like the Python driver (D-025): check `opencap identity`.
 - **Side fix found by the parity test:** `py_float_repr` now breaks exact ties to even like
   CPython (a float32 widened to f64, e.g. 819.40802001953125, printed one digit apart).
+
+### D-077 Automatic tag generation: `Driver.browse()` and `opencap browse` for ab_logix (#11)
+- **Contract:** `async Driver.browse(*, expand_arrays=False) -> BrowseResult(tags, skipped)` on a connected
+  driver, not the `-> list[Tag]` of the issue: the CLI must report what was skipped and why, and a second
+  return channel is clearer than a side attribute. The default raises `NotImplementedError("browse not
+  supported")`. Read and list services only (ADR-0008); every generated tag must plan cleanly
+  (`opencap browse` exits 3 if one does not, a bug).
+- **ab_logix** maps the tag list pycomm3 uploaded at connect (D-025), so browse sends **no request of its
+  own**: the simulator test checks the request count does not move and that only Get Attributes, Read Tag
+  (fragmented), Multiple Service Packet and the tag-list upload were ever served.
+- **Mapping:** BOOL, SINT/USINT (widened to int16/uint16, lossless), INT, UINT, DINT, UDINT, LINT, ULINT,
+  REAL, LREAL, Logix STRING structures (any length) and Micro800 SHORT_STRING. A UDT becomes one tag per
+  atomic member, one level (`PUMP_1.TOTAL`; the dot makes the UDT a tag group); names keep the controller's
+  spelling and are sorted without case. The description is the controller type (`REAL`, `SimUdt.TOTAL: REAL`):
+  pycomm3 does not upload tag descriptions.
+- **Arrays:** the driver reads single elements only (`{n}` block reads are refused and a list cannot be
+  coerced to a dtype), so an array is **skipped with a reason** unless `--expand-arrays`, which makes one tag
+  per element (`TREND_1[0]`, `M[0,1]`, row-major), at most 4096 per array. Logix BOOL arrays (DWORD-packed)
+  are skipped.
+- **Skipped with a reason:** program-scoped tags (the issue asks for controller scope; Micro800 cannot read
+  them), External Access None, arrays of UDTs, nested UDTs and STRING members (not simulated, D-024),
+  bit-string and other non-atomic types (BYTE, WORD, DWORD, LWORD, TIMER, MESSAGE...).
+- **Output:** a JSON tag list (`Device.tags` shape) to `--out tags.json` or stdout; `--out tags.csv` uses the
+  KEPServerEX CSV writer (#10) when it is in the build, else it fails with that reason. Merging into a device
+  is the config API's job (plan DEV-12), not this command's.
+- **Rust:** not ported; follow-up issue (trait method, ab_logix mapping on its own CIP client, same skip rules).

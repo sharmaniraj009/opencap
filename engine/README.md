@@ -36,10 +36,10 @@ requests to `localhost` (D-062).
 
 | Crate | Contents |
 |---|---|
-| `opencap-core` | config models + loader (same schema and layering as `src/opencap/config/`), value model, cache, health, scheduler, driver trait, registry, channel worker, metrics, Python-compatible formatting |
+| `opencap-core` | config models + loader (same schema and layering as `src/opencap/config/`), value model, tag store and change-event bus (ADR-0005), health, scheduler, driver trait, registry, channel worker, metrics, Python-compatible formatting |
 | `opencap-drivers` | the driver registry: one static table (`DRIVERS`), one Cargo feature per driver crate, the driver factory |
 | `drivers/modbus_tcp` (`opencap-driver-modbus-tcp`) | Modbus TCP: address parser, block planner, decoder, tokio-modbus I/O |
-| `opencap-north` | SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher |
+| `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
 | `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity` |
 
@@ -68,6 +68,14 @@ polled. A Modbus-only build: `cargo build -p opencap-engine --no-default-feature
 ```bash
 cd engine && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 cargo deny check licenses bans sources            # licence gate (ADR-0007), needs cargo-deny
+```
+
+Benchmarks of the tag store and event bus (numbers in
+[`04-scale-reliability.md`](../docs/architecture/04-scale-reliability.md) §4.1):
+
+```bash
+cargo bench -p opencap-core --bench store         # Criterion micro-benchmarks
+cargo bench -p opencap-core --bench store_load    # 250k tags, 8 writers, 4 subscribers (one slow), p99
 ```
 
 Conformance against the Python reference (from the repository root, after `cargo build`):

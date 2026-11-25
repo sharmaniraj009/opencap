@@ -7,9 +7,9 @@
 use chrono::{DateTime, Utc};
 use serde_json::Value as Json;
 
-use opencap_core::cache::Snapshot;
 use opencap_core::config::{Device, PayloadCfg};
 use opencap_core::health::{HealthStatus, State};
+use opencap_core::store::Snapshot;
 use opencap_core::value::{Quality, TagValue, Value};
 use opencap_core::FIRM_VERSION;
 use opencap_north::payload::{build_payload, encode, encode_status};
@@ -64,13 +64,19 @@ fn payload_bytes_match_python() {
     for (i, case) in cases.iter().enumerate() {
         let device: Device = serde_json::from_value(case["device"].clone()).unwrap();
         let cfg: PayloadCfg = serde_json::from_value(case["cfg"].clone()).unwrap();
-        let mut values = Snapshot::new();
-        for (name, tv) in case["values"].as_object().unwrap() {
-            values.insert(
-                name.clone(),
-                TagValue::new(dec_value(&tv["value"]), quality(tv["quality"].as_str().unwrap()), ts(&tv["source_ts"])),
-            );
-        }
+        let values = Snapshot::from_pairs(
+            &device.id,
+            case["values"].as_object().unwrap().iter().map(|(name, tv)| {
+                (
+                    name.clone(),
+                    TagValue::new(
+                        dec_value(&tv["value"]),
+                        quality(tv["quality"].as_str().unwrap()),
+                        ts(&tv["source_ts"]),
+                    ),
+                )
+            }),
+        );
         let p = build_payload(&device, &values, &cfg, case["is_secure"].as_bool().unwrap(), ts(&case["now"])).unwrap();
         let got = String::from_utf8(encode(&p)).unwrap();
         // Same input, same bytes; FirmVersion follows each engine's own release number.

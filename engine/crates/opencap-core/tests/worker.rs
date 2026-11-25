@@ -9,11 +9,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 
-use opencap_core::cache::ValueCache;
 use opencap_core::config::{Channel, DType, Device, Scale, Tag};
 use opencap_core::driver::{Block, BlockRef, Driver, DriverError, DriverFactory, Plan, ReadResult};
 use opencap_core::health::State;
 use opencap_core::registry::{plan_device, DevicePlan};
+use opencap_core::store::{Change, TagStore};
 use opencap_core::value::{mono, now_utc, Quality, TagValue, Value};
 use opencap_core::worker::{ChannelWorker, WorkerOptions};
 
@@ -273,14 +273,14 @@ fn opts() -> WorkerOptions {
 
 struct Setup {
     rig: Arc<Rig>,
-    cache: Arc<ValueCache>,
+    store: Arc<TagStore>,
     workers: Vec<Arc<ChannelWorker>>,
 }
 
 fn setup_with(devices: Vec<Device>, channel_enabled: bool, opts: WorkerOptions) -> Setup {
     let rig = Rig::new(&devices);
     let factory = rig.factory();
-    let cache = Arc::new(ValueCache::new());
+    let store = Arc::new(TagStore::new());
     let mut channels: IndexMap<String, Vec<Device>> = IndexMap::new();
     for d in devices {
         channels.entry(d.channel.clone()).or_default().push(d);
@@ -291,10 +291,10 @@ fn setup_with(devices: Vec<Device>, channel_enabled: bool, opts: WorkerOptions) 
             let plans: IndexMap<String, Arc<DevicePlan>> =
                 devs.iter().map(|d| (d.id.clone(), Arc::new(plan_device(d, &factory)))).collect();
             let ch = Channel { name, enabled: channel_enabled, devices: devs };
-            ChannelWorker::new(&ch, &plans, cache.clone(), factory.clone(), opts.clone())
+            ChannelWorker::new(&ch, &plans, store.clone(), factory.clone(), opts.clone())
         })
         .collect();
-    Setup { rig, cache, workers }
+    Setup { rig, store, workers }
 }
 
 fn setup(devices: Vec<Device>) -> Setup {
@@ -356,7 +356,7 @@ async fn retries_count_and_timeout_keeps_last_good_value() {
     let s = setup(vec![device("S/D", &[("X", "a.0")])]);
     let w = &s.workers[0];
     w.read_once("S/D").await.unwrap();
-    assert_eq!(s.cache.get("S/D", "X").unwrap().value, Some(Value::Int(1)));
+    assert_eq!(s.store.get("S/D", "X").unwrap().value, Some(Value::Int(1)));
     s.rig.script("S/D").timeout_blocks.insert("a".into());
     let snap = w.read_once("S/D").await.unwrap();
     assert_eq!(s.rig.script("S/D").reads_of("a"), 1 + 2, "first attempt + retries=1");
@@ -495,7 +495,7 @@ async fn block_config_error_is_never_read_again_and_all_rejected_goes_idle() {
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(s.rig.script("S/D").reads_of("a"), 1);
     assert!(s.rig.script("S/D").reads_of("b") > 3);
-    assert_eq!(s.cache.get("S/D", "X").unwrap().quality, Quality::BadConfig);
+    assert_eq!(s.store.get("S/D", "X").unwrap().quality, Quality::BadConfig);
     assert_eq!(w.device_status("S/D").unwrap().state, State::Ok);
     w.stop().await;
 
@@ -513,8 +513,8 @@ async fn block_config_error_is_never_read_again_and_all_rejected_goes_idle() {
 #[tokio::test(flavor = "multi_thread")]
 async fn plan_invalid_tags_are_bad_config_from_the_start() {
     let s = setup(vec![device("S/D", &[("X", "a.0"), ("BAD", "!x")])]);
-    assert_eq!(s.cache.get("S/D", "BAD").unwrap().quality, Quality::BadConfig);
-    assert_eq!(s.cache.get("S/D", "X").unwrap().quality, Quality::Stale);
+    assert_eq!(s.store.get("S/D", "BAD").unwrap().quality, Quality::BadConfig);
+    assert_eq!(s.store.get("S/D", "X").unwrap().quality, Quality::Stale);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -540,9 +540,9 @@ async fn stale_after_three_times_the_rate() {
     let s = setup(vec![device("S/D", &[("X", "a.0")])]);
     let w = &s.workers[0];
     w.start();
-    wait_for("good", 2.0, || s.cache.get("S/D", "X").unwrap().quality == Quality::Good).await;
+    wait_for("good", 2.0, || s.store.get("S/D", "X").unwrap().quality == Quality::Good).await;
     s.rig.script("S/D").hang = true; // reads stop completing; nothing new arrives
-    wait_for("stale", 2.0, || s.cache.get("S/D", "X").unwrap().quality == Quality::Stale).await;
+    wait_for("stale", 2.0, || s.store.get("S/D", "X").unwrap().quality == Quality::Stale).await;
     w.stop().await;
 }
 
@@ -603,4 +603,38 @@ async fn stop_closes_drivers_and_on_cycle_panics_do_not_stop_polling() {
         assert_eq!(sc.closes, sc.connects_ok, "every connection closed on stop");
     }
     assert!(s.workers[0].read_once("S/D").await.is_err(), "stopped worker refuses read_once");
+}
+
+/// ADR-0005: the worker is its devices' single writer and publishes one change batch per
+/// cycle. A worker created later for the same device (what a config reload does) takes
+/// over: the previous worker's cycles no longer reach the store or the bus.
+#[tokio::test(flavor = "multi_thread")]
+async fn worker_publishes_cycles_and_a_restarted_worker_takes_over() {
+    let devs = vec![device("S/D", &[("X", "a.0"), ("Y", "b.0")])];
+    let s = setup(devs.clone());
+    let mut rx = s.store.subscribe("test-worker");
+    let old = &s.workers[0];
+    old.read_once("S/D").await.unwrap();
+    let batch = match rx.try_recv() {
+        Ok(Change::Batch(b)) => b,
+        other => panic!("expected a batch, got {other:?}"),
+    };
+    assert_eq!(batch.device_name(), "S/D");
+    assert_eq!(batch.iter().map(|(n, _)| n).collect::<Vec<_>>(), vec!["X", "Y"], "both blocks, one write");
+    assert!(rx.try_recv().is_err());
+
+    let factory = s.rig.factory();
+    let plans: IndexMap<String, Arc<DevicePlan>> =
+        devs.iter().map(|d| (d.id.clone(), Arc::new(plan_device(d, &factory)))).collect();
+    let ch = Channel { name: "S".into(), enabled: true, devices: devs };
+    let new = ChannelWorker::new(&ch, &plans, s.store.clone(), factory, opts());
+    let version = s.store.version("S/D");
+    old.read_once("S/D").await.unwrap(); // still talks to the device, but its writer is stale
+    assert_eq!(s.store.version("S/D"), version);
+    assert!(rx.try_recv().is_err(), "a stale writer publishes nothing");
+    new.read_once("S/D").await.unwrap();
+    assert!(s.store.version("S/D") > version);
+    assert!(matches!(rx.try_recv(), Ok(Change::Batch(_))));
+    new.stop().await;
+    old.stop().await;
 }

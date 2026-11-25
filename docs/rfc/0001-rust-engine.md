@@ -189,18 +189,18 @@ pub type DriverFactory = Arc<dyn Fn(&Device) -> Result<Box<dyn Driver>, String> 
   `BlockConfigError`, `NotImplementedError`) so `last_error` texts read the same in both
   engines.
 
-### 2.6 Cache
+### 2.6 Cache (now the tag store)
 
-`ValueCache` keeps the Python semantics (contract §2): register pre-fills enabled tags as
+`ValueCache` kept the Python semantics (contract §2): register pre-fills enabled tags as
 `(None, stale, None)`; a good value replaces value, quality and `source_ts`; any other
 quality keeps the last value and last good timestamp; `version()` bumps on every change;
 snapshots are copies in tag order. One short-held mutex replaces "one event loop, no locks".
 
 [ADR-0005](../adr/0005-north-plugins-tag-store-event-bus.md)'s tag store (one slot per device,
-one writer, bounded broadcast of `ChangeBatch` with conflation) replaces it in #41 without
-changing any rule above; the publisher then subscribes instead of being woken by `on_cycle`.
-The second timestamp (`server_ts`, [ADR-0006](../adr/0006-quality-and-timestamps.md)) arrives
-with the store. Timestamps are truncated to microseconds, Python's precision, so the two
+one writer, bounded broadcast of `ChangeBatch` with conflation) replaced it in #41 without
+changing any rule above (`opencap-core::store`, 03 §3.2, D-066); the publisher subscribes
+instead of being woken by `on_cycle`. The second timestamp (`server_ts`,
+[ADR-0006](../adr/0006-quality-and-timestamps.md)) arrived with the store. Timestamps are truncated to microseconds, Python's precision, so the two
 engines report identical `last_good` and `source_ts` strings.
 
 ### 2.7 North side

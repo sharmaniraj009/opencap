@@ -37,6 +37,8 @@ policy-level summary, reconciled with it after #64.
 | Purpose | Library | Licence | Verified | Decision |
 |---|---|---|---|---|
 | Async runtime | tokio | MIT | no | Adopt |
+| Cancellation token (north plugins) | tokio-util 0.7 (`default-features = false`) | MIT | yes (cargo-deny) | Adopt (#41; already in the tree through rumqttc and tokio-modbus) |
+| Benchmarks (dev-dependency only) | criterion 0.7 (`default-features = false`) | MIT or Apache-2.0; its tree is MIT/Apache-2.0, `ciborium` Apache-2.0, `walkdir`/`same-file`/`winapi-util` Unlicense or MIT | yes (cargo-deny) | Adopt (#41; 0.8 needs Rust 1.86, the workspace declares 1.85) |
 | HTTP API, WebSocket | axum (+ tower, hyper) | MIT | no | Adopt |
 | Serialisation | serde, serde_json, serde_yaml successor | MIT or Apache-2.0 | no | Adopt |
 | Schema → types | typify | Apache-2.0 | no | Not used: #64 hand-writes serde types with `deny_unknown_fields`; #39 adds the schema drift check |

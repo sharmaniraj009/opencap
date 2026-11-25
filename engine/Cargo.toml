@@ -47,6 +47,7 @@ serde_yaml_ng = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util"] }
 tokio-modbus = { version = "0.17", default-features = false, features = ["tcp"] }
+tokio-util = { version = "0.7", default-features = false }
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }

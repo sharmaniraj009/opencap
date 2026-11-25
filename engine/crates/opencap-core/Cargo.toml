@@ -27,7 +27,18 @@ tracing.workspace = true
 unicode-normalization.workspace = true
 
 [dev-dependencies]
+criterion = { version = "0.7", default-features = false }
 tokio = { workspace = true, features = ["test-util"] }
+
+# Tag store and event bus (#41): `cargo bench -p opencap-core`; numbers in
+# docs/architecture/04-scale-reliability.md section 4.1.
+[[bench]]
+name = "store"
+harness = false
+
+[[bench]]
+name = "store_load"
+harness = false
 
 [lints]
 workspace = true

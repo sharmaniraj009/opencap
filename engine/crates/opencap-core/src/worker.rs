@@ -9,6 +9,10 @@
 //!   (`x block.wire_requests()` for reads). Channels share nothing.
 //! - The per-device cycle lock (`Runner::state`) serializes polling with `read_once()`.
 //!   Status queries (API, publisher) read a snapshot and never wait on the wire.
+//! - The worker is the single writer of its devices in the tag store (ADR-0005): each
+//!   device registers once and keeps the `DeviceWriter` it gets; the poll loop and the
+//!   stale housekeeping both write through it. Every cycle is one store write (one
+//!   `ChangeBatch` on the bus); north plugins subscribe to the bus instead of `on_cycle`.
 //!
 //! Faults (same rules as Python; health rules are in `health.rs`)
 //! - CommError / safety-net timeout: retry up to `device.retries`, then the block's tags are
@@ -28,7 +32,7 @@
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -40,13 +44,13 @@ use tokio::sync::{Mutex, Notify};
 use tokio::task::{AbortHandle, JoinHandle};
 use tracing::{debug, info, warn};
 
-use crate::cache::{Snapshot, ValueCache};
 use crate::config::{Channel, Device, Scale, Tag};
 use crate::driver::{BlockRef, Driver, DriverError, DriverFactory};
 use crate::health::{Backoff, DeviceHealth, HealthEvent, HealthStatus, State};
 use crate::metrics::{observe_cycle, METRICS};
 use crate::registry::DevicePlan;
 use crate::scheduler::{DeviceSchedule, START_JITTER};
+use crate::store::{DeviceWriter, Snapshot, TagIndex, TagStore};
 use crate::value::{mono, now_utc, Quality, TagValue, Value};
 
 pub const SAFETY_FACTOR: f64 = 1.25;
@@ -71,7 +75,7 @@ pub fn scale_value(scale: &Scale, value: &Value) -> Result<Value, String> {
 }
 
 pub type OnCycle = Arc<dyn Fn(&str) + Send + Sync>;
-pub type Clock = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
+pub use crate::value::Clock;
 
 #[derive(Clone)]
 pub struct WorkerOptions {
@@ -146,7 +150,7 @@ impl CycleStats {
 struct Shared {
     channel: String,
     channel_enabled: bool,
-    cache: Arc<ValueCache>,
+    store: Arc<TagStore>,
     factory: DriverFactory,
     wire: Mutex<()>,
     opts: WorkerOptions,
@@ -215,14 +219,21 @@ struct Runner {
     plan: Option<Arc<DevicePlan>>,
     tags: HashMap<String, Tag>,
     max_age_s: HashMap<String, f64>,
+    /// Set when the device registers in the store (once).
+    writer: OnceLock<Registered>,
     safety_s: f64,
     rates_s: Vec<f64>,
     state: Mutex<RunnerState>,
     status: StdMutex<DeviceStatus>,
     unsupported: StdMutex<Option<String>>,
     stats: StdMutex<CycleStats>,
-    registered: AtomicBool,
     wake: Notify,
+}
+
+/// The device's store writer and its stale limits by tag index.
+struct Registered {
+    writer: DeviceWriter,
+    max_age: Vec<(TagIndex, f64)>,
 }
 
 fn lock<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -268,6 +279,7 @@ impl Runner {
             plan,
             tags,
             max_age_s,
+            writer: OnceLock::new(),
             rates_s,
             status: StdMutex::new(DeviceStatus {
                 state: State::Offline,
@@ -279,7 +291,6 @@ impl Runner {
             }),
             unsupported: StdMutex::new(None),
             stats: StdMutex::new(CycleStats::default()),
-            registered: AtomicBool::new(false),
             wake: Notify::new(),
             state: Mutex::new(state),
         };
@@ -334,19 +345,23 @@ impl Runner {
         Duration::from_secs_f64(self.safety_s * block.wire_requests().max(1) as f64)
     }
 
-    fn ensure_registered(&self, w: &Shared) {
-        if self.registered.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        w.cache.register(&self.device);
-        let invalid = self.plan.as_ref().filter(|p| p.ok()).map(|p| p.invalid()).unwrap_or_default();
-        if !invalid.is_empty() {
-            let values: IndexMap<String, TagValue> =
-                invalid.keys().map(|n| (n.clone(), TagValue::bad(Quality::BadConfig, None))).collect();
-            w.cache.update(&self.id, &values);
-            let first: Vec<&String> = invalid.keys().take(20).collect();
-            info!(channel = %w.channel, device = %self.id, count = invalid.len(), tags = ?first, "device.invalid_tags");
-        }
+    fn ensure_registered(&self, w: &Shared) -> &DeviceWriter {
+        &self
+            .writer
+            .get_or_init(|| {
+                let writer = w.store.register(&self.device);
+                let max_age =
+                    self.max_age_s.iter().filter_map(|(n, a)| writer.index_of(n).map(|i| (i, *a))).collect();
+                let invalid = self.plan.as_ref().filter(|p| p.ok()).map(|p| p.invalid()).unwrap_or_default();
+                if !invalid.is_empty() {
+                    let bad = TagValue::bad(Quality::BadConfig, None);
+                    writer.update(invalid.keys().map(|n| (n, &bad)));
+                    let first: Vec<&String> = invalid.keys().take(20).collect();
+                    info!(channel = %w.channel, device = %self.id, count = invalid.len(), tags = ?first, "device.invalid_tags");
+                }
+                Registered { writer, max_age }
+            })
+            .writer
     }
 
     fn disable_block(st: &mut RunnerState, block: &BlockRef) {
@@ -521,7 +536,7 @@ impl Runner {
         Ok(BlockResult::err(Kind::Comm, last_error))
     }
 
-    /// Driver result -> cache values: scaling, missing tags, default source_ts.
+    /// Driver result -> store values: scaling, missing tags, default source_ts.
     fn postprocess(
         &self,
         w: &Shared,
@@ -605,7 +620,7 @@ impl Runner {
             }
         }
         if !values.is_empty() {
-            w.cache.update(&self.id, &values);
+            self.ensure_registered(w).update(&values);
         }
         let now = mono();
         let (outcome, event) = if any_ok {
@@ -759,7 +774,7 @@ impl Runner {
         }
         self.wake.notify_one();
         w.notify(&self.id);
-        Ok(w.cache.snapshot(&self.id))
+        Ok(self.ensure_registered(w).snapshot())
     }
 
     async fn close_for_stop(&self, w: &Shared) {
@@ -784,7 +799,7 @@ impl ChannelWorker {
     pub fn new(
         channel: &Channel,
         plans: &IndexMap<String, Arc<DevicePlan>>,
-        cache: Arc<ValueCache>,
+        store: Arc<TagStore>,
         factory: DriverFactory,
         opts: WorkerOptions,
     ) -> Arc<Self> {
@@ -795,7 +810,7 @@ impl ChannelWorker {
         let shared = Arc::new(Shared {
             channel: channel.name.clone(),
             channel_enabled: channel.enabled,
-            cache,
+            store,
             factory,
             wire: Mutex::new(()),
             opts,
@@ -881,7 +896,7 @@ impl ChannelWorker {
         info!(channel = %self.shared.channel, "channel.closed");
     }
 
-    /// One full cycle (every rate group) of the device now; returns its cache snapshot.
+    /// One full cycle (every rate group) of the device now; returns its store snapshot.
     /// Works on disabled devices and without `start()` (CLI), ignores demotion, makes one
     /// connect attempt even during backoff, and feeds health like any cycle.
     pub async fn read_once(&self, device_id: &str) -> Result<Snapshot, ReadOnceError> {
@@ -934,7 +949,9 @@ async fn housekeeping(w: Arc<Shared>, runners: Vec<Arc<Runner>>) {
         tokio::time::sleep(Duration::from_secs_f64(tick)).await;
         let now = w.clock();
         for r in &runners {
-            w.cache.expire(&r.id, now, &r.max_age_s);
+            if let Some(reg) = r.writer.get() {
+                reg.writer.expire_indexed(now, &reg.max_age, None);
+            }
         }
         if w.opts.stats_interval_s > 0.0 && mono() >= next_stats {
             next_stats = mono() + w.opts.stats_interval_s;

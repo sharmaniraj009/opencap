@@ -71,6 +71,68 @@ fn identity_object(id: u8) -> String {
     }
 }
 
+/// Pure planning of a device's tags: parse every enabled tag's address, merge into blocks.
+/// Shared by every Modbus transport (TCP, RTU): same Kepware semantics, same plan.
+pub fn plan_tags<'a>(params: &ModbusParams, tags: impl IntoIterator<Item = &'a Tag>) -> Plan {
+    let mut parsed = Vec::new();
+    let mut invalid = BTreeMap::new();
+    for tag in tags {
+        if !tag.enabled {
+            continue;
+        }
+        match parse_address(&tag.address, tag.dtype.as_str(), params) {
+            Ok(a) => parsed.push((tag.name.clone(), a)),
+            Err(e) => {
+                invalid.insert(tag.name.clone(), e);
+            }
+        }
+    }
+    let (blocks, too_big) = plan_blocks(&parsed, params);
+    invalid.extend(too_big);
+    Plan { blocks: blocks.into_iter().map(|b| std::sync::Arc::new(b) as BlockRef).collect(), invalid }
+}
+
+/// A `TagValue` for every tag of `block` from one reply: `good`, or `bad_decode` (logged).
+pub fn values_from_reply(
+    block: &ModbusBlock,
+    reply: Reply<'_>,
+    params: &ModbusParams,
+    device_id: &str,
+) -> HashMap<String, TagValue> {
+    let ts = now_utc();
+    let decoded = decode_block(block, reply, params);
+    let mut out = HashMap::with_capacity(block.tags.len());
+    for name in &block.tags {
+        match decoded.get(name) {
+            Some(Ok(v)) => {
+                out.insert(name.clone(), TagValue::good(v.clone(), ts));
+            }
+            Some(Err(e)) => {
+                debug!(device = %device_id, tag = %name, reason = %e.0, "modbus decode error");
+                out.insert(name.clone(), TagValue::bad(Quality::BadDecode, Some(ts)));
+            }
+            None => {
+                out.insert(name.clone(), TagValue::bad(Quality::BadDecode, Some(ts)));
+            }
+        }
+    }
+    out
+}
+
+/// FC43/14 objects as `opencap identity` prints them (sorted by object id, blanks dropped).
+pub fn identity_from_objects(mut objects: Vec<tokio_modbus::prelude::DeviceIdObject>) -> Map<String, Json> {
+    let mut out = Map::new();
+    objects.sort_by_key(|o| o.id);
+    for o in objects {
+        let text: String = o.value.iter().map(|&b| b as char).filter(|&c| c != '\0').collect();
+        let text = text.trim();
+        if !text.is_empty() {
+            out.insert(identity_object(o.id), Json::String(text.to_string()));
+        }
+    }
+    out
+}
+
 pub struct ModbusTcpDriver {
     device: Device,
     pub params: ModbusParams,
@@ -98,22 +160,7 @@ impl ModbusTcpDriver {
 
     /// Pure planning on tags (also used by tests).
     pub fn plan_tags<'a>(&self, tags: impl IntoIterator<Item = &'a Tag>) -> Plan {
-        let mut parsed = Vec::new();
-        let mut invalid = BTreeMap::new();
-        for tag in tags {
-            if !tag.enabled {
-                continue;
-            }
-            match parse_address(&tag.address, tag.dtype.as_str(), &self.params) {
-                Ok(a) => parsed.push((tag.name.clone(), a)),
-                Err(e) => {
-                    invalid.insert(tag.name.clone(), e);
-                }
-            }
-        }
-        let (blocks, too_big) = plan_blocks(&parsed, &self.params);
-        invalid.extend(too_big);
-        Plan { blocks: blocks.into_iter().map(|b| std::sync::Arc::new(b) as BlockRef).collect(), invalid }
+        plan_tags(&self.params, tags)
     }
 
     async fn request(&mut self, block: &ModbusBlock) -> Result<Data, DriverError> {
@@ -239,27 +286,10 @@ impl Driver for ModbusTcpDriver {
             return Err(DriverError::ConnectionLost(format!("{}: not connected", self.where_())));
         }
         let data = self.request(block).await?;
-        let ts = now_utc();
-        let decoded = match &data {
-            Data::Registers(r) => decode_block(block, Reply::Registers(r), &self.params),
-            Data::Bits(b) => decode_block(block, Reply::Bits(b), &self.params),
-        };
-        let mut out = HashMap::with_capacity(block.tags.len());
-        for name in &block.tags {
-            match decoded.get(name) {
-                Some(Ok(v)) => {
-                    out.insert(name.clone(), TagValue::good(v.clone(), ts));
-                }
-                Some(Err(e)) => {
-                    debug!(device = %self.device.id, tag = %name, reason = %e.0, "modbus decode error");
-                    out.insert(name.clone(), TagValue::bad(Quality::BadDecode, Some(ts)));
-                }
-                None => {
-                    out.insert(name.clone(), TagValue::bad(Quality::BadDecode, Some(ts)));
-                }
-            }
-        }
-        Ok(out)
+        Ok(match &data {
+            Data::Registers(r) => values_from_reply(block, Reply::Registers(r), &self.params, &self.device.id),
+            Data::Bits(b) => values_from_reply(block, Reply::Bits(b), &self.params, &self.device.id),
+        })
     }
 
     /// FC43/14 basic device identification. Empty when not connected or the device does
@@ -269,21 +299,12 @@ impl Driver for ModbusTcpDriver {
         let timeout = self.timeout();
         let Some(ctx) = self.ctx.as_mut() else { return Map::new() };
         let res = tokio::time::timeout(timeout, ctx.read_device_identification(ReadCode::Basic, 0x00)).await;
-        let mut out = Map::new();
         if let Ok(Ok(Ok(reply))) = res {
-            let mut objects = reply.device_id_objects;
-            objects.sort_by_key(|o| o.id);
-            for o in objects {
-                let text: String = o.value.iter().map(|&b| b as char).filter(|&c| c != '\0').collect();
-                let text = text.trim();
-                if !text.is_empty() {
-                    out.insert(identity_object(o.id), Json::String(text.to_string()));
-                }
-            }
+            return identity_from_objects(reply.device_id_objects);
         } else if let Ok(Err(tokio_modbus::Error::Transport(_))) = res {
             self.ctx = None;
         }
-        out
+        Map::new()
     }
 }
 

@@ -137,6 +137,10 @@ parser, planner and decoder. Plus the serial keys above and:
 
 The importer does not create modbus_rtu devices (the migrated project has none); configure them by hand.
 
+**Rust engine** (`engine/drivers/modbus_rtu`, D-070): same keys and messages. Its serial library cannot open a
+port with mark/space parity or 1.5 stop bits (the connect error says so), and its loader does not apply
+`serial_ports` yet: give Rust-engine RTU devices `transport: tcp` or `serial` directly.
+
 ## ab_df1  (Allen-Bradley DF1 full duplex: SLC 500 / MicroLogix data tables over a serial line)
 Addresses, block planning and decoding are `ab_pccc`'s, so `max_elements` (100), `max_gap` (4) and `request_size`
 (232, ≤ 255) mean the same. Plus the serial keys above and:

@@ -1304,7 +1304,7 @@ ADR-0005 / 03 §3.2 would expect:
 
 ## Omron FINS conformance harness (#13)
 
-### D-066 FINS simulator: sources, KEPServerEX syntax over the issue's examples, and what is not proven
+### D-068 FINS simulator: sources, KEPServerEX syntax over the issue's examples, and what is not proven
 - **Expected (issue #13):** the KEPServerEX syntax for an EM bank is `E0_100`, and a permissively
   licensed Python FINS client validates the simulator over UDP and TCP.
 - **Done:** we followed PTC's *Omron FINS Ethernet Driver* manual (v1.083) for the syntax. It writes

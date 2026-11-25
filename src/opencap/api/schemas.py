@@ -58,6 +58,8 @@ class Health(_Open):
     saf_queue: int
     channels: int
     devices: DeviceStates
+    initial_scan_complete: bool | None = None   # every enabled device finished one cycle (or is offline/demoted)
+    initial_scan_ms: int | None = None          # process start to that moment; null until then
     opcua_server: OpcUaServerHealth | None = None   # only when poller.yaml enables the OPC UA server
 
 
@@ -124,6 +126,48 @@ class ReloadResult(_Open):
 
 class AuthInfo(BaseModel):
     open: bool
+
+
+class Live(BaseModel):
+    status: str
+
+
+class Ready(BaseModel):
+    ready: bool
+    waiting: list[str]     # ids of the enabled devices that have not finished a first cycle
+    reason: str | None = None
+
+
+class About(BaseModel):
+    product: str
+    version: str
+    version_major: int
+    version_minor: int
+    version_patch: int
+    engine: str            # "python" or "rust"
+    api_versions: list[str]
+    config_schema_version: int
+
+
+class DriverInfo(BaseModel):
+    name: str
+    library: str | None = None
+    library_version: str | None = None
+
+
+class Toolchain(BaseModel):
+    python: str | None = None
+    rust: str | None = None
+    implementation: str | None = None
+
+
+class Support(About):
+    os: str
+    arch: str
+    toolchain: Toolchain
+    drivers: list[DriverInfo]
+    north_interfaces: list[str]
+    config_revision: str | None = None
 
 
 class Whoami(_Open):

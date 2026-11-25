@@ -1457,3 +1457,23 @@ reader of the KEPServerEX manual would expect:
 - **Not reproduced:** agent-level tag selection, custom templates, batching and payload-size splitting.
 - **Rust engine:** add `format` to its `PublishCfg` (schema already updated), dispatch in the MQTT plugin, and run the
   vectors in `tests/conformance/payload/iotgw/` (area `payload/iotgw`).
+
+### D-075 Readiness, about and support information (#123)
+
+- **Ready means "first cycle finished", not "good".** `GET /health/ready` is 200 when the config is loaded, the north
+  servers have been started and every enabled, polled device has finished one poll cycle with any outcome, or is
+  `demoted`. A device that is down therefore counts as ready once its first cycle failed (`offline`): the SCADA start
+  must not wait for a PLC that is switched off. A device that is not polled at all (disabled, bad plan) never
+  waits. MQTT connectivity is not part of readiness: the outbox absorbs a missing broker.
+- **Sticky.** Once ready the process stays ready until restart, and `initial_scan_ms` in `/health` is the time from
+  process start to that moment. A device added by a later reload does not turn a running service unready, so an
+  orchestrator never takes a working instance out of rotation because of an edit. The OPC UA server stays `Running`
+  throughout (clients may connect before readiness).
+- **`waiting` names device ids** (`<channel>/<device>`) on an open route, as the issue asks. Device ids come from the
+  config, so the API port stays on the loopback or VPN address (already the rule).
+- **`/api/v1/about` is open and carries no site data**; the full support summary is `GET /api/v1/support` (viewer
+  role) and `opencap info`, which share one builder. It lists the OS name and architecture, the toolchain and library
+  versions, the driver names, the enabled north interfaces and the config revision, and no IP address, host name,
+  path, user name or environment variable name. `opencap info` falls back to the build facts when the config cannot
+  be loaded. `version` is the package version (`0.1.0`), not `FIRM_VERSION` (`opencap-0.1.0`).
+- `info.version` of the OpenAPI contract moved to 1.2.0 (additive).

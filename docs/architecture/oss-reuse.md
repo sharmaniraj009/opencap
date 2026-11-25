@@ -62,8 +62,8 @@ policy-level summary, reconciled with it after #64.
 | Mitsubishi MC 3E/4E | — | — | — | Build: native (simple framing) |
 | Omron FINS | — | — | — | Build: native (#54); conformance harness `tests/helpers/fins_sim.py` + `docs/protocols/omron-fins.md` (#13) |
 | Beckhoff ADS | ads | MIT or Apache-2.0 (*verify*) | no | Evaluate |
-| DNP3 | opendnp3 (C++) | Apache-2.0 (*verify*; upstream archived) | no | Evaluate in the DNP3 spike |
-| DNP3 | stepfunc `dnp3` (Rust) | non-commercial licence (*verify*) | no | Avoid unless verified OSS |
+| DNP3 | opendnp3 (C++) | Apache-2.0 ([3.1.2](https://github.com/dnp3/opendnp3/blob/3.1.2/LICENSE); archived 2022) | yes (#14) | Not adopted (EOL C++, no C ABI); design reference allowed. Build: native Rust read subset ([ADR-0015](../adr/0015-dnp3-native-rust-subset.md)) |
+| DNP3 | stepfunc `dnp3` (Rust) | custom non-commercial licence ([1.8.0](https://github.com/stepfunc/dnp3/blob/1.8.0/LICENSE.txt); never OSS in any version) | yes (#14) | **Avoid** in every role, including as a test peer (its §2.6); do not read its source |
 | IEC 60870-5-104 | lib60870-C | GPL-3.0 or commercial | no | Isolated, or Build natively (IEC 104 spike) |
 | IEC 61850 MMS | libiec61850 | GPL-3.0 or commercial | no | Isolated only |
 | BACnet/IP | bacnet-stack | GPL-2.0 with linking exception (*verify*) | no | Evaluate in the BACnet spike |
@@ -94,6 +94,8 @@ policy-level summary, reconciled with it after #64.
 | IEC 104 test peer | c104 (Python, wraps lib60870) | GPL-3.0 (*verify*) | Test-only: installed in CI, never vendored or shipped |
 | S7 test server | python-snap7 server | MIT | Test-only |
 | Omron FINS client (validates `fins_sim`) | fins-driver 0.3.1 | MIT ([LICENSE at v0.3.1](https://github.com/indrarudianto/fins-driver/blob/v0.3.1/LICENSE), verified) | Test-only (FINS/UDP only: its "tcp" mode lacks the FINS/TCP header) |
+| DNP3 master/outstation peer (opendnp3) | yadnp3 3.2.1.5 | Apache-2.0 ([v3.2.1.5](https://github.com/f0rw4rd/opendnp3/blob/v3.2.1.5/LICENSE), verified #14) | Test-only (spike #14; `dev` extra in the DNP3 simulator issue) |
+| DNP3 master/outstation peer (pure Python) | dnp3py 0.6.0 | MIT ([v0.6.0](https://github.com/craigpnnl/dnp3py/blob/v0.6.0/LICENSE), verified #14) | Test-only (same) |
 | Docs site | mkdocs-material | MIT | Test-only (build tool) |
 | Python licence report | pip-licenses | MIT | Test-only |
 | MSI build | WiX Toolset | MS-RL (*verify*) | Build tool only; output is not encumbered (*verify*) |

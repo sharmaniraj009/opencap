@@ -11,8 +11,9 @@ With no token set the API refuses to start unless it is bound to a loopback addr
 then it is read-only and answers only requests addressed to localhost.
 
 Routes: runtime status (`/channels`, `/devices/...`, `POST /reload`; unversioned, kept for
-existing clients), the configuration API (`/api/v1/...`, see `config_api.py`) and the UI,
-a static bundle that uses only `/api/v1` (ADR-0010, `src/opencap/api/ui/`).
+existing clients), the configuration API (`/api/v1/...`, see `config_api.py`), the live-values
+WebSocket `/api/v1/ws` (`live.py`, authenticated in the handshake) and the UI, a static bundle
+that uses only `/api/v1` (ADR-0010, `src/opencap/api/ui/`).
 """
 
 from __future__ import annotations
@@ -33,13 +34,15 @@ from opencap.api.auth import Auth, AuthError, Principal
 from opencap.api.config_api import Unavailable, build_router
 from opencap.api.context import ApiContext
 from opencap.api.guard import ApiGuard
+from opencap.api.live import CONFLATE_S, PROTOCOL, LiveHub, live_endpoint
 from opencap.config.models import ApiCfg
 from opencap.config.store import ConfigError, ConfigStore
 
 if TYPE_CHECKING:
     from opencap.core.runtime import Poller
 
-API_VERSION = "1.0.0"     # the contract in api/openapi.json; additive changes bump the minor
+API_VERSION = "1.1.0"     # the contract in api/openapi.json; additive changes bump the minor
+LIVE_PATH = "/api/v1/ws"
 UI_DIR = Path(__file__).parent / "ui"
 # The UI has no inline script or style; Alpine.js runs as its CSP build (no eval).
 UI_HEADERS = {
@@ -94,6 +97,7 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
     app = FastAPI(title="opencap", version=API_VERSION, docs_url=None, redoc_url=None, openapi_url=None,
                   description="Admin and configuration API of opencap (contract: api/README.md).")
     app.state.ctx = ctx
+    app.state.live = LiveHub(poller)
     # Authenticate before any body is read, and cap body sizes (guard.py). Added before CORS, so
     # the CORS middleware sits outside it and answers preflight requests.
     app.add_middleware(ApiGuard, auth=auth)
@@ -174,6 +178,8 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
             raise HTTPException(status_code=400, detail=f"reload failed, old config kept: {exc}") from None
 
     app.include_router(build_router(), dependencies=auth_dep)
+    app.add_api_websocket_route(LIVE_PATH, live_endpoint)
+    _document_live(app)
 
     @app.get("/", include_in_schema=False)
     def root() -> Response:
@@ -185,3 +191,56 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
 
     app.mount("/ui", _UiFiles(directory=str(UI_DIR), html=True), name="ui")
     return app
+
+
+def _document_live(app: FastAPI) -> None:
+    """OpenAPI has no WebSocket operations: describe `GET /api/v1/ws` (the upgrade) by hand, with
+    the message schemas under `components.schemas` and an `x-websocket` block pointing to them."""
+    from pydantic.json_schema import models_json_schema
+
+    base = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        if app.openapi_schema is not None:
+            return app.openapi_schema
+        schema = base()
+        models = [*S.WS_CLIENT_MESSAGES, *S.WS_SERVER_MESSAGES]
+        _, top = models_json_schema([(m, "validation") for m in models], ref_template="#/components/schemas/{model}")
+        schema.setdefault("components", {}).setdefault("schemas", {}).update(top["$defs"])
+        ref = "#/components/schemas/{}".format
+        error = {"content": {"application/json": {"schema": {"$ref": ref("Error")}}}}
+        schema["paths"][LIVE_PATH] = {"get": {
+            "tags": ["live"],
+            "summary": "Live values (WebSocket)",
+            "operationId": "live_values_ws",
+            "description": (
+                "WebSocket upgrade: the Quick Client feed (#31). Authenticated in the handshake with the REST "
+                "API's tokens: `Authorization: Bearer <token>`, or for browsers the subprotocol "
+                f"`opencap.bearer.<base64url(token)>` offered next to `{PROTOCOL}`; the server selects "
+                f"`{PROTOCOL}`. A browser `Origin` must be the API's own origin or listed in `api.cors_origins`. "
+                "The client sends `WsSubscribe`; the server answers `WsSubscribed`, then a `snapshot` of each "
+                "device and conflated `changes` (at most one message per device per `conflate_ms`), "
+                "`unavailable` for a device that is not polled, `error` for a message it cannot use. A client "
+                "that falls behind gets fresh snapshots instead of a backlog."),
+            "parameters": [{"name": "Sec-WebSocket-Protocol", "in": "header", "required": False,
+                            "schema": {"type": "string"},
+                            "description": f"`{PROTOCOL}`, optionally `opencap.bearer.<base64url(token)>`"}],
+            "responses": {
+                "101": {"description": f"Switching Protocols: a WebSocket speaking `{PROTOCOL}` (JSON text frames)"},
+                "400": {**error, "description": f"subprotocols offered without `{PROTOCOL}`"},
+                "401": {**error, "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"},
+                "403": {**error, "description": "origin not allowed, or open mode reached through a non-loopback "
+                                                "host name"},
+                "503": {**error, "description": "too many live connections"},
+            },
+            "x-websocket": {
+                "subprotocol": PROTOCOL,
+                "conflate_ms": round(CONFLATE_S * 1000),
+                "client_messages": {"oneOf": [{"$ref": ref(m.__name__)} for m in S.WS_CLIENT_MESSAGES]},
+                "server_messages": {"oneOf": [{"$ref": ref(m.__name__)} for m in S.WS_SERVER_MESSAGES]},
+            },
+        }}
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]

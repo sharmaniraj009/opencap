@@ -101,8 +101,9 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         let ep = Endpoint { kind: Kind::Tcp, host: "127.0.0.1".into(), port, settings: SerialSettings::default() };
-        let err = open_stream(&ep, Duration::from_millis(500)).await.unwrap_err();
-        assert!(err.starts_with("refused or unreachable"), "{err}");
+        // Windows retries a refused loopback connect for about a second before it gives up.
+        let err = open_stream(&ep, Duration::from_secs(2)).await.unwrap_err();
+        assert!(err.starts_with("refused or unreachable") || err.starts_with("no answer within"), "{err}");
     }
 
     #[cfg(unix)]

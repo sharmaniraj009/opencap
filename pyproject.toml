@@ -47,4 +47,5 @@ pythonpath = ["."]
 markers = [
     "real_project: needs the real KEPServer export at tests/fixtures/project.json (skipped when absent)",
     "acceptance: end-to-end phase acceptance run (slower; OPENCAP_OUTAGE_S sets the broker outage)",
+    "drivers(*names): PLC drivers the test polls; with --engine=rust it is skipped as 'driver not ported' until the binary implements them",
 ]

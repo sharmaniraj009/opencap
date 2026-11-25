@@ -22,6 +22,7 @@ cargo build --release
 ./target/release/opencap-engine read   "Plant A/PLC1" --config ../config  # one read, no MQTT
 ./target/release/opencap-engine identity "Plant A/PLC1" --config ../config
 ./target/release/opencap-engine run    --config ../config [--site NAME]   # poll, publish, serve the API
+./target/release/opencap-engine drivers                                    # drivers this build implements (JSON)
 ```
 
 `SIGTERM`/`SIGINT` stop cleanly (the link publishes `offline`, the outbox stays on disk);
@@ -41,7 +42,7 @@ requests to `localhost` (D-062).
 | `drivers/modbus_tcp` (`opencap-driver-modbus-tcp`) | Modbus TCP: address parser, block planner, decoder, tokio-modbus I/O |
 | `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
-| `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity` |
+| `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity`, `drivers` |
 
 ## Drivers and Cargo features
 
@@ -82,10 +83,14 @@ Conformance against the Python reference (from the repository root, after `cargo
 
 ```bash
 .venv/bin/pytest tests/unit/test_payload_golden.py tests/integration/test_rust_engine_cli.py \
-                 tests/integration/test_rust_engine_outbox.py tests/integration/test_rust_engine_api.py
-OPENCAP_ENGINE=rust .venv/bin/pytest -m acceptance tests/integration/test_phase1_acceptance.py -s
+                 tests/integration/test_rust_engine_outbox.py tests/integration/test_rust_engine_api.py \
+                 tests/integration/test_engine_harness.py
+OPENCAP_ENGINE=rust .venv/bin/pytest -m acceptance -ra     # every acceptance suite, Rust engine
 ```
 
 `OPENCAP_ENGINE_BIN` points the tests at a specific binary (default: `target/release`, then
-`target/debug`). The payload golden file in `crates/opencap-north/tests/golden/` is generated
+`target/debug`, with a warning that it may be stale). With `OPENCAP_ENGINE=rust`, a suite whose
+drivers (`@pytest.mark.drivers(...)`) this build does not implement is skipped as "driver not
+ported", and the run ends with a "Rust port gap" table (also written to the GitHub job summary
+by the `acceptance-rust` CI job, D-069). The payload golden file in `crates/opencap-north/tests/golden/` is generated
 by the Python engine (`python -m tests.helpers.payload_golden`).

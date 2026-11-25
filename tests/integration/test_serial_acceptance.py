@@ -36,7 +36,8 @@ from tests.helpers.pccc_sim import tables_for
 from tests.helpers.pty_bridge import PtyBridge, needs_pyserial
 from tests.integration.test_ab_df1_sim import PATTERN_TAGS
 
-pytestmark = pytest.mark.acceptance
+# --engine=rust: skipped as "driver not ported" until the binary implements ab_df1, modbus_rtu
+pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("ab_df1", "modbus_rtu")]
 
 INTERVAL_MS = 2000
 SMALL_TAGS = [Tag(name="FLOW", address="F34:3", dtype="float32"), Tag(name="LEVEL", address="N54:17", dtype="uint16"),

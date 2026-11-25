@@ -488,7 +488,7 @@ uninstall removes the service but keeps config and data.
 | CLI parity | `check -v` (every block of every device, warnings, rate groups, invalid-tag reasons, load) and `read` against live simulators: identical stdout and exit codes | `tests/integration/test_rust_engine_cli.py` |
 | Outbox interchange | a Python-written outbox drains from the Rust engine in order; a Rust-written outbox is read by Python | `tests/integration/test_rust_engine_outbox.py` |
 | API and reload | bearer auth on every protected route, open `/health` and `/metrics`, 404 texts, refusal of a public bind without a token, `POST /reload` and SIGHUP restart only the changed channels, an invalid config keeps the old one; named tokens and roles, read-only loopback-only open mode, 401 before the body and the 1 MiB cap, run against both engines (D-062) | `tests/integration/test_rust_engine_api.py` |
-| Acceptance | every acceptance suite with `--engine=rust` / `OPENCAP_ENGINE=rust`; today Phase 1 runs (30 simulated Modbus devices, 1,590 tags: publish interval, payload values, kill-one demotion and resume, API, network outage with no loss) and the suites for drivers not ported yet (Phase 2 `ab_logix`, Phase 3 `ab_pccc`, serial, S7/MC, OPC UA) skip as "driver not ported" (D-066) | the existing suites, through `tests/helpers/engine.py` |
+| Acceptance | every acceptance suite with `--engine=rust` / `OPENCAP_ENGINE=rust`; today Phase 1 runs (30 simulated Modbus devices, 1,590 tags: publish interval, payload values, kill-one demotion and resume, API, network outage with no loss) and the suites for drivers not ported yet (Phase 2 `ab_logix`, Phase 3 `ab_pccc`, serial, S7/MC, OPC UA) skip as "driver not ported" (D-069) | the existing suites, through `tests/helpers/engine.py` |
 
 The adapter (`tests/helpers/engine.py`) gives the test the same `Poller` surface for both
 engines: it starts the binary with the test's config directory, answers `device_detail`,
@@ -500,7 +500,7 @@ CI (`.github/workflows/rust-engine.yml`): `cargo fmt --check`, `cargo build`, `c
 -D warnings`, `cargo test`, `cargo deny check licenses bans sources`; then the conformance
 job builds the binary and runs the golden, CLI, outbox, API/reload and harness tests against
 it, and the `acceptance-rust` job builds the release binary and runs every acceptance suite
-against it (on pull requests and nightly), with the port gap in the job summary (D-066); a
+against it (on pull requests and nightly), with the port gap in the job summary (D-069); a
 Windows build-and-test job is informational until #35.
 
 Not yet covered, and where it goes: conformance **vectors** for Modbus planning/decoding,

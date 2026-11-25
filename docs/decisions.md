@@ -883,7 +883,7 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
 - **Rust engine:** not part of this change; it has to serve the same `x-websocket` contract (the dual-engine suite,
   #42, can reuse `tests/unit/test_live_api.py`'s message checks).
 
-### D-066 Engine-agnostic acceptance suites and the Rust port gap (#42)
+### D-069 Engine-agnostic acceptance suites and the Rust port gap (#42)
 Builds on #64's harness (`engine_factory`, `OPENCAP_ENGINE_BIN`, names kept). ADR-0014 §3:
 an acceptance suite reaches an engine only through its config directory, API, CLI, log and
 the wire.

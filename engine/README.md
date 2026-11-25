@@ -92,5 +92,5 @@ OPENCAP_ENGINE=rust .venv/bin/pytest -m acceptance -ra     # every acceptance su
 `target/debug`, with a warning that it may be stale). With `OPENCAP_ENGINE=rust`, a suite whose
 drivers (`@pytest.mark.drivers(...)`) this build does not implement is skipped as "driver not
 ported", and the run ends with a "Rust port gap" table (also written to the GitHub job summary
-by the `acceptance-rust` CI job, D-066). The payload golden file in `crates/opencap-north/tests/golden/` is generated
+by the `acceptance-rust` CI job, D-069). The payload golden file in `crates/opencap-north/tests/golden/` is generated
 by the Python engine (`python -m tests.helpers.payload_golden`).

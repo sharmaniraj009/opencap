@@ -288,7 +288,7 @@ poll mechanism (p. 219–220).
 - **Decision:** Adapt: a read-only catalogue of opencap drivers with their `params` schema, address syntax
   examples and supported dtypes, generated from the drivers themselves (today `params` is an open object and
   the rules are in `docs/driver_params.md`; `/project/status` lists only driver names).
-- **Status:** Not started
+- **Status:** Done in the Python engine (#129); Rust with API-35
 - **Requirements:**
   - `GET /api/v1/drivers` (viewer) lists every implemented driver with `name`, `transport` and whether it
     supports identity and browse.
@@ -303,7 +303,7 @@ poll mechanism (p. 219–220).
 - **Decision:** Adapt: query parameters on the list routes: `q` (case-insensitive substring of name and
   description), plus `sort` and `order=asc|desc` on documented fields. `GET /api/v1/devices?channel=` and the
   audit filters already exist. Large devices (thousands of Logix tags) make this matter for the UI.
-- **Status:** Not started
+- **Status:** Done in the Python engine (#129); Rust with API-35
 - **Requirements:**
   - `GET /api/v1/channels`, `/devices` and `/devices/{id}/tags` accept `q`; only matching items are returned,
     and `revision` is still the whole config's revision.
@@ -318,7 +318,7 @@ poll mechanism (p. 219–220).
 - **Decision:** Adapt: `limit` and `offset`, as `/api/v1/audit` already does, with `total` next to the
   list in the response object (no metadata mixed into the array). Without paging parameters the whole
   collection is returned, as today.
-- **Status:** Not started
+- **Status:** Done in the Python engine (#129); Rust with API-35
 - **Requirements:**
   - The list routes of API-17 accept `limit` (1–10000) and `offset` (≥ 0) and return `total`, `limit` and
     `offset` alongside the list; out-of-range values get 422.
@@ -599,9 +599,9 @@ poll mechanism (p. 219–220).
 | API-13 | Transaction log of configuration changes (audit) | Adapt | Done | #63 | M1 |
 | API-14 | Records of refused requests | Adapt | Done (Python, #135) | #135 | M5 |
 | API-15 | Content retrieval: response shapes and definitions | Adapt | Done | #63 | M1 |
-| API-16 | Driver catalogue | Adapt | Planned (#129) | #129 | M3 |
-| API-17 | Filtering and sorting collections | Adapt | Planned (#129) | #129 | M3 |
-| API-18 | Paging collections | Adapt | Planned (#129) | #129 | M3 |
+| API-16 | Driver catalogue | Adapt | Done (Python, #129) | #129 | M3 |
+| API-17 | Filtering and sorting collections | Adapt | Done (Python, #129) | #129 | M3 |
+| API-18 | Paging collections | Adapt | Done (Python, #129) | #129 | M3 |
 | API-19 | Localised responses | Out of scope | Out of scope | — | — |
 | API-20 | Server (node) settings through the API | Adapt | Planned (#132) | #132 | M4 |
 | API-21 | Creating objects: single, several, with children | Adapt | Done | #63 | M1 |

@@ -348,7 +348,7 @@ def test_validation_errors_are_422_with_locations(env):
     r = c.post(f"{DEV_PATH}/tags", json={"name": "X", "address": "400001", "dtype": "float99"}, headers=admin_w(c))
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["dtype"]
     r = c.patch(DEV_PATH, json={"params": {"max_holding": 0}}, headers=admin_w(c))
-    assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["params"]
+    assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["params", "max_holding"]
     r = c.post(f"{V1}/channels/SITE MODBUS/devices", json={"name": "tags", "driver": "modbus_tcp", "host": "192.0.2.1",
                                                             "port": 502}, headers=admin_w(c))
     assert r.status_code == 422 and "reserved" in r.json()["detail"][0]["msg"]

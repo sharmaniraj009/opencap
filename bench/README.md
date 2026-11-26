@@ -105,7 +105,7 @@ of the window. This was reported on #120. Engine code is out of scope here. It s
 
 The system tags now read plain per-device totals kept beside the counters (no registry
 collection). An event step computes only the devices that finished a cycle and their channels.
-The once-per-second tick computes every tag but writes only the changed ones (D-090).
+The once-per-second tick computes every tag but writes only the changed ones (D-095).
 
 Measured on one 4-vCPU container (Intel Xeon @ 2.1 GHz, Python 3.12.3), not the standard
 runner, so compare the columns with each other rather than with the tables above. Before is

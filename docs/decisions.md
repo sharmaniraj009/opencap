@@ -1873,7 +1873,7 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Rust:** its loader reads v1 only. Follow-up #186: load `project.json` + `node.yaml` with the same finalize
   steps, and the shared config fixtures for the `project` and `node` documents.
 
-### D-090 System tags cost what changed, not O(devices²) (#238)
+### D-095 System tags cost what changed, not O(devices²) (#238)
 - **Counters:** `opencap.metrics` keeps plain per-device totals beside the Prometheus counters.
   Code counts through `count_request`, `count_failed_read`, `count_overrun`, `count_published`
   and `count_saf_dropped`, never `.inc()` on those metrics (a test scans the source). The system

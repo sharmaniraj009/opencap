@@ -89,6 +89,7 @@ KEP_S7 = "Siemens TCP/IP Ethernet"
 KEP_MELSEC = "Mitsubishi Ethernet"
 KEP_OPCUA = "OPC UA Client"
 KEP_DF1 = "Allen-Bradley DF1"
+KEP_FINS = "Omron FINS Ethernet"
 KEP_SIMULATOR = "Simulator"
 KEP_MQTT = "MQTT Client"
 KEP_UCON = "U-CON (user-configurable)"
@@ -756,6 +757,38 @@ def _map_df1(ch: dict, dev: dict, dev_id: str) -> _Mapped:
     return _Mapped("ab_df1", com or "", 0, params, source=source, problems=problems)
 
 
+def _fins_prop(dev: dict, suffix: str) -> Any:
+    """A KEPServerEX Omron FINS device property by the end of its key (the driver prefix in
+    project.json is not verified: no FINS export here, docs/decisions.md)."""
+    for key, value in dev.items():
+        if isinstance(key, str) and key.upper().endswith(suffix):
+            return value
+    return None
+
+
+def _map_fins(ch: dict, dev: dict, dev_id: str) -> _Mapped:
+    problems: list[str] = []
+    host, rest = _host_and_rest(dev, dev_id, problems)
+    if rest:
+        problems.append(f"{dev_id}: ignored {rest!r} after the host in DEVICE_ID_STRING")
+    params: dict[str, Any] = {"transport": "udp"}          # KEPServerEX's FINS driver is UDP only
+    model_raw = dev.get(K_MODEL)
+    model = next((m for m in ("CS1", "CJ1", "CJ2") if isinstance(model_raw, str) and m in model_raw.upper()), None)
+    params["model"] = model or "CJ1"
+    if model is None:
+        problems.append(f"{dev_id}: Omron model {model_raw!r} not recognised; set to CJ1, confirm (CS1, CJ1 or CJ2)")
+    for key, suffix in (("dest_network", "DESTINATION_NETWORK"), ("dest_node", "DESTINATION_NODE"),
+                        ("dest_unit", "DESTINATION_UNIT"), ("src_network", "SOURCE_NETWORK"),
+                        ("src_node", "SOURCE_NODE"), ("request_size", "REQUEST_SIZE")):
+        value = _int(_fins_prop(dev, suffix))
+        if value is not None:
+            params[key] = value
+    problems.append(f"{dev_id}: Omron FINS properties read by key suffix (not verified against a real export); "
+                    "check dest_node, src_node and request_size before go-live")
+    port = _int(_fins_prop(dev, "PORT_NUMBER"), 9600) or 9600
+    return _Mapped("omron_fins", host, port, params, problems=problems)
+
+
 DRIVER_MAPPERS = {
     KEP_MODBUS: _map_modbus,
     KEP_MICRO800: _map_micro800,
@@ -764,6 +797,7 @@ DRIVER_MAPPERS = {
     KEP_MELSEC: _map_melsec,
     KEP_OPCUA: _map_opcua,
     KEP_DF1: _map_df1,
+    KEP_FINS: _map_fins,
 }
 
 

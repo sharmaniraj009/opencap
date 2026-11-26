@@ -971,6 +971,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencap-driver-omron-fins"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "opencap-core",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "opencap-driver-s7"
 version = "0.1.0"
 dependencies = [
@@ -991,6 +1003,7 @@ dependencies = [
  "opencap-driver-melsec-mc",
  "opencap-driver-modbus-rtu",
  "opencap-driver-modbus-tcp",
+ "opencap-driver-omron-fins",
  "opencap-driver-s7",
 ]
 

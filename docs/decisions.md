@@ -971,6 +971,45 @@ the wire.
 - **CI:** Phase 1 on the debug binary moved out of the `conformance` job into `acceptance-rust`
   (release build, every suite); the workflow also runs nightly at 02:41 UTC. The Python
   acceptance run stays in `ci.yml` (nightly, Python 3.12 and 3.13).
+### D-087 Staged project imports: the KEPServerEX import wizard (#33)
+
+- **Flow:** `POST /api/v1/project/import?stage=true` runs the importer and keeps its output; the answer is the
+  report plus `import_id`, `created_at` and `expires_at`. `GET /api/v1/project/import/{id}` returns the report again,
+  `POST …/{id}/apply` writes it (`If-Match` is the report's `revision`, 412 when the config changed since; `?apply=true`
+  reloads, as on every write, D-039), and `DELETE …/{id}` discards it. The existing dry-run and apply calls of
+  `/project/import` are unchanged. Staging, reading, applying and discarding need the admin role (engineer/admin once
+  RFC 0005 lands).
+- **Deviation: the upload is the raw JSON body, not `multipart/form-data`.** It is the body `/project/import` already
+  takes (`curl --data-binary @project.json -H 'Content-Type: application/json'`). Multipart would add
+  `python-multipart` and a form parser to carry one JSON file. The guard caps the body at 64 MiB while it streams, and
+  a non-JSON `Content-Type` is refused, as before. Bearer-only auth means a cross-site form post cannot authenticate.
+- **What is staged is the importer's output, never the export.** The upload is written as a 0600 temporary copy in the
+  staging directory, read by `import_kep` (unchanged) and deleted before the answer goes out. `staged.json` holds the
+  generated `devices.json` document, the importer summary and notes, and the report. Credentials are replaced by
+  env-var names exactly as the CLI importer does (D-010), so none of them is ever at rest. `apply` installs that output
+  through the same transaction as a direct import (`ConfigStore.apply_staged` -> `_import_kep`: atomic write, new
+  revision, audit `config.import_kep`); a test checks that the files equal a direct import's.
+- **Where:** `<config dir>/.import-staging/<32 hex>/` with mode 0700 on both directories and 0600 on the file, never the
+  system temp dir; the revision hashes only the four config files, so staging does not change it. A config directory
+  the API cannot write answers 503 (an import could not be applied there anyway). Ids are random 128-bit values and
+  are checked against `^[0-9a-f]{32}$` before any path is built.
+- **Expiry:** removed after apply or discard, or one hour after staging: checked on every staging call, by a timer
+  (`loop.call_later`) while the API runs, and at the next call after a restart. A directory without a readable
+  `staged.json` (a crash mid-upload) expires by its age.
+- **Report additions (additive, contract 1.3.0):** `excluded_devices` (channel, device, KEPServerEX driver, tags,
+  reason: from `devices_file.excluded`) and `same_address` (the D-011 report, at most 500 rows) join
+  `import_summary` (devices and tags per driver, exclusions by reason).
+- **UI:** the Import page is a wizard. Upload, then review: devices per driver, devices not imported with reasons,
+  same-address groups (suspects highlighted), the changes to the configuration, importer notes. Then apply or discard.
+  New devices' stub `devices_map` entries (`stub: true`) are highlighted, and Apply stays disabled until the user
+  ticks that they will confirm those SubDeviceIds. The environment variables to set for credentials that were not
+  copied get their own box. Leaving the page does not lose the review: the staged id is kept in the tab's
+  `sessionStorage`, and the wizard reopens it (until it expires). Mapping KEPServerEX COM ports to local serial
+  ports (plan UI-14, step 3) is not part of #33; it is a follow-up. Every visible string of the wizard is in `src/opencap/api/ui/i18n/en.json` (`import.*`, #235).
+- **Privacy test:** `tests/unit/test_import_wizard.py` puts unique markers in every username, password and endpoint
+  user-info field of a synthetic export, then searches every response, every structlog event and logging record,
+  every file under the test directory while the import is staged and after it is applied, and the system temp dir.
+  None of the markers may appear. Mutation check: keeping the raw upload in `staged.json` fails it.
 
 ## S7 and MELSEC MC drivers
 
@@ -1798,3 +1837,38 @@ produced once the outbox drains, then every frozen message must reach the subscr
   ReportEventW. Only start, stop and a fatal error are written there; the JSON log has the rest.
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
+
+### D-089 Project v2, part 1: what moves into `project.json`, and when the layering runs (#37)
+- **Split:** #37 ships in two PRs. Part 1 is the v2 layout, the loader, `opencap config migrate` and
+  `import-kep --format v2`. Part 2 is the `ProjectStore` protocol, the v2 store (revision counter,
+  `.revisions/`) and the v1 compatibility routes.
+- **`project.json`** is a `DevicesFile` with `"version": 2` and `revision`. It holds the devices as v1 layering
+  leaves them: `overrides.yaml` device, params and tag fields, channel `enabled`, publish settings from devices.json,
+  map `defaults`, overrides and map entries, and mapped `serial_ports`. It is written in `devices.json`'s format (one
+  tag per line, nulls left out). **Not** baked in: a default topic (it would stop following `mqtt.topic_prefix`) and
+  the "unmapped serial line → disabled" rule. Both are finalize steps that the v2 loader applies on every load, as v1
+  does. An unmapped line therefore stays `transport: unmapped`, `enabled: true` in the file and is disabled with a
+  warning when loaded.
+- **`node.yaml`** is `poller.yaml` copied byte for byte, comments included. `NodeConfig` has exactly
+  `PollerConfig`'s fields: ADR-0013 puts north agents in the project, but they are MQTT and OPC UA settings in
+  `poller.yaml` until ADR-0005's north plug-in model exists. Without `node.yaml` the v2 loader reads `poller.yaml`
+  and warns.
+- **Naming rules:** a name segment starting with `_` and the other PRJ-13 naming problems are warnings in v1 and
+  **errors** in a project v2 (system-tags spec 3.2), so a v1 project that breaks them cannot be migrated until the
+  names are fixed (migrate refuses, nothing written). `name` and `title` in `project.json` feed the system tags
+  `_ProjectName` (default: the directory name, as in v1) and `_ProjectTitle`.
+- **Lost on purpose:** `devices_map.yaml`'s `stub: true` flag has no v2 field. `config migrate` reports the stub
+  list once, among the v1 warnings, and the SubDeviceIds go in as given.
+- **Safety:** `config migrate` loads the would-be v2 files from a scratch directory first. Every `Device`, channel
+  (name, enabled), the excluded list and the node settings must equal the v1 load, or nothing is written. It writes
+  `node.yaml`, then `project.json` (atomic). A crash before `project.json` leaves a directory that still loads as v1;
+  running migrate again finishes the job. The v1 files are then **moved** to `config/v1-backup/` (or `-2`, `-3`...),
+  never deleted, so they stop producing "ignored" warnings.
+- **`import-kep --format v2`** runs today's import, with the same stub-append and overrides-template rules, and then
+  migrates. Both formats refuse a directory that already has a `project.json`: a re-import into v2 is the three-way
+  merge follow-up.
+- **Config API on v2, until part 2:** every `ConfigStore` route answers 409, because the v1 files it would edit are
+  gone or ignored. `load_disk()` (the reload-pending tracker) loads v2 through the loader, so status, values and
+  reload keep working. The revision is then a hash of `project.json` and `node.yaml`.
+- **Rust:** its loader reads v1 only. Follow-up #186: load `project.json` + `node.yaml` with the same finalize
+  steps, and the shared config fixtures for the `project` and `node` documents.

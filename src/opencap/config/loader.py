@@ -7,7 +7,12 @@
 - `overrides.yaml`    optional, hand fixes per channel / device / tag
 - `devices_map.yaml`  optional, SubDeviceId / topic / env per device
 
-and returns validated models. Order of application for a device:
+and returns validated models. That is the v1 layout. A **project v2** (ADR-0013, #37) is used instead
+when `project.json` exists: `project.json` (channels, devices, tags, with everything below already
+applied) plus `node.yaml` (the node settings, `poller.yaml`'s fields); v1 files beside it are ignored
+with a warning. `opencap config migrate` writes v2 from v1 (`config/migrate.py`).
+
+Order of application for a v1 device:
 
 1. `devices.json`
 2. `overrides.yaml` device fields, `params` (dict merge) and per-tag fields
@@ -18,6 +23,10 @@ and returns validated models. Order of application for a device:
 5. serial drivers (`ab_df1`, `modbus_rtu`) still at `transport: unmapped` -> `overrides.yaml`
    `serial_ports[<params.com_port>]` sets transport, host and port; with no mapping the device is
    disabled with a warning (it cannot be reached). The resulting endpoint is validated.
+
+Steps 4 and 5's "still unmapped -> disabled" (plus the SubDeviceId and duplicate warnings) are the
+*finalize* steps: they run for v2 too, on `project.json` as written. Steps 1-3 and the `serial_ports`
+mapping are v1 *layering*: for v2 they happen once, at migrate or import time.
 
 Unknown channel names, device ids and tag names in `overrides.yaml` / `devices_map.yaml`
 are warnings, not errors. Invalid values are errors (pydantic `ValidationError`).
@@ -44,7 +53,9 @@ from opencap.config.models import (
     DevicesFile,
     ExcludedDevice,
     Overrides,
+    NodeConfig,
     PollerConfig,
+    ProjectV2,
     PublishCfg,
 )
 
@@ -52,6 +63,9 @@ POLLER_FILE = "poller.yaml"
 DEVICES_FILE = "devices.json"
 MAP_FILE = "devices_map.yaml"
 OVERRIDES_FILE = "overrides.yaml"
+PROJECT_FILE = "project.json"          # project v2 (ADR-0013)
+NODE_FILE = "node.yaml"
+V1_FILES = (POLLER_FILE, DEVICES_FILE, MAP_FILE, OVERRIDES_FILE)
 
 _LIST_LIMIT = 5          # ids listed in an aggregate warning
 _PUBLISH_FIELDS = set(PublishCfg.model_fields)
@@ -72,6 +86,8 @@ class LoadedConfig:
     channels: list[Channel]
     excluded: list[ExcludedDevice] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    project_name: str | None = None      # project v2 `name` (system tag _ProjectName); None = directory name
+    project_title: str = ""              # project v2 `title` (system tag _ProjectTitle)
 
 
 def slug(s: str) -> str:
@@ -153,8 +169,10 @@ def _serial_mapping(ports: dict[str, str], com: Any) -> tuple[str, str] | None:
     return None
 
 
-def _resolve_serial(dev: dict[str, Any], ports: dict[str, str], used: set[str], warnings: list[str]) -> None:
-    """Map an unmapped serial device's COM port (overrides.yaml serial_ports), or disable it."""
+def _resolve_serial(dev: dict[str, Any], ports: dict[str, str], used: set[str], warnings: list[str],
+                    *, disable_unmapped: bool = True) -> None:
+    """Map an unmapped serial device's COM port (overrides.yaml serial_ports), or disable it
+    (`disable_unmapped=False`: leave it unmapped, the v2 loader disables it at load time)."""
     from opencap.drivers._serial import parse_port_mapping
 
     params = dev.setdefault("params", {})
@@ -163,6 +181,8 @@ def _resolve_serial(dev: dict[str, Any], ports: dict[str, str], used: set[str], 
     com = params.get("com_port")
     hit = _serial_mapping(ports, com)
     if hit is None:
+        if not disable_unmapped:
+            return
         if dev.get("enabled", True):
             where = com or "its serial port"
             warnings.append(
@@ -191,7 +211,36 @@ def _check_serial_endpoint(device: Device) -> None:
         raise ValueError(f"{device.id}: {exc}") from None
 
 
+def _duplicate_warnings(devices: list[Device]) -> list[str]:
+    out: list[str] = []
+    for what, attr in (("MQTT topic", "topic"), ("SubDeviceId", "sub_device_id")):
+        users: dict[str, list[str]] = {}
+        for d in devices:
+            value = getattr(d.publish, attr)
+            if value:
+                users.setdefault(value, []).append(d.id)
+        for value, ids in users.items():
+            if len(ids) > 1:
+                out.append(f"{what} {value!r} is used by {len(ids)} devices: {_ids(ids)}")
+    return out
+
+
+def is_v2(config_dir: Path) -> bool:
+    """True when `config_dir` holds a project v2 (`project.json`)."""
+    return (Path(config_dir) / PROJECT_FILE).exists()
+
+
 def load_config(config_dir: Path) -> LoadedConfig:
+    """Load the config directory: project v2 if `project.json` exists, else the v1 layout."""
+    config_dir = Path(config_dir)
+    if is_v2(config_dir):
+        return load_v2(config_dir)
+    return load_v1(config_dir)
+
+
+def load_v1(config_dir: Path, *, for_project: bool = False) -> LoadedConfig:
+    """The v1 layout. `for_project=True` stops after layering (no default topics, unmapped serial
+    devices left as they are): the channels `opencap config migrate` writes into `project.json`."""
     config_dir = Path(config_dir)
     warnings: list[str] = []
 
@@ -261,11 +310,12 @@ def load_config(config_dir: Path) -> LoadedConfig:
                     publish[key] = value
             dev["publish"] = publish
             if dev.get("driver") in SERIAL_DRIVERS:
-                _resolve_serial(dev, overrides.serial_ports, serial_used, warnings)
+                _resolve_serial(dev, overrides.serial_ports, serial_used, warnings,
+                                disable_unmapped=not for_project)
             new = Device.model_validate(dev)
             if new.driver in SERIAL_DRIVERS:
                 _check_serial_endpoint(new)
-            if new.publish.topic is None:
+            if new.publish.topic is None and not for_project:
                 new.publish.topic = default_topic(new, poller.mqtt.topic_prefix)
             devices.append(new)
         channels.append(Channel(name=ch.name, enabled=ch_enabled, devices=devices))
@@ -283,16 +333,7 @@ def load_config(config_dir: Path) -> LoadedConfig:
             f"confirm before go-live: {_ids(stubs)}"
         )
 
-    all_devices = [d for c in channels for d in c.devices]
-    for what, attr in (("MQTT topic", "topic"), ("SubDeviceId", "sub_device_id")):
-        users: dict[str, list[str]] = {}
-        for d in all_devices:
-            value = getattr(d.publish, attr)
-            if value:
-                users.setdefault(value, []).append(d.id)
-        for value, ids in users.items():
-            if len(ids) > 1:
-                warnings.append(f"{what} {value!r} is used by {len(ids)} devices: {_ids(ids)}")
+    warnings += _duplicate_warnings([d for c in channels for d in c.devices])
 
     if devices_file.version < 2:      # names starting with '_' are an error from v2 on (spec 3.2)
         warnings += [f"{DEVICES_FILE}: {text}; names starting with '_' are reserved for system tags"
@@ -313,3 +354,77 @@ def load_config(config_dir: Path) -> LoadedConfig:
         excluded=list(validated.excluded),
         warnings=warnings,
     )
+
+
+# --- project v2 (ADR-0013) ----------------------------------------------------
+
+def load_project(path: Path) -> ProjectV2:
+    """Parse and validate `project.json`."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: invalid JSON: {exc}") from exc
+    if isinstance(data, dict) and data.get("version") != 2:
+        raise ValueError(f"{path}: version {data.get('version')!r}, a project v2 needs \"version\": 2")
+    return ProjectV2.model_validate(data)
+
+
+def load_v2(config_dir: Path) -> LoadedConfig:
+    """Project v2: `project.json` as written plus `node.yaml`, then the finalize steps."""
+    config_dir = Path(config_dir)
+    warnings: list[str] = []
+    node_path, poller_path = config_dir / NODE_FILE, config_dir / POLLER_FILE
+    if node_path.exists():
+        node = NodeConfig.model_validate(_read_yaml(node_path))
+        if poller_path.exists():
+            warnings.append(f"{POLLER_FILE} ignored: {NODE_FILE} holds the node settings of a project v2")
+    else:
+        node = NodeConfig.model_validate(_read_yaml(poller_path))
+        if poller_path.exists():
+            warnings.append(f"{NODE_FILE} is missing, read {POLLER_FILE} instead; rename it to {NODE_FILE}")
+    for name in (DEVICES_FILE, MAP_FILE, OVERRIDES_FILE):
+        if (config_dir / name).exists():
+            warnings.append(f"{name} ignored: {PROJECT_FILE} is the project (v2)")
+    return finalize_project(load_project(config_dir / PROJECT_FILE), node, warnings)
+
+
+def finalize_project(project: ProjectV2, node: PollerConfig, warnings: list[str] | None = None) -> LoadedConfig:
+    """The load-time steps a project v2 shares with v1: unmapped serial devices disabled, serial
+    endpoints checked, default topics, SubDeviceId and duplicate warnings. `project` is not changed."""
+    warnings = list(warnings or [])
+    problems = underscore_names(project.channels) + [text for _, text in name_rule_problems(project.channels)]
+    if problems:                      # warnings in v1, errors in a project v2 (system-tags spec 3.2, PRJ-13)
+        shown = "; ".join(problems[:_LIST_LIMIT]) + (f"; ... (+{len(problems) - _LIST_LIMIT} more)"
+                                                      if len(problems) > _LIST_LIMIT else "")
+        raise ValueError(f"{PROJECT_FILE}: {shown}. In a project v2 the naming rules are errors and names "
+                         "starting with '_' are reserved for system tags")
+    channels: list[Channel] = []
+    for ch in project.channels:
+        devices: list[Device] = []
+        for device in ch.devices:
+            new = device.model_copy(deep=True)
+            if new.driver in SERIAL_DRIVERS:
+                transport = str(new.params.get("transport") or "tcp").strip().lower()
+                if transport == "unmapped":
+                    if new.enabled:
+                        com = new.params.get("com_port")
+                        warnings.append(
+                            f"{new.id}: {com or 'its serial port'} is not mapped to a transport (transport: unmapped); "
+                            f"device skipped. Set params.transport, host and port in {PROJECT_FILE}")
+                    new.enabled = False
+                _check_serial_endpoint(new)
+            if new.publish.topic is None:
+                new.publish.topic = default_topic(new, node.mqtt.topic_prefix)
+            devices.append(new)
+        channels.append(Channel(name=ch.name, enabled=ch.enabled, devices=devices))
+    all_devices = [d for c in channels for d in c.devices]
+    unmapped = [d.id for d in all_devices if d.publish.sub_device_id is None]
+    if unmapped:
+        warnings.append(f"{len(unmapped)} device(s) without SubDeviceId (publish.sub_device_id unset in "
+                        f"{PROJECT_FILE}): {_ids(unmapped)}")
+    warnings += _duplicate_warnings(all_devices)
+    validated = ProjectV2(revision=project.revision, generated_from=project.generated_from,
+                          generated_at=project.generated_at, name=project.name, title=project.title,
+                          channels=channels, excluded=project.excluded)
+    return LoadedConfig(poller=node, channels=validated.channels, excluded=list(validated.excluded),
+                        warnings=warnings, project_name=project.name, project_title=project.title)

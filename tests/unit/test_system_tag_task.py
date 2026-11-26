@@ -105,10 +105,11 @@ def test_event_class_tags_follow_a_status_change_in_an_event_step(tmp_path):
     task.step(T0)
     dev = poller.loaded.channels[0].devices[0]
     path = f"{dev.channel}.{dev.name}._Statistics._SuccessfulReads"
-    from opencap.metrics import POLL_REQUESTS
+    from opencap.metrics import count_request
 
     before = value(poller, path).value          # the metrics registry is process-wide
-    POLL_REQUESTS.labels(dev.id, "ok").inc(5)
+    for _ in range(5):
+        count_request(dev.id, "ok")
     task.step(T0 + timedelta(milliseconds=300), tick=False)
     assert value(poller, path).value == before + 5 and value(poller, path).source_ts == T0 + timedelta(milliseconds=300)
 
@@ -178,3 +179,136 @@ async def test_the_task_ticks_once_per_second_on_the_real_clock(tmp_path, no_gc)
     assert not any(d.endswith("_System") or "._System" in d for d in poller.cache.devices())
 
 
+
+
+# --- cost guards (#238): a step must not grow with the registry, nor an event step with the node
+
+def test_no_step_collects_the_metrics_registry(tmp_path, monkeypatch):
+    """`REGISTRY.get_sample_value` collects the whole registry per call: reading every device that way
+    made one step O(devices²) and took 77 % of the CPU at 10k tags. The counters come from
+    `opencap.metrics.device_counts`, so collecting the registry here is an error."""
+    from opencap.metrics import REGISTRY
+
+    def collect():
+        raise AssertionError("a system-tag step collected the metrics registry")
+
+    monkeypatch.setattr(REGISTRY, "collect", collect)
+    poller = make_poller(tmp_path, devices=4)
+    task = SystemTagTask(poller)
+    assert task.step(T0) > 0
+    dev = poller.loaded.channels[0].devices[0]
+    task.step(T0 + timedelta(milliseconds=200), tick=False, devices={dev.id})
+    task.step(T0 + timedelta(seconds=1))
+
+
+def _count_calls(monkeypatch, name: str) -> list[str]:
+    calls: list[str] = []
+    real = getattr(system_tags, name)
+
+    def spy(*args, **kwargs):
+        calls.append(name)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(system_tags, name, spy)
+    return calls
+
+
+def test_an_event_step_computes_only_the_devices_that_notified(tmp_path, monkeypatch):
+    poller = make_poller(tmp_path, devices=200)                # 100 channels of 2 devices
+    task = SystemTagTask(poller)
+    task.step(T0)
+    entries = _count_calls(monkeypatch, "device_entry")
+    devices = _count_calls(monkeypatch, "_device")
+    channels = _count_calls(monkeypatch, "_channel")
+    dev = poller.loaded.channels[7].devices[1]
+    task.step(T0 + timedelta(milliseconds=200), tick=False, devices={dev.id})
+    assert (len(entries), len(devices), len(channels)) == (1, 1, 1)
+    entries.clear()
+    task.step(T0 + timedelta(seconds=1))                       # a tick computes everything, once
+    assert len(entries) == 200
+
+
+def test_the_loop_runs_an_event_step_for_the_notified_devices_only(tmp_path, monkeypatch):
+    poller = make_poller(tmp_path, devices=6)
+    task = SystemTagTask(poller)
+    seen: list[object] = []
+    monkeypatch.setattr(task, "step", lambda now=None, *, tick=True, devices=None: seen.append((tick, devices)))
+    a, b = poller.loaded.channels[0].devices
+
+    async def scenario():
+        task._full = False
+        task._tick_second = int(time.time()) + 10              # no tick in this test
+        run = asyncio.create_task(task._run())
+        try:
+            for trigger in ([a.id, b.id, a.id], None):
+                seen.clear()
+                if trigger is None:
+                    task.reconfigure()                         # a config step computes everything
+                else:
+                    for device_id in trigger:
+                        task.notify(device_id)
+                while not seen:
+                    await asyncio.sleep(0.01)
+                yield seen[0]
+        finally:
+            run.cancel()
+            await asyncio.gather(run, return_exceptions=True)
+
+    async def collect():
+        return [step async for step in scenario()]
+
+    assert asyncio.run(collect()) == [(False, {a.id, b.id}), (False, None)]
+
+
+def test_event_steps_give_the_values_of_a_full_computation(tmp_path):
+    """The device and channel tags an event step writes are the ones `evaluate` gives for the whole
+    state: the vectors in tests/conformance/system_tags/ keep describing what the engine shows."""
+    from opencap.metrics import count_failed_read, count_overrun, count_request
+
+    poller = make_poller(tmp_path, devices=6)
+    task = SystemTagTask(poller)
+    task.step(T0)
+    when = T0 + timedelta(milliseconds=300)
+    moved = [poller.loaded.channels[0].devices[1], poller.loaded.channels[2].devices[0]]
+    for dev in moved:
+        count_request(dev.id, "ok")
+        count_request(dev.id, "timeout")
+        count_failed_read(dev.id)
+        count_overrun(dev.id)
+    assert task.step(when, tick=False, devices={d.id for d in moved}) > 0
+    want = system_tags.evaluate(system_tags.snapshot(poller, when, max_in_flight=task._max_in_flight))
+    for path, (_, expected) in want.items():
+        if split_path(path)[1] in TICK_TAGS or not path.startswith(tuple(f"{c.name}." for c in poller.loaded.channels)):
+            continue
+        assert value(poller, path).value == expected, path
+
+
+def test_the_plain_totals_match_the_registry():
+    from opencap.metrics import (REGISTRY, count_failed_read, count_overrun, count_published, count_request,
+                                 count_saf_dropped, device_counts, total)
+
+    dev = "Totals/Check"
+    for result in ("ok", "ok", "timeout", "conn_error", "bad_config", "error"):
+        count_request(dev, result)
+    count_failed_read(dev)
+    count_overrun(dev)
+    count_published(3)
+    count_saf_dropped(2)
+    counts = device_counts(dev)
+    for result in ("ok", "timeout", "conn_error", "bad_config", "error"):
+        assert counts[result] == REGISTRY.get_sample_value("poll_requests_total", {"device": dev, "result": result})
+    assert counts["failed_reads"] == REGISTRY.get_sample_value("poll_failed_reads_total", {"device": dev})
+    assert counts["overruns"] == REGISTRY.get_sample_value("poll_overrun_total", {"device": dev})
+    assert total("mqtt_published") == REGISTRY.get_sample_value("mqtt_published_total")
+    assert total("saf_dropped") == REGISTRY.get_sample_value("saf_dropped_total")
+
+
+def test_the_counted_metrics_are_only_incremented_in_opencap_metrics():
+    """`.inc()` straight on these metrics would bypass the totals the system tags read."""
+    import re
+
+    src = Path(__file__).parents[2] / "src" / "opencap"
+    pattern = re.compile(r"\b(POLL_REQUESTS|POLL_FAILED_READS|POLL_OVERRUN|MQTT_PUBLISHED|SAF_DROPPED)\b.*\.inc\(")
+    hits = [f"{p.relative_to(src)}:{n}" for p in src.rglob("*.py") if p.name != "metrics.py"
+            for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if pattern.search(line)]
+    assert not hits, hits

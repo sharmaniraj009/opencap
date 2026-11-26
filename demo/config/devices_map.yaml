@@ -1,0 +1,7 @@
+defaults:
+  env: demo
+devices:
+  Water Plant/Tank1:
+    sub_device_id: DEMO_TANK_1
+  Water Plant/Pump1:
+    sub_device_id: DEMO_PUMP_1

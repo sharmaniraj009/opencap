@@ -32,3 +32,6 @@ site/
 
 # the engine binary copied in for desktop bundling (#58; desktop/README.md "Installers")
 desktop/src-tauri/binaries/
+
+# demo run state
+demo/data/

@@ -1,0 +1,25 @@
+{
+  "document": "poller",
+  "data": {
+    "opcua_server": {
+      "enabled": true,
+      "endpoint": "opc.tcp://0.0.0.0:4840/opencap",
+      "advertised_endpoint": "opc.tcp://opencap.example:4840/opencap",
+      "namespace_uri": "KEPServerEX",
+      "kepserverex_namespace_index": true,
+      "security_policies": ["Basic256Sha256_SignAndEncrypt", "Aes256_Sha256_RsaPss_SignAndEncrypt"],
+      "pki_dir": "pki",
+      "users": [
+        {"username_env": "OPENCAP_UA_USER_SCADA", "password_env": "OPENCAP_UA_PASSWORD_SCADA"},
+        {"username_env": "OPENCAP_UA_USER_HISTORIAN", "password_env": "OPENCAP_UA_PASSWORD_HISTORIAN"}
+      ],
+      "x509_users": true,
+      "max_sessions": 20,
+      "max_subscriptions_per_session": 10,
+      "max_monitored_items": 50000,
+      "min_publishing_interval_ms": 250,
+      "min_sampling_interval_ms": 250,
+      "max_references_per_browse": 500
+    }
+  }
+}

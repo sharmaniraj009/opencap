@@ -1,0 +1,12 @@
+{
+  "document": "poller",
+  "expected_error": "set pki_dir or trusted_certs_dir, not both",
+  "semantic": true,
+  "data": {
+    "opcua_server": {
+      "security_policies": ["Basic256Sha256_SignAndEncrypt"],
+      "pki_dir": "pki",
+      "trusted_certs_dir": "pki/trusted"
+    }
+  }
+}

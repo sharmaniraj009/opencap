@@ -30,6 +30,7 @@ import contextlib
 import hmac
 import math
 import os
+import socket
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -150,10 +151,70 @@ SYSTEM_VARS: tuple[tuple[str, str, Callable[[dict[str, Any], Device], Any]], ...
 SYSTEM = "_System"
 
 
+# Drivers whose address syntax has array dimensions (`[n]`, `[r][c]`), and their pure parser.
+# Elsewhere brackets mean something else (Logix `Tag[3]` is one element), so no generic regex.
+_ARRAY_PARSERS: dict[str, tuple[str, str]] = {
+    "modbus_tcp": ("opencap.drivers.modbus_tcp", "parse_address"),
+    "modbus_rtu": ("opencap.drivers.modbus_tcp", "parse_address"),
+    "s7": ("opencap.drivers.s7", "parse_s7_address"),
+    "melsec_mc": ("opencap.drivers.melsec_mc", "parse_address"),
+}
+
+
+def array_dims(device: Device, tag: Tag) -> tuple[int, ...]:
+    """Array dimensions of a tag's value from its address, () for a scalar (or an address the
+    driver refuses: that tag is bad_config and never gets a list value)."""
+    where = _ARRAY_PARSERS.get(device.driver)
+    if where is None or "[" not in tag.address:
+        return ()
+    import importlib
+
+    try:
+        parse = getattr(importlib.import_module(where[0]), where[1])
+        return tuple(parse(tag.address, tag.dtype, device.params).dims)
+    except (ValueError, ImportError, AttributeError):
+        return ()
+
+
+UNECE_NAMESPACE = "http://www.opcfoundation.org/UA/units/un/cefact"
+# UNECE Recommendation 20 common codes for frequent units (OPC UA Part 8, EUInformation).
+UNECE_CODES: dict[str, str] = {
+    "%": "P1", "°C": "CEL", "degC": "CEL", "°F": "FAH", "degF": "FAH", "K": "KEL",
+    "bar": "BAR", "mbar": "MBR", "Pa": "PAL", "kPa": "KPA", "MPa": "MPA", "psi": "PS",
+    "mm": "MMT", "cm": "CMT", "m": "MTR", "km": "KMT", "m/s": "MTS", "m3": "MTQ", "m³": "MTQ", "m3/h": "MQH",
+    "m³/h": "MQH", "l": "LTR", "L": "LTR", "kg": "KGM", "t": "TNE", "g": "GRM",
+    "A": "AMP", "mA": "4K", "V": "VLT", "mV": "2Z", "kV": "KVT", "W": "WTT", "kW": "KWT", "MW": "MAW",
+    "Wh": "WHR", "kWh": "KWH", "MWh": "MWH", "Hz": "HTZ", "rpm": "RPM", "s": "SEC", "min": "MIN", "h": "HUR",
+}
+
+
+def unece_unit_id(code: str) -> int:
+    """OPC UA UnitId of a UNECE common code: the ASCII bytes packed big-endian (Part 8 5.6.3)."""
+    value = 0
+    for ch in code:
+        value = (value << 8) | ord(ch)
+    return value
+
+
+def eu_information(units: str) -> tuple[str, int, str]:
+    """(NamespaceUri, UnitId, DisplayName) for a tag's `scale.units`; UnitId -1 when unknown."""
+    code = UNECE_CODES.get(units.strip())
+    return UNECE_NAMESPACE, (unece_unit_id(code) if code else -1), units
+
+
+def eu_range(tag: Tag) -> tuple[float, float] | None:
+    """(low, high) engineering range of a scaled tag, None when it is not scaled."""
+    if tag.scale is None:
+        return None
+    lo, hi = sorted((float(tag.scale.eng_lo), float(tag.scale.eng_hi)))
+    return lo, hi
+
+
 def device_fingerprint(device: Device) -> tuple:
     """What the address space of a device depends on; a change rebuilds its nodes on reload."""
     return (device.channel, device.name, device.driver, device.host, device.port, device.enabled,
-            tuple((t.name, variant_type(t)) for t in device.tags if t.enabled))
+            tuple((t.name, variant_type(t), array_dims(device, t), eu_range(t),
+                   t.scale.units if t.scale else None, t.description) for t in device.tags if t.enabled))
 
 
 def _security_policy_type(name: str) -> str:
@@ -166,11 +227,75 @@ def _security_policy_type(name: str) -> str:
 
 # --- asyncua glue ------------------------------------------------------------------------------
 
+def _default_value(vtype: str, dims: tuple[int, ...]) -> Any:
+    one = DEFAULTS[vtype] if vtype != "DateTime" else NEVER
+    if not dims:
+        return one
+    if len(dims) == 1:
+        return [one] * dims[0]
+    return [[one] * dims[1] for _ in range(dims[0])]
+
+
+def _folder_item(nodeid: Any, qname: Any, parent: Any) -> Any:
+    from asyncua import ua
+
+    item = ua.AddNodesItem(RequestedNewNodeId=nodeid, BrowseName=qname, ParentNodeId=parent,
+                           ReferenceTypeId=ua.NodeId(ua.ObjectIds.Organizes), NodeClass=ua.NodeClass.Object,
+                           TypeDefinition=ua.NodeId(ua.ObjectIds.FolderType))
+    attrs = ua.ObjectAttributes()
+    attrs.DisplayName = ua.LocalizedText(qname.Name)
+    attrs.Description = ua.LocalizedText(qname.Name)
+    attrs.EventNotifier = 0
+    item.NodeAttributes = attrs
+    return item
+
+
+def _variable_item(nodeid: Any, qname: Any, parent: Any, vtype: str, dims: tuple[int, ...],
+                   description: str | None, *, analog: bool = False) -> Any:
+    """A read-only variable: CurrentRead only (ADR-0008), ValueRank/ArrayDimensions from `dims`."""
+    from asyncua import ua
+
+    variant_type = getattr(ua.VariantType, vtype)
+    item = ua.AddNodesItem(RequestedNewNodeId=nodeid, BrowseName=qname, ParentNodeId=parent,
+                           ReferenceTypeId=ua.NodeId(ua.ObjectIds.HasComponent), NodeClass=ua.NodeClass.Variable,
+                           TypeDefinition=ua.NodeId(ua.ObjectIds.AnalogItemType if analog
+                                                    else ua.ObjectIds.BaseDataVariableType))
+    attrs = ua.VariableAttributes()
+    attrs.DisplayName = ua.LocalizedText(qname.Name)
+    attrs.Description = ua.LocalizedText(description) if description else ua.LocalizedText()
+    attrs.DataType = ua.NodeId(variant_type.value)
+    attrs.Value = ua.Variant(_default_value(vtype, dims), variant_type, is_array=bool(dims))
+    attrs.ValueRank = len(dims) if dims else ua.ValueRank.Scalar
+    attrs.ArrayDimensions = list(dims) if dims else None
+    attrs.AccessLevel = attrs.UserAccessLevel = ua.AccessLevel.CurrentRead.mask
+    attrs.WriteMask = attrs.UserWriteMask = 0
+    attrs.Historizing = False
+    attrs.MinimumSamplingInterval = 0.0
+    item.NodeAttributes = attrs
+    return item
+
+
+def _property_item(nodeid: Any, name: str, parent: Any, value: Any, datatype: Any) -> Any:
+    from asyncua import ua
+
+    item = ua.AddNodesItem(RequestedNewNodeId=nodeid, BrowseName=ua.QualifiedName(name, 0), ParentNodeId=parent,
+                           ReferenceTypeId=ua.NodeId(ua.ObjectIds.HasProperty), NodeClass=ua.NodeClass.Variable,
+                           TypeDefinition=ua.NodeId(ua.ObjectIds.PropertyType))
+    attrs = ua.VariableAttributes()
+    attrs.DisplayName = ua.LocalizedText(name)
+    attrs.DataType = datatype
+    attrs.Value = value
+    attrs.ValueRank = ua.ValueRank.Scalar
+    attrs.AccessLevel = attrs.UserAccessLevel = ua.AccessLevel.CurrentRead.mask
+    item.NodeAttributes = attrs
+    return item
+
+
 @dataclass
 class _Var:
     nodeid: Any
     vtype: str
-    array: bool = False
+    array: bool = False             # ValueRank >= 1 (from the address, or at the first list value)
     last: Any = ()                  # (value, quality) last written; () = never written
 
 
@@ -185,18 +310,31 @@ class _DeviceNodes:
 
 
 class _UserManager:
-    """Anonymous on/off plus at most one user name/password (from env vars). Never Admin."""
+    """Anonymous on/off, user names/passwords (from env vars), X.509 user certificates trusted in
+    `<pki_dir>/users/`. Never grants the Admin role."""
 
-    def __init__(self, anonymous: bool, users: dict[str, str]) -> None:
+    def __init__(self, anonymous: bool, users: dict[str, str], pki: Any = None, x509_users: bool = False) -> None:
         self.anonymous = anonymous
         self.users = users
+        self.pki = pki
+        self.x509_users = x509_users
+        self.state: Any = None          # opcua_services.ServerState: which token is being activated
 
     def get_user(self, iserver: Any, username: str | None = None, password: str | None = None,
                  certificate: Any = None) -> Any:
+        from asyncua import ua
         from asyncua.crypto.permission_rules import User, UserRole
 
-        # `certificate` is the secure channel's peer certificate, also for anonymous tokens; X509
-        # user tokens are not offered, so asyncua rejects those before calling us.
+        # For an anonymous token `certificate` is the secure channel's peer certificate, for an
+        # X.509 token the user certificate (signature already verified by asyncua): only the token
+        # kind, recorded by our session, tells them apart.
+        kind = self.state.token_kind if self.state is not None else None
+        if kind is ua.X509IdentityToken:
+            name = self.pki.user_name(bytes(certificate or b"")) if (self.x509_users and self.pki) else None
+            if name is None:
+                log.info("opcua_server.login_refused", user="x509")
+                return None
+            return User(role=UserRole.User, name=name)
         if username is None:
             return User(role=UserRole.User) if self.anonymous else None
         want = self.users.get(username)
@@ -210,8 +348,10 @@ def _read_only_ruleset() -> Any:
     from asyncua import ua
     from asyncua.crypto.permission_rules import PermissionRuleset
 
+    # Write is not refused here: the session answers it per node with Bad_NotWritable
+    # (opcua_services._Session.write) and writes nothing.
     denied = {ua.NodeId(getattr(ua.ObjectIds, f"{name}Request_Encoding_DefaultBinary")) for name in (
-        "Write", "HistoryUpdate", "Call", "AddNodes", "DeleteNodes", "AddReferences", "DeleteReferences",
+        "HistoryUpdate", "Call", "AddNodes", "DeleteNodes", "AddReferences", "DeleteReferences",
         "RegisterServer", "RegisterServer2",
     )}
 
@@ -256,6 +396,7 @@ class OpcUaNorth:
         self._ns = 0
         self._nodes: dict[str, _DeviceNodes] = {}
         self._channels: dict[str, Any] = {}
+        self._state: Any = None                    # opcua_services.ServerState while running
 
     # --- lifecycle ---
 
@@ -273,16 +414,30 @@ class OpcUaNorth:
         return f"ns={self._ns or 2};s={d.channel}.{d.name}.{name}"
 
     async def start(self) -> None:
-        from asyncua import Server, ua
+        from asyncua import ua
+
+        from opencap.north.opcua_security import client_pki
+        from opencap.north.opcua_services import Limits, UaServer, install
 
         cfg = self.cfg
         users = self._users()
-        if not cfg.anonymous and not users:
+        if not cfg.anonymous and not users and not cfg.x509_users:
             raise RuntimeError("opcua_server: anonymous is off and no user is configured "
-                               "(set username_env/password_env and those environment variables)")
-        srv = Server(user_manager=_UserManager(cfg.anonymous, users))
+                               "(set username_env/password_env or users, and those environment variables)")
+        pki = client_pki(cfg)
+        manager = _UserManager(cfg.anonymous, users, pki, cfg.x509_users)
+        srv = UaServer(user_manager=manager)
         await srv.init(shelf_file=self._shelf)
-        srv.set_endpoint(cfg.endpoint)
+        self._state = manager.state = install(srv, Limits.from_cfg(cfg))
+        if cfg.advertised_endpoint:
+            # bind where `endpoint` says, advertise one fixed URL (NAT, container port mappings)
+            bind = urlsplit(cfg.endpoint)
+            srv.set_endpoint(cfg.advertised_endpoint)
+            srv.socket_address = (bind.hostname, bind.port)
+            srv.set_match_discovery_endpoint_url(False)
+            srv.set_match_discovery_client_ip(False)
+        else:
+            srv.set_endpoint(cfg.endpoint)    # GetEndpoints echoes the URL each client used
         srv.set_server_name(cfg.server_name)
         srv.product_uri = "urn:opencap"
         srv.manufacturer_name = "opencap"
@@ -296,13 +451,20 @@ class OpcUaNorth:
             tokens.append(ua.AnonymousIdentityToken)
         if users:
             tokens.append(ua.UserNameIdentityToken)
+        if cfg.x509_users:
+            tokens.append(ua.X509IdentityToken)
         srv.set_identity_tokens(tokens)
         if any(p != "None" for p in cfg.security_policies):
             await self._load_certificate(srv)
-        if cfg.trusted_certs_dir:
-            await self._trust(srv, Path(cfg.trusted_certs_dir))
+        if pki is not None:
+            srv.set_certificate_validator(pki.validate)
         self._ns = await srv.register_namespace(cfg.namespace_uri)
         if self._ns != 2:     # pragma: no cover - asyncua layout change
+            if cfg.kepserverex_namespace_index:
+                with contextlib.suppress(Exception):
+                    await _stop_server(srv)
+                raise RuntimeError(f"opcua_server: the tag namespace got index {self._ns}, not 2 "
+                                   "(kepserverex_namespace_index: true)")
             log.warning("opcua_server.namespace_index", index=self._ns, expected=2)
         self._server = srv
         try:
@@ -318,9 +480,10 @@ class OpcUaNorth:
         self._wake = asyncio.Event()
         self._task = asyncio.create_task(self._run(), name="opcua-server")
         host = urlsplit(cfg.endpoint).hostname or ""
-        log.info("opcua_server.started", endpoint=cfg.endpoint, devices=len(self._nodes),
-                 tags=sum(len(n.tags) for n in self._nodes.values()), namespace=self._ns,
-                 policies=cfg.security_policies, anonymous=cfg.anonymous, users=len(users))
+        log.info("opcua_server.started", endpoint=cfg.endpoint, advertised=cfg.advertised_endpoint,
+                 devices=len(self._nodes), tags=sum(len(n.tags) for n in self._nodes.values()), namespace=self._ns,
+                 policies=cfg.security_policies, anonymous=cfg.anonymous, users=len(users),
+                 x509_users=cfg.x509_users, pki=cfg.pki_dir or cfg.trusted_certs_dir)
         if "None" in cfg.security_policies and host not in ("127.0.0.1", "localhost", "::1"):
             log.warning("opcua_server.unencrypted_endpoint", endpoint=cfg.endpoint,
                         hint="bind to localhost or the VPN only, or offer only Sign/SignAndEncrypt")
@@ -375,92 +538,128 @@ class OpcUaNorth:
     # --- set-up ---
 
     def _users(self) -> dict[str, str]:
+        """{user name: password} from the env vars named by username_env/password_env and users."""
         cfg = self.cfg
-        if not cfg.username_env:
-            return {}
-        user, password = os.environ.get(cfg.username_env), os.environ.get(cfg.password_env or "")
-        if not user or not password:
-            log.warning("opcua_server.user_not_set", username_env=cfg.username_env, password_env=cfg.password_env)
-            return {}
-        return {user: password}
+        pairs = [(cfg.username_env, cfg.password_env)] if cfg.username_env else []
+        pairs += [(u.username_env, u.password_env) for u in cfg.users]
+        users: dict[str, str] = {}
+        for user_env, password_env in pairs:
+            user, password = os.environ.get(user_env), os.environ.get(password_env or "")
+            if not user or not password:
+                log.warning("opcua_server.user_not_set", username_env=user_env, password_env=password_env)
+                continue
+            users[user] = password
+        return users
 
     async def _load_certificate(self, srv: Any) -> None:
         from asyncua.crypto import cert_gen
         from cryptography.x509.oid import ExtendedKeyUsageOID
 
-        cert, key = Path(self.cfg.certificate or ""), Path(self.cfg.private_key or "")
+        from opencap.north.opcua_security import server_certificate_paths
+
+        cert, key = server_certificate_paths(self.cfg)
         if not cert.exists() and not key.exists():
             cert.parent.mkdir(parents=True, exist_ok=True)
             key.parent.mkdir(parents=True, exist_ok=True)
-            host = urlsplit(self.cfg.endpoint).hostname or "localhost"
+            host = urlsplit(self.cfg.advertised_endpoint or self.cfg.endpoint).hostname or ""
+            if host in ("", "0.0.0.0", "::"):               # a wildcard bind: name this computer
+                host = socket.gethostname()
             await cert_gen.setup_self_signed_certificate(
                 key, cert, self.cfg.application_uri, host,
                 [ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH], {})
             with contextlib.suppress(OSError):
                 key.chmod(0o600)
-            log.info("opcua_server.certificate_created", certificate=str(cert),
+            log.info("opcua_server.certificate_created", certificate=str(cert), host=host,
                      hint="clients must trust this certificate")
         await srv.load_certificate(str(cert))
         await srv.load_private_key(str(key))
 
-    async def _trust(self, srv: Any, directory: Path) -> None:
-        from asyncua.crypto.truststore import TrustStore
-        from asyncua.crypto.validator import CertificateValidator, CertificateValidatorOptions
-
-        store = TrustStore([directory], [])
-        await store.load()
-        opts = CertificateValidatorOptions.TRUSTED_VALIDATION | CertificateValidatorOptions.PEER_CLIENT
-        srv.set_certificate_validator(CertificateValidator(opts, store))
+    def _add_nodes(self, items: list[Any]) -> list[Any]:
+        """AddNodes straight into the address space (one batch; parents before children)."""
+        return self._server.iserver.node_mgt_service.add_nodes(items)
 
     async def _channel_node(self, channel: str) -> Any:
         from asyncua import ua
 
         node = self._channels.get(channel)
         if node is None:
-            node = await self._server.nodes.objects.add_folder(ua.NodeId(channel, self._ns),
-                                                               ua.QualifiedName(channel, self._ns))
-            self._channels[channel] = node
+            nodeid = ua.NodeId(channel, self._ns)
+            result = self._add_nodes([_folder_item(nodeid, ua.QualifiedName(channel, self._ns),
+                                                   ua.NodeId(ua.ObjectIds.ObjectsFolder))])[0]
+            result.StatusCode.check()
+            node = self._channels[channel] = self._server.get_node(nodeid)
         return node
 
     async def _add_device(self, dev: Device) -> None:
+        """Folders for the device and its tag groups, a variable per enabled tag (DataType,
+        ValueRank/ArrayDimensions from the address, AccessLevel CurrentRead, Description; an
+        AnalogItemType with EURange and EngineeringUnits when the tag is scaled), `_System`."""
         from asyncua import ua
 
         ns = self._ns
         try:
             channel = await self._channel_node(dev.channel)
-            base = f"{dev.channel}.{dev.name}"
-            root = await channel.add_folder(ua.NodeId(base, ns), ua.QualifiedName(dev.name, ns))
         except ua.UaError as exc:
             log.warning("opcua_server.device_skipped", device=dev.id, error=str(exc))
             return
-        nodes = _DeviceNodes(device=dev, root=root, fingerprint=device_fingerprint(dev))
-        containers: dict[str, Any] = {base: root}
+        base = f"{dev.channel}.{dev.name}"
+        root_id = ua.NodeId(base, ns)
+        result = self._add_nodes([_folder_item(root_id, ua.QualifiedName(dev.name, ns), channel.nodeid)])[0]
+        if not result.StatusCode.is_good():
+            log.warning("opcua_server.device_skipped", device=dev.id, error=result.StatusCode.name)
+            return
+        nodes = _DeviceNodes(device=dev, root=self._server.get_node(root_id), fingerprint=device_fingerprint(dev))
+        folders: set[str] = {base}
+        variables: set[str] = set()
+        items: list[Any] = []
+        planned: list[tuple[str, str, _Var, int]] = []      # (tag name, path, var, index of its item)
         for tag in sorted((t for t in dev.tags if t.enabled), key=lambda t: t.name.count(".")):
             parts = tag.name.split(".")
-            path, parent = base, root
-            try:
-                for part in parts[:-1]:
-                    path = f"{path}.{part}"
-                    node = containers.get(path)
-                    if node is None:
-                        node = await parent.add_folder(ua.NodeId(path, ns), ua.QualifiedName(part, ns))
-                        containers[path] = node
-                    parent = node
-                vtype = variant_type(tag)
-                path = f"{path}.{parts[-1]}"
-                var = await parent.add_variable(ua.NodeId(path, ns), ua.QualifiedName(parts[-1], ns),
-                                                ua.Variant(DEFAULTS[vtype], getattr(ua.VariantType, vtype)))
-            except ua.UaError as exc:
-                log.warning("opcua_server.tag_skipped", device=dev.id, tag=tag.name, error=str(exc))
+            groups = [f"{base}.{'.'.join(parts[:k + 1])}" for k in range(len(parts) - 1)]
+            path = f"{base}.{tag.name}"
+            clash = next((g for g in groups if g in variables), None) or (path if path in folders else None)
+            if clash is not None:
+                log.warning("opcua_server.tag_skipped", device=dev.id, tag=tag.name,
+                            error=f"{clash} is both a tag and a tag group")
                 continue
-            containers[path] = var
-            nodes.tags[tag.name] = _Var(var.nodeid, vtype)
-        system = await root.add_folder(ua.NodeId(f"{base}.{SYSTEM}", ns), ua.QualifiedName(SYSTEM, ns))
+            parent = base
+            for part, group in zip(parts[:-1], groups, strict=True):
+                if group not in folders:
+                    folders.add(group)
+                    items.append(_folder_item(ua.NodeId(group, ns), ua.QualifiedName(part, ns), ua.NodeId(parent, ns)))
+                parent = group
+            variables.add(path)
+            vtype, dims = variant_type(tag), array_dims(dev, tag)
+            nodeid = ua.NodeId(path, ns)
+            planned.append((tag.name, path, _Var(nodeid, vtype, array=bool(dims)), len(items)))
+            items.append(_variable_item(nodeid, ua.QualifiedName(parts[-1], ns), ua.NodeId(parent, ns), vtype, dims,
+                                        tag.description, analog=tag.scale is not None))
+            rng = eu_range(tag)
+            if rng is not None:
+                items.append(_property_item(ua.NodeId(f"{path}.EURange", ns), "EURange", nodeid,
+                                            ua.Variant(ua.Range(Low=rng[0], High=rng[1])),
+                                            ua.NodeId(ua.ObjectIds.Range)))
+                if tag.scale.units:
+                    uri, unit_id, display = eu_information(tag.scale.units)
+                    info = ua.EUInformation(NamespaceUri=uri, UnitId=unit_id, DisplayName=ua.LocalizedText(display),
+                                            Description=ua.LocalizedText(display))
+                    items.append(_property_item(ua.NodeId(f"{path}.EngineeringUnits", ns), "EngineeringUnits",
+                                                nodeid, ua.Variant(info), ua.NodeId(ua.ObjectIds.EUInformation)))
+        system = f"{base}.{SYSTEM}"
+        items.append(_folder_item(ua.NodeId(system, ns), ua.QualifiedName(SYSTEM, ns), root_id))
+        sys_index = len(items)
         for name, vtype, _get in SYSTEM_VARS:
-            var = await system.add_variable(ua.NodeId(f"{base}.{SYSTEM}.{name}", ns), ua.QualifiedName(name, ns),
-                                            ua.Variant(DEFAULTS[vtype] if vtype != "DateTime" else NEVER,
-                                                       getattr(ua.VariantType, vtype)))
-            nodes.system[name] = _Var(var.nodeid, vtype)
+            items.append(_variable_item(ua.NodeId(f"{system}.{name}", ns), ua.QualifiedName(name, ns),
+                                        ua.NodeId(system, ns), vtype, (), None))
+        results = self._add_nodes(items)
+        for name, _path, var, index in planned:
+            if results[index].StatusCode.is_good():
+                nodes.tags[name] = var
+            else:
+                log.warning("opcua_server.tag_skipped", device=dev.id, tag=name, error=results[index].StatusCode.name)
+        for k, (name, vtype, _get) in enumerate(SYSTEM_VARS):
+            nodes.system[name] = _Var(ua.NodeId(f"{system}.{name}", ns), vtype)
+            results[sys_index + k].StatusCode.check()
         self._nodes[dev.id] = nodes
 
     async def _remove_device(self, dev_id: str) -> None:
@@ -540,11 +739,14 @@ class OpcUaNorth:
             variant = ua.Variant()
         else:
             is_array = isinstance(value, list)
-            if is_array and not var.array:
+            if is_array and not var.array:      # a driver whose address syntax has no dimensions
                 var.array = True
                 await self._server.write_attribute_value(
                     var.nodeid, ua.DataValue(ua.Variant(ua.ValueRank.OneDimension.value, ua.VariantType.Int32)),
                     ua.AttributeIds.ValueRank)
+                await self._server.write_attribute_value(          # 0 = length not known up front
+                    var.nodeid, ua.DataValue(ua.Variant([0], ua.VariantType.UInt32, is_array=True)),
+                    ua.AttributeIds.ArrayDimensions)
             variant = ua.Variant(value, getattr(ua.VariantType, var.vtype), is_array=is_array)
         now = datetime.now(UTC)
         dv = ua.DataValue(variant, StatusCode=ua.StatusCode(code), SourceTimestamp=source_ts or now,

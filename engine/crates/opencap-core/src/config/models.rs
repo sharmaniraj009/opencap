@@ -756,8 +756,31 @@ fn d_ua_policies() -> Vec<String> {
 fn d_250() -> i64 {
     250
 }
+fn d_ua_max_sessions() -> i64 {
+    100
+}
+fn d_ua_max_subs() -> i64 {
+    50
+}
+fn d_ua_max_items() -> i64 {
+    100_000
+}
+fn d_ua_min_interval() -> i64 {
+    100
+}
+fn d_ua_max_refs() -> i64 {
+    1000
+}
 
-/// `poller.yaml` `opcua_server` (Python `OpcUaServerCfg`, D-046). The Rust engine has no OPC UA
+/// One OPC UA user (Python `OpcUaUserCfg`): both names are environment variables.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpcUaUserCfg {
+    pub username_env: String,
+    pub password_env: String,
+}
+
+/// `poller.yaml` `opcua_server` (Python `OpcUaServerCfg`, D-046, D-068). The Rust engine has no OPC UA
 /// server yet (#46): it reads and validates the section like Python, so the same file loads in
 /// both engines, and warns at start when `enabled` is set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -767,14 +790,20 @@ pub struct OpcUaServerCfg {
     pub enabled: bool,
     #[serde(default = "d_ua_endpoint")]
     pub endpoint: String,
+    #[serde(default)]
+    pub advertised_endpoint: Option<String>,
     #[serde(default = "d_ua_server_name")]
     pub server_name: String,
     #[serde(default = "d_ua_application_uri")]
     pub application_uri: String,
     #[serde(default = "d_ua_namespace_uri")]
     pub namespace_uri: String,
+    #[serde(default = "d_true")]
+    pub kepserverex_namespace_index: bool,
     #[serde(default = "d_ua_policies")]
     pub security_policies: Vec<String>,
+    #[serde(default)]
+    pub pki_dir: Option<String>,
     #[serde(default)]
     pub certificate: Option<String>,
     #[serde(default)]
@@ -787,10 +816,26 @@ pub struct OpcUaServerCfg {
     pub username_env: Option<String>,
     #[serde(default)]
     pub password_env: Option<String>,
+    #[serde(default)]
+    pub users: Vec<OpcUaUserCfg>,
+    #[serde(default)]
+    pub x509_users: bool,
     #[serde(default = "d_250")]
     pub update_ms: i64,
     #[serde(default)]
     pub allow_insecure_remote: bool,
+    #[serde(default = "d_ua_max_sessions")]
+    pub max_sessions: i64,
+    #[serde(default = "d_ua_max_subs")]
+    pub max_subscriptions_per_session: i64,
+    #[serde(default = "d_ua_max_items")]
+    pub max_monitored_items: i64,
+    #[serde(default = "d_ua_min_interval")]
+    pub min_publishing_interval_ms: i64,
+    #[serde(default = "d_ua_min_interval")]
+    pub min_sampling_interval_ms: i64,
+    #[serde(default = "d_ua_max_refs")]
+    pub max_references_per_browse: i64,
 }
 
 impl Default for OpcUaServerCfg {
@@ -819,19 +864,52 @@ impl OpcUaServerCfg {
         if !self.endpoint.starts_with("opc.tcp://") {
             return Err(format!("opcua_server.endpoint {} must start with opc.tcp://", py_repr_str(&self.endpoint)));
         }
+        if let Some(adv) = &self.advertised_endpoint {
+            if !adv.starts_with("opc.tcp://") {
+                return Err(format!(
+                    "opcua_server.advertised_endpoint {} must start with opc.tcp://",
+                    py_repr_str(adv)
+                ));
+            }
+        }
         if self.security_policies.is_empty() {
             return Err("opcua_server.security_policies must not be empty".into());
         }
-        if self.security_policies.iter().any(|p| p != "None")
-            && !(non_empty(&self.certificate) && non_empty(&self.private_key))
-        {
-            return Err("opcua_server: secure security_policies need certificate and private_key paths".into());
+        let secure = self.security_policies.iter().any(|p| p != "None");
+        if secure && !(non_empty(&self.certificate) && non_empty(&self.private_key)) && !non_empty(&self.pki_dir) {
+            return Err(
+                "opcua_server: secure security_policies need certificate and private_key paths (or pki_dir)".into()
+            );
+        }
+        if non_empty(&self.pki_dir) && non_empty(&self.trusted_certs_dir) {
+            return Err("opcua_server: set pki_dir or trusted_certs_dir, not both (pki_dir has trusted/)".into());
         }
         if non_empty(&self.username_env) != non_empty(&self.password_env) {
             return Err("opcua_server: set both username_env and password_env, or neither".into());
         }
+        if self.x509_users && !(non_empty(&self.pki_dir) && secure) {
+            return Err("opcua_server: x509_users needs pki_dir (users/) and a Sign or SignAndEncrypt policy".into());
+        }
         if self.update_ms < 10 {
             return Err("opcua_server.update_ms must be >= 10".into());
+        }
+        for (name, value) in [
+            ("max_sessions", self.max_sessions),
+            ("max_subscriptions_per_session", self.max_subscriptions_per_session),
+            ("max_monitored_items", self.max_monitored_items),
+            ("max_references_per_browse", self.max_references_per_browse),
+        ] {
+            if value < 1 {
+                return Err(format!("opcua_server.{name} must be >= 1"));
+            }
+        }
+        for (name, value) in [
+            ("min_publishing_interval_ms", self.min_publishing_interval_ms),
+            ("min_sampling_interval_ms", self.min_sampling_interval_ms),
+        ] {
+            if value < 0 {
+                return Err(format!("opcua_server.{name} must be >= 0"));
+            }
         }
         if self.security_policies.iter().any(|p| p == "None")
             && !self.allow_insecure_remote
@@ -843,9 +921,14 @@ impl OpcUaServerCfg {
                 py_repr_str(&self.endpoint)
             ));
         }
-        if self.enabled && !self.anonymous && !non_empty(&self.username_env) {
+        if self.enabled
+            && !self.anonymous
+            && !non_empty(&self.username_env)
+            && self.users.is_empty()
+            && !self.x509_users
+        {
             return Err("opcua_server: anonymous is off and no user is configured: set username_env/password_env, \
-                        or anonymous: true"
+                        users, x509_users, or anonymous: true"
                 .into());
         }
         Ok(())

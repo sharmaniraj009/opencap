@@ -208,8 +208,20 @@
     },
     "OpcUaServerCfg": {
       "additionalProperties": false,
-      "description": "Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046): the cache as a\nread-only, KEPServer-style address space. Off by default.",
+      "description": "Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046, D-068): the cache as a\nread-only, KEPServer-style address space. Off by default.",
       "properties": {
+        "advertised_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Advertised Endpoint"
+        },
         "allow_insecure_remote": {
           "default": false,
           "title": "Allow Insecure Remote",
@@ -247,6 +259,41 @@
           "title": "Endpoint",
           "type": "string"
         },
+        "kepserverex_namespace_index": {
+          "default": true,
+          "title": "Kepserverex Namespace Index",
+          "type": "boolean"
+        },
+        "max_monitored_items": {
+          "default": 100000,
+          "title": "Max Monitored Items",
+          "type": "integer"
+        },
+        "max_references_per_browse": {
+          "default": 1000,
+          "title": "Max References Per Browse",
+          "type": "integer"
+        },
+        "max_sessions": {
+          "default": 100,
+          "title": "Max Sessions",
+          "type": "integer"
+        },
+        "max_subscriptions_per_session": {
+          "default": 50,
+          "title": "Max Subscriptions Per Session",
+          "type": "integer"
+        },
+        "min_publishing_interval_ms": {
+          "default": 100,
+          "title": "Min Publishing Interval Ms",
+          "type": "integer"
+        },
+        "min_sampling_interval_ms": {
+          "default": 100,
+          "title": "Min Sampling Interval Ms",
+          "type": "integer"
+        },
         "namespace_uri": {
           "default": "urn:opencap",
           "title": "Namespace Uri",
@@ -263,6 +310,18 @@
           ],
           "default": null,
           "title": "Password Env"
+        },
+        "pki_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pki Dir"
         },
         "private_key": {
           "anyOf": [
@@ -325,9 +384,41 @@
           ],
           "default": null,
           "title": "Username Env"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/OpcUaUserCfg"
+          },
+          "title": "Users",
+          "type": "array"
+        },
+        "x509_users": {
+          "default": false,
+          "title": "X509 Users",
+          "type": "boolean"
         }
       },
       "title": "OpcUaServerCfg",
+      "type": "object"
+    },
+    "OpcUaUserCfg": {
+      "additionalProperties": false,
+      "description": "One OPC UA user name/password, both read from the environment variables named here.",
+      "properties": {
+        "password_env": {
+          "title": "Password Env",
+          "type": "string"
+        },
+        "username_env": {
+          "title": "Username Env",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username_env",
+        "password_env"
+      ],
+      "title": "OpcUaUserCfg",
       "type": "object"
     },
     "PayloadCfg": {

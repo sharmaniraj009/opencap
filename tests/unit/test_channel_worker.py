@@ -295,19 +295,25 @@ async def test_demotion_after_failed_cycles_probe_and_resume():
         health = worker.health(d.id)
         async with running(worker):
             await wait_until(lambda: health.state == "demoted", 1.0)
-            demoted_at = time.monotonic()
+            # The probe may not start before demoted_until, set from the worker's monotonic clock
+            # when it demoted the device. connect_attempts are stamped with that same clock, so
+            # the check is exact on every OS. A time this test takes after it notices the
+            # demotion would lag by its polling step (a whole 15.6 ms tick on Windows).
+            probe_due = health.demoted_until
             connects = len(s.connect_attempts)
             assert connects == 2                 # one per failed cycle, then demoted
             await asyncio.sleep(0.15)
             assert len(s.connect_attempts) == connects      # skipped while demoted
             await wait_until(lambda: len(s.connect_attempts) == connects + 1, 0.5)   # the probe
-            assert time.monotonic() - demoted_at >= 0.24
+            assert s.connect_attempts[connects] >= probe_due
             await asyncio.sleep(0.03)
             assert health.state == "demoted"     # probe failed: demoted again
             assert len(s.connect_attempts) == connects + 1
+            next_probe_due = health.demoted_until
+            assert next_probe_due >= probe_due + 0.25       # demote_for_ms counts from the failed probe
             s.down = False
             await wait_until(lambda: health.state == "ok", 1.0)  # next probe passes
-            assert time.monotonic() - demoted_at >= 0.48
+            assert s.connect_attempts[connects + 1] >= next_probe_due
             await wait_until(lambda: cache.get(d.id, "A_0").quality == "good", 0.5)
     events = [e["event"] for e in logs]
     assert events.count("device.demoted") == 1   # one INFO line per state change

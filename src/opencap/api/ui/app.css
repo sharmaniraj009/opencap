@@ -48,6 +48,8 @@ small, .small { font-size: 0.85em; }
 .nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
 .who { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.9em; }
 .role-admin { color: var(--warn); }
+.lang { padding: 2px 6px; font-size: 0.85em; }
+.lang.end { margin-left: auto; }
 .foot { max-width: 1280px; margin: 0 auto; padding: 12px var(--gutter) 24px; color: var(--muted); font-size: 0.8em; }
 
 /* banners and flashes */

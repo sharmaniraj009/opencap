@@ -318,7 +318,8 @@ def load_v1(config_dir: Path, *, for_project: bool = False) -> LoadedConfig:
             if new.publish.topic is None and not for_project:
                 new.publish.topic = default_topic(new, poller.mqtt.topic_prefix)
             devices.append(new)
-        channels.append(Channel(name=ch.name, enabled=ch_enabled, devices=devices))
+        channels.append(Channel(name=ch.name, enabled=ch_enabled, inter_device_delay_ms=ch.inter_device_delay_ms,
+                                devices=devices))
 
     for key in overrides.serial_ports:
         if key not in serial_used:

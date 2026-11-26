@@ -1875,7 +1875,7 @@ produced once the outbox drains, then every frozen message must reach the subscr
 ### D-088 Inter-device delay, connect timeout and inter-request delay are core pacing (#105)
 - **Expected:** KEPServerEX's CH-05, DEV-16 and DEV-17 settings, applied without touching drivers, and the
   one-request-per-channel rule (D-015) intact.
-- **Done (Python engine):** `Channel.inter_device_delay_ms` (0..60000, default 0), `Device.connect_timeout_ms`
+- **Done:** `Channel.inter_device_delay_ms` (0..60000, default 0), `Device.connect_timeout_ms`
   (1000..30000, default null) and `Device.inter_request_delay_ms` (0..300000, default 0), additive in
   `devices.json` (schema regenerated, fixtures `valid/devices_timing.json` and four out-of-range ones).
   `WireLock.request()` is how a device takes the wire: after getting the lock it sleeps until the line has been
@@ -1899,4 +1899,14 @@ produced once the outbox drains, then every frozen message must reach the subscr
   properties we have seen (`DEVICE_REQUEST_TIMEOUT_MILLISECONDS`) but no export in hand contains them; a project
   that spells them differently imports with the defaults. Values outside the ranges are clamped with a note in
   the import report.
-- **Not done:** per-device overrides in `overrides.yaml` for the new device fields.
+- **Rust engine:** the same fields in `opencap-core` (`Channel`, `Device`, range checks in `validate`), the
+  same pacing in `worker.rs` (`WireState` and a `WireGuard` that records the end of each request when it
+  drops; the wait happens while the tokio mutex is held), and the same `check` estimate and note. The
+  shared config fixtures pass `tests/conformance/config/compare.py` (15 valid, 31 invalid).
+- **Difference, Rust connect timeout:** the Rust drivers are not touched and read `timeout_ms` from their
+  own copy of the device, so an explicit `connect_timeout_ms` only sets the outer cap of the attempt
+  (`1.25 x value + 0.1 s`). A value below the driver's own wait shortens it; a value above does not
+  lengthen it. Making it lengthen needs a `Driver` trait hook for the connect budget, a follow-up that
+  touches the drivers (the issue says not to).
+- **Not done:** per-device overrides in `overrides.yaml` for the new device fields; the `effective` block of
+  `GET /api/v1/devices/{id}` in the Rust API (it has no config API yet, only the legacy device route).

@@ -71,6 +71,8 @@ pub fn run_check(
     for channel in &channels {
         let mut site_req = 0usize;
         let mut site_load = 0.0f64;
+        let mut site_cost_ms = 0.0f64;
+        let shared = channel.devices.iter().filter(|d| d.enabled).count() > 1;
         if !channel.enabled {
             out(format!("{}  (channel disabled)", channel.name));
             continue;
@@ -83,10 +85,12 @@ pub fn run_check(
                 out(format!("{:<44} {:<13} {:>5}  -- no plan: {e}", label, device.driver, device.tags.len()));
                 continue;
             }
-            let load = dp.est_load(rtt);
+            let delay = dp.request_delay_ms(channel.inter_device_delay_ms, shared);
+            let load = dp.est_load(rtt, delay);
             if device.enabled {
                 site_req += dp.wire_requests();
                 site_load += load;
+                site_cost_ms += dp.est_cycle_ms(rtt, delay);
             }
             out(format!(
                 "{:<44} {:<13} {:>5} {:>4} {:<9} {:>4} {:>4} {:>6}ms {:>6}",
@@ -97,7 +101,7 @@ pub fn run_check(
                 fmt_rates(dp),
                 dp.blocks(),
                 dp.wire_requests(),
-                py_fixed(dp.est_cycle_ms(rtt), 0),
+                py_fixed(dp.est_cycle_ms(rtt, delay), 0),
                 py_percent0(load)
             ));
             if verbose {
@@ -121,7 +125,7 @@ pub fn run_check(
                 "",
                 "",
                 site_req,
-                py_fixed(site_req as f64 * rtt, 0),
+                py_fixed(site_cost_ms, 0),
                 py_percent0(site_load)
             ));
         }
@@ -147,6 +151,12 @@ pub fn run_check(
         loaded.excluded.len()
     ));
     out(format!("assumed round trip per request: {} ms (poller.yaml check.est_rtt_ms)", py_fixed(rtt, 0)));
+    if channels.iter().any(|c| c.inter_device_delay_ms != 0 || c.devices.iter().any(|d| d.inter_request_delay_ms != 0))
+    {
+        out("cycle and load include the inter-request delay of each device and, on a channel with several \
+             devices, the inter-device delay for every request (an upper bound)"
+            .to_string());
+    }
     for (driver, n) in &by_driver {
         out(format!(
             "  {:<13} devices {:>3}   with block plan {:>3}",

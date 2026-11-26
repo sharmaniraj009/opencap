@@ -366,6 +366,12 @@ pub struct Device {
     pub min_scan_ms: i64,
     #[serde(default = "d_3000")]
     pub timeout_ms: i64,
+    /// DEV-16: bounds each connect attempt (1000..=30000); absent = the driver's own budget.
+    #[serde(default)]
+    pub connect_timeout_ms: Option<i64>,
+    /// DEV-17: pause after the device's previous request before the next one (0..=300000).
+    #[serde(default)]
+    pub inter_request_delay_ms: i64,
     #[serde(default = "d_2")]
     pub retries: i64,
     #[serde(default = "d_3")]
@@ -395,6 +401,8 @@ impl Device {
             scan_ms: 1000,
             min_scan_ms: 1000,
             timeout_ms: 3000,
+            connect_timeout_ms: None,
+            inter_request_delay_ms: 0,
             retries: 2,
             demote_after: 3,
             demote_for_ms: 30_000,
@@ -409,6 +417,17 @@ impl Device {
     pub fn validate(&self) -> Result<(), String> {
         if !KNOWN_DRIVERS.contains(&self.driver.as_str()) {
             return Err(format!("{}: {}", self.id, driver_name_error(&self.driver)));
+        }
+        if let Some(ms) = self.connect_timeout_ms {
+            if !(1000..=30_000).contains(&ms) {
+                return Err(format!("{}: connect_timeout_ms {ms} is outside 1000..30000", self.id));
+            }
+        }
+        if !(0..=300_000).contains(&self.inter_request_delay_ms) {
+            return Err(format!(
+                "{}: inter_request_delay_ms {} is outside 0..300000",
+                self.id, self.inter_request_delay_ms
+            ));
         }
         let mut seen = std::collections::HashSet::new();
         let mut dupes: Vec<String> =
@@ -476,6 +495,9 @@ pub struct Channel {
     pub name: String,
     #[serde(default = "d_true")]
     pub enabled: bool,
+    /// CH-05: the line stays idle this long when the next request goes to another device (0..=60000).
+    #[serde(default)]
+    pub inter_device_delay_ms: i64,
     pub devices: Vec<Device>,
 }
 
@@ -518,6 +540,13 @@ impl DevicesFile {
                     "channel name {} is the reserved word {} (system-tag folder, docs/spec/system-tags.md 3.2)",
                     py_repr_str(&ch.name),
                     py_repr_str(word)
+                ));
+            }
+            if !(0..=60_000).contains(&ch.inter_device_delay_ms) {
+                return Err(format!(
+                    "channel {}: inter_device_delay_ms {} is outside 0..60000",
+                    py_repr_str(&ch.name),
+                    ch.inter_device_delay_ms
                 ));
             }
             for dev in &ch.devices {

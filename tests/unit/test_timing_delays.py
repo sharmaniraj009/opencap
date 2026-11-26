@@ -261,3 +261,20 @@ def test_import_kep_without_the_properties_keeps_the_defaults() -> None:
     for c in result.devices_file.channels:
         assert c.inter_device_delay_ms == 0
         assert all(d.connect_timeout_ms is None and d.inter_request_delay_ms == 0 for d in c.devices)
+
+
+def test_loader_keeps_the_timing_fields(tmp_path) -> None:
+    from opencap.config.loader import load_config
+    from opencap.config.models import DevicesFile
+    from tests.helpers.configdir import write_config
+
+    dev = Device.model_validate(_dev(connect_timeout_ms=4000, inter_request_delay_ms=120,
+                                     tags=[{"name": "T", "address": "400001", "dtype": "uint16"}]))
+    cfg = write_config(tmp_path, [dev])
+    df = DevicesFile.model_validate_json((cfg / "devices.json").read_text(encoding="utf-8"))
+    df.channels[0].inter_device_delay_ms = 35
+    (cfg / "devices.json").write_text(df.model_dump_json(indent=1), encoding="utf-8")
+    loaded = load_config(cfg)
+    assert loaded.channels[0].inter_device_delay_ms == 35
+    out = loaded.channels[0].devices[0]
+    assert (out.connect_timeout_ms, out.inter_request_delay_ms) == (4000, 120)

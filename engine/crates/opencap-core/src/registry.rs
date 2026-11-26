@@ -50,13 +50,21 @@ impl DevicePlan {
         out
     }
 
-    pub fn est_cycle_ms(&self, rtt_ms: f64) -> f64 {
-        self.wire_requests() as f64 * rtt_ms
+    /// Time for one sequential pass over every rate group. `delay_ms` is the idle time the channel
+    /// keeps around each request (`request_delay_ms`).
+    pub fn est_cycle_ms(&self, rtt_ms: f64, delay_ms: f64) -> f64 {
+        self.wire_requests() as f64 * (rtt_ms + delay_ms)
+    }
+
+    /// Idle time per request: the device's inter-request delay, plus the channel's inter-device delay
+    /// when other devices share the channel (an upper bound: every request counts as a switch).
+    pub fn request_delay_ms(&self, inter_device_delay_ms: i64, shared_channel: bool) -> f64 {
+        self.device.inter_request_delay_ms as f64 + if shared_channel { inter_device_delay_ms as f64 } else { 0.0 }
     }
 
     /// Fraction of wall time the channel spends on the wire for this device.
-    pub fn est_load(&self, rtt_ms: f64) -> f64 {
-        self.groups.iter().map(|g| g.plan.wire_requests() as f64 * rtt_ms / g.rate_ms as f64).sum()
+    pub fn est_load(&self, rtt_ms: f64, delay_ms: f64) -> f64 {
+        self.groups.iter().map(|g| g.plan.wire_requests() as f64 * (rtt_ms + delay_ms) / g.rate_ms as f64).sum()
     }
 }
 

@@ -346,7 +346,12 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
             }
             devices.push(new);
         }
-        channels.push(Channel { name: ch.name.clone(), enabled: ch_enabled, devices });
+        channels.push(Channel {
+            name: ch.name.clone(),
+            enabled: ch_enabled,
+            inter_device_delay_ms: ch.inter_device_delay_ms,
+            devices,
+        });
     }
 
     if !unmapped.is_empty() {

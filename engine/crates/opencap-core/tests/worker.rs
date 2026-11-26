@@ -52,6 +52,8 @@ struct Script {
     connects_ok: usize,
     closes: usize,
     reads: Vec<String>,
+    /// (block key, start, end) of every read that got an answer, `mono()` seconds.
+    read_spans: Vec<(String, f64, f64)>,
     good_reads: HashMap<String, i64>,
 }
 
@@ -164,6 +166,7 @@ impl Driver for FakeDriver {
             return Err(DriverError::ConnectionLost("not connected".into()));
         }
         let _in_flight: Vec<InFlight> = self.probes.iter().map(|p| p.enter()).collect();
+        let started = mono();
         let (delay, hang) = {
             let mut s = self.script.lock().unwrap();
             s.reads.push(b.key.clone());
@@ -175,6 +178,7 @@ impl Driver for FakeDriver {
         tokio::time::sleep(delay).await;
         drop(_in_flight);
         let mut s = self.script.lock().unwrap();
+        s.read_spans.push((b.key.clone(), started, mono()));
         if let Some(e) = s.read_failures.pop_front() {
             if matches!(e, DriverError::ConnectionLost(_)) {
                 self.connected = false;
@@ -278,6 +282,10 @@ struct Setup {
 }
 
 fn setup_with(devices: Vec<Device>, channel_enabled: bool, opts: WorkerOptions) -> Setup {
+    setup_paced(devices, channel_enabled, 0, opts)
+}
+
+fn setup_paced(devices: Vec<Device>, channel_enabled: bool, inter_device_delay_ms: i64, opts: WorkerOptions) -> Setup {
     let rig = Rig::new(&devices);
     let factory = rig.factory();
     let store = Arc::new(TagStore::new());
@@ -290,7 +298,7 @@ fn setup_with(devices: Vec<Device>, channel_enabled: bool, opts: WorkerOptions) 
         .map(|(name, devs)| {
             let plans: IndexMap<String, Arc<DevicePlan>> =
                 devs.iter().map(|d| (d.id.clone(), Arc::new(plan_device(d, &factory)))).collect();
-            let ch = Channel { name, enabled: channel_enabled, devices: devs };
+            let ch = Channel { name, enabled: channel_enabled, inter_device_delay_ms, devices: devs };
             ChannelWorker::new(&ch, &plans, store.clone(), factory.clone(), opts.clone())
         })
         .collect();
@@ -626,7 +634,7 @@ async fn worker_publishes_cycles_and_a_restarted_worker_takes_over() {
     let factory = s.rig.factory();
     let plans: IndexMap<String, Arc<DevicePlan>> =
         devs.iter().map(|d| (d.id.clone(), Arc::new(plan_device(d, &factory)))).collect();
-    let ch = Channel { name: "S".into(), enabled: true, devices: devs };
+    let ch = Channel { name: "S".into(), enabled: true, inter_device_delay_ms: 0, devices: devs };
     let new = ChannelWorker::new(&ch, &plans, s.store.clone(), factory, opts());
     let version = s.store.version("S/D");
     old.read_once("S/D").await.unwrap(); // still talks to the device, but its writer is stale
@@ -637,4 +645,90 @@ async fn worker_publishes_cycles_and_a_restarted_worker_takes_over() {
     assert!(matches!(rx.try_recv(), Ok(Change::Batch(_))));
     new.stop().await;
     old.stop().await;
+}
+
+// --- pacing: inter-device delay, inter-request delay, connect timeout (#105) -------------------------
+
+/// A timer may fire this much early on a coarse clock (Windows ticks ~15.6 ms) without failing a bound.
+const SLACK_S: f64 = 0.06;
+
+fn all_spans(s: &Setup, ids: &[&str]) -> Vec<(String, f64, f64)> {
+    let mut v: Vec<(String, f64, f64)> = ids
+        .iter()
+        .flat_map(|id| s.rig.script(id).read_spans.iter().map(|(_, a, b)| (id.to_string(), *a, *b)).collect::<Vec<_>>())
+        .collect();
+    v.sort_by(|a, b| a.1.total_cmp(&b.1));
+    v
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inter_device_delay_keeps_the_line_idle_when_the_device_changes() {
+    let devs = vec![device("S/A", &[("X", "a.0")]), device("S/B", &[("X", "a.0")])];
+    let s = setup_paced(devs, true, 250, opts());
+    let w = &s.workers[0];
+    let (r1, r2) = tokio::join!(w.read_once("S/A"), w.read_once("S/B"));
+    r1.unwrap();
+    r2.unwrap();
+    w.read_once("S/B").await.unwrap(); // same device again: no inter-device delay
+    w.read_once("S/B").await.unwrap();
+    let spans = all_spans(&s, &["S/A", "S/B"]);
+    assert_eq!(spans.len(), 4);
+    let (mut switches, mut same) = (0, 0);
+    for pair in spans.windows(2) {
+        let gap = pair[1].1 - pair[0].2;
+        if pair[0].0 != pair[1].0 {
+            switches += 1;
+            assert!(gap >= 0.25 - SLACK_S, "switch gap {gap}");
+        } else {
+            same += 1;
+            assert!(gap < 0.25 - SLACK_S, "same-device gap {gap}");
+        }
+    }
+    assert!(switches >= 1 && same >= 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inter_request_delay_waits_after_the_devices_previous_request() {
+    let mut slow = device("S/SLOW", &[("X", "a.0"), ("Y", "b.0")]);
+    slow.inter_request_delay_ms = 300;
+    let other = device("S/FAST", &[("Z", "c.0")]);
+    let s = setup(vec![slow, other]);
+    let w = &s.workers[0];
+    let (r1, r2) = tokio::join!(w.read_once("S/SLOW"), w.read_once("S/FAST"));
+    r1.unwrap();
+    r2.unwrap();
+    let slow_spans: Vec<_> = s.rig.script("S/SLOW").read_spans.clone();
+    assert_eq!(slow_spans.len(), 2);
+    assert!(slow_spans[1].1 - slow_spans[0].2 >= 0.3 - SLACK_S, "{slow_spans:?}");
+    // the pause holds the channel: no read of the other device starts inside it, and nothing overlaps
+    let spans = all_spans(&s, &["S/SLOW", "S/FAST"]);
+    for pair in spans.windows(2) {
+        assert!(pair[1].1 >= pair[0].2 - 0.005, "reads overlap: {spans:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn zero_delays_add_nothing() {
+    let s = setup(vec![device("S/A", &[("X", "a.0")]), device("S/B", &[("X", "a.0")])]);
+    let w = &s.workers[0];
+    let t0 = mono();
+    let (r1, r2) = tokio::join!(w.read_once("S/A"), w.read_once("S/B"));
+    r1.unwrap();
+    r2.unwrap();
+    assert!(mono() - t0 < 0.5);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_timeout_bounds_a_connect_that_never_answers() {
+    let mut d = device("S/D", &[("X", "a.0")]);
+    d.timeout_ms = 200; // safety net 0.35 s
+    d.connect_timeout_ms = Some(1000); // 1.35 s
+    d.retries = 0;
+    let s = setup(vec![d]);
+    s.rig.script("S/D").delay = Duration::from_secs(30);
+    let t0 = mono();
+    s.workers[0].read_once("S/D").await.unwrap();
+    let elapsed = mono() - t0;
+    assert!((1.0 - SLACK_S..2.5).contains(&elapsed), "{elapsed}");
+    assert!(!s.workers[0].device_status("S/D").unwrap().connected);
 }

@@ -147,12 +147,55 @@ impl CycleStats {
     }
 }
 
+/// What the wire lock remembers for the pacing delays (CH-05 inter-device, DEV-17 inter-request).
+#[derive(Default)]
+struct WireState {
+    /// Device of the latest request that held the lock, and when it let go (`mono()` seconds).
+    last_device: Option<String>,
+    last_end: f64,
+    /// Per device: when its latest request ended.
+    device_end: HashMap<String, f64>,
+}
+
+impl WireState {
+    /// How long the line must still stay idle before `device` may send (the longer of the two delays).
+    fn pace_s(&self, device: &str, inter_device_s: f64, inter_request_s: f64, now: f64) -> f64 {
+        let mut wait = 0.0_f64;
+        if inter_device_s > 0.0 && self.last_device.as_deref().is_some_and(|d| d != device) {
+            wait = self.last_end + inter_device_s - now;
+        }
+        if inter_request_s > 0.0 {
+            if let Some(end) = self.device_end.get(device) {
+                wait = wait.max(end + inter_request_s - now);
+            }
+        }
+        wait.max(0.0)
+    }
+}
+
+/// The channel's wire lock, held for one request; records the pacing state when it drops.
+struct WireGuard<'a> {
+    state: tokio::sync::MutexGuard<'a, WireState>,
+    device: &'a str,
+}
+
+impl Drop for WireGuard<'_> {
+    fn drop(&mut self) {
+        let now = mono();
+        self.state.last_device = Some(self.device.to_string());
+        self.state.last_end = now;
+        self.state.device_end.insert(self.device.to_string(), now);
+    }
+}
+
 struct Shared {
     channel: String,
     channel_enabled: bool,
+    /// CH-05, seconds.
+    inter_device_s: f64,
     store: Arc<TagStore>,
     factory: DriverFactory,
-    wire: Mutex<()>,
+    wire: Mutex<WireState>,
     opts: WorkerOptions,
     rng: StdMutex<StdRng>,
 }
@@ -380,6 +423,26 @@ impl Runner {
         Ok(st.driver.as_mut().expect("driver just set"))
     }
 
+    /// The channel's wire lock for one request of this device. After getting it, waits (holding it, so
+    /// the other devices of the channel wait too) until the inter-device and inter-request delays
+    /// have passed. `paced = false` (a close is not a request) takes the lock without waiting.
+    async fn wire<'a>(&'a self, w: &'a Shared, paced: bool) -> WireGuard<'a> {
+        let state = w.wire.lock().await;
+        let guard = WireGuard { state, device: &self.id };
+        if paced {
+            let wait = guard.state.pace_s(
+                &self.id,
+                w.inter_device_s,
+                self.device.inter_request_delay_ms as f64 / 1000.0,
+                mono(),
+            );
+            if wait > 0.0 {
+                tokio::time::sleep(Duration::from_secs_f64(wait)).await;
+            }
+        }
+        guard
+    }
+
     /// One connect attempt. Ok(None) when connected, Ok(Some(reason)) when not.
     async fn connect(&self, st: &mut RunnerState, w: &Shared, force: bool) -> Result<Option<String>, Unsupported> {
         let now = mono();
@@ -392,10 +455,16 @@ impl Runner {
         }
         let safety = self.safety_s;
         let drv = self.ensure_driver(st, w)?;
-        let budget = drv.connect_timeout().unwrap_or(Duration::from_secs_f64(safety));
+        // DEV-16: an explicit connect timeout bounds the attempt like any other driver call. Drivers
+        // still bound their own connect by `timeout_ms` (they are not touched here), so a value
+        // above `timeout_ms` does not lengthen a driver's own wait.
+        let budget = match self.device.connect_timeout_ms {
+            Some(ms) => Duration::from_secs_f64(safety_timeout_s(ms)),
+            None => drv.connect_timeout().unwrap_or(Duration::from_secs_f64(safety)),
+        };
         let t0 = mono();
         let res = {
-            let _wire = w.wire.lock().await;
+            let _wire = self.wire(w, true).await;
             tokio::time::timeout(budget, drv.connect()).await
         };
         let reason = match res {
@@ -444,7 +513,7 @@ impl Runner {
 
     async fn close_driver(&self, st: &mut RunnerState, w: &Shared) {
         let Some(drv) = st.driver.as_mut() else { return };
-        let _wire = w.wire.lock().await;
+        let _wire = self.wire(w, false).await;
         if tokio::time::timeout(Duration::from_secs_f64(self.safety_s), drv.close()).await.is_err() {
             debug!(channel = %w.channel, device = %self.id, "device.close_failed");
         }
@@ -490,7 +559,7 @@ impl Runner {
             let t0 = mono();
             let res = {
                 let drv = st.driver.as_mut().expect("connected implies a driver");
-                let _wire = w.wire.lock().await;
+                let _wire = self.wire(w, true).await;
                 tokio::time::timeout(budget, drv.read(block.as_ref())).await
             };
             match res {
@@ -810,9 +879,10 @@ impl ChannelWorker {
         let shared = Arc::new(Shared {
             channel: channel.name.clone(),
             channel_enabled: channel.enabled,
+            inter_device_s: channel.inter_device_delay_ms as f64 / 1000.0,
             store,
             factory,
-            wire: Mutex::new(()),
+            wire: Mutex::new(WireState::default()),
             opts,
             rng: StdMutex::new(rng),
         });

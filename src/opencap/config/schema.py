@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from opencap.config.models import DeviceMap, DevicesFile, Overrides, PollerConfig
+from opencap.config.models import DeviceMap, DevicesFile, NodeConfig, Overrides, PollerConfig, ProjectV2
 
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 ID_BASE = "https://github.com/sharmaniraj009/opencap/schema/"
@@ -28,6 +28,8 @@ DOCUMENTS: dict[str, tuple[str, type[BaseModel]]] = {
     "poller": ("poller.schema.json", PollerConfig),
     "devices_map": ("devices_map.schema.json", DeviceMap),
     "overrides": ("overrides.schema.json", Overrides),
+    "project": ("project.schema.json", ProjectV2),        # project v2 (ADR-0013)
+    "node": ("node.schema.json", NodeConfig),
 }
 
 REGEN_HINT = "run `python -m opencap.config.schema --out schema/`"

@@ -1,7 +1,10 @@
 """The web UI in a real browser: tests/ui/browser_smoke.js against a live server.
 
-Needs Node.js and the `playwright` Node package with Chromium; skipped without them. Marked
-`acceptance` (about 15 s). The script fails on any assertion, script error or CSP violation.
+Needs Node.js and the `playwright` Node package with Chromium; skipped without them, unless
+`OPENCAP_REQUIRE_BROWSER` is set (the Linux acceptance jobs in CI set it, so a missing browser fails
+instead of skipping, #234). `OPENCAP_UI_SHOTS` names a directory for the script's screenshots (CI
+uploads them when the job fails). Marked `acceptance` (about 10 s). The script fails on any
+assertion, script error or CSP violation.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ from tests.unit.test_config_api import ENV, SAMPLE, api_cfg, make_config
 
 pytestmark = pytest.mark.acceptance
 SCRIPT = Path(__file__).parents[1] / "ui" / "browser_smoke.js"
+REQUIRE_ENV = "OPENCAP_REQUIRE_BROWSER"
+SHOTS_ENV = "OPENCAP_UI_SHOTS"
 
 
 def _node_env() -> dict[str, str] | None:
@@ -46,6 +51,8 @@ def _node_env() -> dict[str, str] | None:
 def test_ui_in_a_browser(tmp_path):
     node_env = _node_env()
     if node_env is None:
+        if os.environ.get(REQUIRE_ENV):
+            pytest.fail(f"{REQUIRE_ENV} is set, but Node.js with the playwright package is not installed")
         pytest.skip("Node.js with the playwright package is not installed")
     poller = ConfigPoller(make_config(tmp_path))
     poller.identities["SITE MODBUS/Device1"] = {"vendor": "Example Vendor", "revision": "1.2"}
@@ -71,10 +78,11 @@ def test_ui_in_a_browser(tmp_path):
             assert time.monotonic() < deadline, "server did not start"
             time.sleep(0.05)
         port = server.servers[0].sockets[0].getsockname()[1]
-        result = subprocess.run(
-            ["node", str(SCRIPT), str(port), ENV["T_ADMIN"], ENV["T_VIEW"], str(SAMPLE)],
-            env=node_env, capture_output=True, text=True, timeout=240,
-        )
+        args = ["node", str(SCRIPT), str(port), ENV["T_ADMIN"], ENV["T_VIEW"], str(SAMPLE)]
+        if os.environ.get(SHOTS_ENV):
+            Path(os.environ[SHOTS_ENV]).mkdir(parents=True, exist_ok=True)
+            args.append(os.environ[SHOTS_ENV])
+        result = subprocess.run(args, env=node_env, capture_output=True, text=True, timeout=240)
         assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
         assert "all checks passed" in result.stdout
     finally:

@@ -157,7 +157,7 @@ def run_cmd(
     import asyncio
 
     from opencap.config.loader import load_config
-    from opencap.core.runtime import Poller, event_loop_factory
+    from opencap.core.runtime import ApiStartError, Poller, event_loop_factory
     from opencap.logsetup import configure_logging
 
     loaded = load_config(config_dir)
@@ -170,6 +170,8 @@ def run_cmd(
     try:
         asyncio.run(Poller(config_dir, loaded=loaded, only_channels=site or None).run_forever(),
                     loop_factory=event_loop_factory())
+    except ApiStartError:
+        raise typer.Exit(1) from None      # api.bind_failed is logged: no process without its API (LOG-29)
     except KeyboardInterrupt:
         # Ctrl+C where the loop has no signal handlers (Windows, e.g. a WinSW service stop):
         # asyncio cancelled run_forever(), which has already stopped the poller cleanly.

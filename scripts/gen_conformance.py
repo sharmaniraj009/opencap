@@ -34,6 +34,7 @@ for _p in (ROOT, ROOT / "scripts"):        # the repo (opencap, tests) and the A
 
 import gen_conformance_ab  # noqa: E402
 import gen_conformance_system_tags  # noqa: E402
+import gen_conformance_fins  # noqa: E402
 
 from opencap import FIRM_VERSION  # noqa: E402
 from opencap.config.models import Device, PayloadCfg, PublishCfg, Scale, Tag  # noqa: E402
@@ -1136,6 +1137,7 @@ SPECS: dict[str, list[FileSpec]] = {
 
 SPECS.update(gen_conformance_ab.SPECS)      # Allen-Bradley Logix and PCCC (#5)
 SPECS.update(gen_conformance_system_tags.SPECS)   # system and diagnostic tags (#120)
+SPECS.update(gen_conformance_fins.SPECS)    # Omron FINS address parsing (#13, #166)
 
 
 def build() -> dict[Path, str]:

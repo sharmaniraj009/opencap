@@ -27,7 +27,7 @@
     <template x-for="l in languageList()" :key="l.code"><option :value="l.code" :selected="l.code === language" x-text="l.name"></option></template>
   </select>
 </header>
-<div class="banner info" x-show="app().open" x-cloak x-rich="rich('shell.no_api_token_is')"></div>
+<div class="banner info" x-show="app().open" x-cloak x-rich="rich('shell.open_mode_banner')"></div>
 <div class="banner warn" id="readonly-config" x-show="app().name && isAdmin() && !app().writable" x-cloak x-text="t('shell.readonly_config', {reason: app().writableReason})"></div>
 <div class="banner warn" id="pending" x-show="pendingShown()" x-cloak>
   <span x-text="pendingText()"></span>
@@ -43,7 +43,7 @@
 <template x-if="view('login')">
 <section class="login" x-data="loginView" id="view-login">
   <h1 x-text="t('login.log_in')"></h1>
-  <p class="muted" x-rich="rich('login.use_an_api_token')"></p>
+  <p class="muted" x-rich="rich('login.intro')"></p>
   <p class="error" role="alert" x-show="error" x-text="error"></p>
   <form class="stack" @submit.prevent="submit()">
     <label><span x-text="t('login.token')"></span> <input type="password" name="token" autocomplete="off" required x-model="token"></label>
@@ -68,7 +68,7 @@
       <div class="sub" x-text="t('dashboard.ok_offline_demoted')"></div></div>
     <div class="card"><div class="label" x-text="t('dashboard.instance')"></div><div class="value small" x-text="health().instance"></div><div class="sub" x-text="health().version"></div></div>
   </div>
-  <p class="muted" x-show="noChannels()" x-rich="rich('dashboard.no_channel_is_polled')"></p>
+  <p class="muted" x-show="noChannels()" x-rich="rich('dashboard.no_channels')"></p>
   <template x-for="ch in sites()" :key="ch.name">
     <section class="site">
       <h2><span x-text="ch.name"></span> <small class="muted" x-text="t('dashboard.devices_n', {n: count(ch.devices)})"></small></h2>
@@ -104,7 +104,7 @@
     </div>
   </div>
   <div x-show="missing">
-    <p x-rich="rich('device.this_device_is_not')"></p>
+    <p x-rich="rich('device.not_polled')"></p>
   </div>
   <p class="error" x-show="error" x-text="error"></p>
   <div x-show="detail">
@@ -173,7 +173,7 @@
     <h1 x-text="t('common.quick_client')"></h1>
     <span id="quick-mode" :class="modeClass()" :title="modeTitle()" x-text="modeText()"></span>
   </div>
-  <p class="muted small" x-rich="rich('quick.live_values_over_api')"></p>
+  <p class="muted small" x-rich="rich('quick.intro')"></p>
   <div class="quick">
     <nav class="quick-tree" :aria-label="t('common.devices')">
       <input type="search" :placeholder="t('common.filter_devices_placeholder')" :aria-label="t('common.filter_devices')" x-model="q">
@@ -265,14 +265,14 @@
       </tbody>
     </table>
   </div>
-  <p class="muted" x-show="summary && !has(channels)" x-rich="rich('config.no_channels_yet_add')"></p>
+  <p class="muted" x-show="summary && !has(channels)" x-rich="rich('config.no_channels')"></p>
   <form id="channel-create" class="inline-form" x-show="canEdit()" @submit.prevent="addChannel()">
     <div class="error-box" x-show="has(general)"><strong x-text="t('common.not_saved')"></strong><ul><template x-for="(g, i) in general" :key="i"><li x-text="g"></li></template></ul></div>
     <label><span x-text="t('config.new_channel')"></span> <input name="name" x-model="newChannel" :placeholder="t('config.plant_a')" required><span class="field-error" x-show="err('name')" x-text="err('name')"></span></label>
     <button type="submit" x-text="t('config.add_channel')"></button>
   </form>
 
-  <h2><span x-text="t('config.publish_defaults')"></span> <small class="muted" x-rich="rich('config.devices_map_yaml_defaults')"></small></h2>
+  <h2><span x-text="t('config.publish_defaults')"></span> <small class="muted" x-rich="rich('config.defaults_note')"></small></h2>
   <form id="map-defaults" class="stack" @submit.prevent="saveDefaults()">
     <fieldset :disabled="!canEdit()">
       <div class="error-box" x-show="has(defaultsErrors)"><strong x-text="t('common.not_saved')"></strong><ul><template x-for="(e, i) in defaultsErrors" :key="i"><li x-text="e"></li></template></ul></div>
@@ -472,7 +472,7 @@
 <section x-data="checkView" id="view-check">
   <p class="crumbs"><a href="#/config" x-text="t('common.config')"></a> ›</p>
   <div class="toolbar">
-    <h1 x-text="t('check.check_block_plan_and')"></h1>
+    <h1 x-text="t('check.title')"></h1>
     <form class="inline-form" @submit.prevent="load()"><label><span x-text="t('check.site')"></span> <input name="site" x-model="site" :placeholder="t('check.all')"></label><button type="submit" x-text="t('check.show')"></button></form>
   </div>
   <p class="muted" x-rich="rich('check.intro', {rtt: report ? report.rtt_ms : '?'})"></p>
@@ -522,7 +522,7 @@
 <template x-if="view('import')">
 <section x-data="importView" id="view-import">
   <h1 x-text="t('common.import')"></h1>
-  <p class="muted" x-rich="rich('import.a_kepserverex_project_json')"></p>
+  <p class="muted" x-rich="rich('import.intro')"></p>
   <p class="error" x-show="!canEdit()" x-text="editBlockedText()"></p>
   <form id="import-form" class="stack" x-show="canEdit()" @submit.prevent="preview()">
     <label><span x-text="t('import.file')"></span> <input type="file" name="file" accept=".json,application/json" @change="pick($event)" required></label>
@@ -612,6 +612,6 @@
 </section>
 </template>
 </main>
-<footer class="foot" x-rich="rich('shell.read_only_towards_plcs')"></footer>
+<footer class="foot" x-rich="rich('shell.footer')"></footer>
 </body>
 </html>

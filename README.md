@@ -40,6 +40,11 @@ done (S7, MC and OPC UA still need a check on real equipment). See [ROADMAP.md](
 - [Testing](#testing)
 - [Contributing, security, license](#contributing-security-license)
 
+## Try it in one minute
+
+No PLC needed: [`demo/`](demo/README.md) runs two simulated devices through the real poller into a local
+MQTT broker, with the API and web UI, and walks through the broker-outage (store-and-forward) test.
+
 ## Quick start
 
 opencap is not on PyPI yet. Install it from a clone (or with

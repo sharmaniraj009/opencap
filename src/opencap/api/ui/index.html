@@ -521,21 +521,66 @@
 <!-- ============================================================ import -->
 <template x-if="view('import')">
 <section x-data="importView" id="view-import">
-  <h1 x-text="t('common.import')"></h1>
+  <h1 x-text="t('import.title')"></h1>
   <p class="muted" x-rich="rich('import.intro')"></p>
+  <ol class="steps" :aria-label="t('import.steps_label')">
+    <li :class="stepClass(1)" :aria-current="step === 1 ? 'step' : null" x-text="t('import.step_upload')"></li>
+    <li :class="stepClass(2)" :aria-current="step === 2 ? 'step' : null" x-text="t('import.step_review')"></li>
+    <li :class="stepClass(3)" :aria-current="step === 3 ? 'step' : null" x-text="t('import.step_applied')"></li>
+  </ol>
   <p class="error" x-show="!canEdit()" x-text="editBlockedText()"></p>
-  <form id="import-form" class="stack" x-show="canEdit()" @submit.prevent="preview()">
+  <form id="import-form" class="stack" x-show="canEdit() && step === 1" @submit.prevent="upload()">
     <label><span x-text="t('import.file')"></span> <input type="file" name="file" accept=".json,application/json" @change="pick($event)" required></label>
-    <div class="buttons"><button type="submit" class="primary" :disabled="busy" x-text="t('import.preview_changes_dry_run')"></button></div>
+    <div class="buttons"><button type="submit" class="primary" :disabled="busy" x-text="t('import.upload_and_check')"></button></div>
+    <p class="flash flash-ok inline" x-show="discarded" x-text="t('import.discarded')"></p>
   </form>
   <div id="import-result">
-    <div class="error-box" x-show="has(errors)"><strong x-text="t('import.cannot_import', {file: fileName})"></strong><ul><template x-for="(e, i) in errors" :key="i"><li x-text="e"></li></template></ul></div>
+    <div class="error-box" role="alert" x-show="has(errors)"><strong x-text="t('import.cannot_import', {file: fileName})"></strong><ul><template x-for="(e, i) in errors" :key="i"><li x-text="e"></li></template></ul></div>
     <template x-if="report">
       <div>
-        <div class="flash flash-ok" x-show="applied" x-text="t('import.imported', {file: fileName, files: filesText()})"></div>
-        <h2 x-show="!applied"><span x-text="t('import.dry_run', {file: fileName})"></span> <small class="muted" x-text="'(' + report.kind + ')'"></small></h2>
+        <div class="flash flash-ok" x-show="step === 3" x-text="resultText()"></div>
+        <h2><span x-text="t(step === 3 ? 'import.imported_heading' : 'import.review_heading', {file: fileName})"></span> <small class="muted" x-text="kindText()"></small></h2>
+        <p class="muted small" x-show="step === 2" x-text="t('import.staged_until', {time: expiresText()})"></p>
+
+        <template x-if="summary()">
+          <div id="import-summary">
+            <div class="cards">
+              <div class="card"><div class="label" x-text="t('import.in_export')"></div><div class="value small" x-text="countText('source')"></div></div>
+              <div class="card"><div class="label" x-text="t('import.imported_label')"></div><div class="value small ok" x-text="countText('included')"></div></div>
+              <div class="card"><div class="label" x-text="t('import.not_imported')"></div><div class="value small" x-text="countText('excluded')"></div></div>
+              <div class="card"><div class="label" x-text="t('import.same_address')"></div><div class="value small" x-text="saText()"></div><div class="sub" x-text="t('import.alias_suspect')"></div></div>
+            </div>
+            <h3 x-text="t('import.devices_per_driver')"></h3>
+            <table class="compact" id="import-drivers">
+              <thead><tr><th x-text="t('import.col_driver')"></th><th x-text="t('common.devices')"></th><th x-text="t('common.tags')"></th></tr></thead>
+              <tbody><template x-for="row in driverRows()" :key="row.name"><tr><td><code x-text="row.name"></code></td><td class="num" x-text="row.devices"></td><td class="num" x-text="row.tags"></td></tr></template></tbody>
+            </table>
+            <template x-if="has(excludedRows())">
+              <div>
+                <h3><span x-text="t('import.not_imported')"></span> <small class="muted" x-text="t('import.n_devices', {n: count(excludedRows())})"></small></h3>
+                <table class="compact" id="import-excluded">
+                  <thead><tr><th x-text="t('import.col_device')"></th><th x-text="t('import.col_kep_driver')"></th><th x-text="t('common.tags')"></th><th x-text="t('import.col_reason')"></th></tr></thead>
+                  <tbody><template x-for="(e, i) in excludedRows()" :key="i"><tr><td><code x-text="e.channel + '/' + e.device"></code></td><td x-text="e.kep_driver"></td><td class="num" x-text="e.tags"></td><td class="wrap" x-text="e.reason"></td></tr></template></tbody>
+                </table>
+              </div>
+            </template>
+            <template x-if="has(sameAddress())">
+              <details id="import-same-address">
+                <summary x-text="t('import.same_address_summary', {n: count(sameAddress())})"></summary>
+                <div class="table-wrap">
+                  <table class="compact">
+                    <thead><tr><th x-text="t('import.col_device')"></th><th x-text="t('import.col_address')"></th><th x-text="t('common.tags')"></th><th x-text="t('import.col_types')"></th><th x-text="t('import.col_kind')"></th><th x-text="t('import.col_why')"></th></tr></thead>
+                    <tbody><template x-for="(r, i) in sameAddress()" :key="i"><tr :class="r.classification === 'suspect' ? 'suspect' : ''"><td><code x-text="r.device_id"></code></td><td><code x-text="r.address"></code></td><td class="wrap" x-text="join(r.tags)"></td><td class="small" x-text="join(r.dtypes)"></td><td x-text="kindOf(r)"></td><td class="wrap small" x-text="r.reason"></td></tr></template></tbody>
+                  </table>
+                </div>
+              </details>
+            </template>
+          </div>
+        </template>
+
         <template x-if="dj()">
           <div>
+            <h3 x-text="t('import.changes_heading')"></h3>
             <div class="cards">
               <div class="card"><div class="label" x-text="t('common.channels')"></div><div class="value small" x-text="changeCounts('channels')"></div></div>
               <div class="card"><div class="label" x-text="t('common.devices')"></div><div class="value small" x-text="changeCounts('devices')"></div><div class="sub" x-text="t('import.unchanged_n', {n: sum('devices', 'unchanged')})"></div></div>
@@ -560,14 +605,38 @@
             </details>
           </div>
         </template>
-        <p x-show="report.devices_map" x-text="stubsText()"></p>
+
+        <template x-if="has(stubs())">
+          <div id="import-stubs" class="stubs">
+            <h3 x-text="t('import.stubs_heading', {n: count(stubs())})"></h3>
+            <p class="small" x-rich="rich('import.stubs_text')"></p>
+            <ul><template x-for="id in stubs()" :key="id"><li><code x-text="id"></code></li></template></ul>
+            <label class="check" x-show="step === 2"><input type="checkbox" name="stubs_ok" x-model="stubsOk"> <span x-text="t('import.stubs_confirm')"></span></label>
+          </div>
+        </template>
+        <template x-if="has(envNotes())">
+          <div id="import-env" class="banner info">
+            <span x-rich="rich('import.env_heading')"></span>
+            <ul><template x-for="(n, i) in envNotes()" :key="i"><li x-text="n"></li></template></ul>
+          </div>
+        </template>
+
         <template x-for="x in textDiffs()" :key="x.name">
           <details :open="!x.d.unchanged"><summary x-text="x.name + ': ' + textState(x)"></summary><pre class="diff" x-show="!x.d.unchanged" x-text="x.d.diff"></pre></details>
         </template>
-        <details x-show="has(problems())"><summary x-text="t('import.problems_n', {n: count(problems())})"></summary><ul class="warnings"><template x-for="(p, i) in problems()" :key="i"><li x-text="p"></li></template></ul></details>
+        <details x-show="has(problems())"><summary x-text="t('import.notes_n', {n: count(problems())})"></summary><ul class="warnings"><template x-for="(p, i) in problems()" :key="i"><li x-text="p"></li></template></ul></details>
         <details x-show="has(warnings())"><summary x-text="t('import.warnings_n', {n: count(warnings())})"></summary><ul class="warnings"><template x-for="(w, i) in warnings()" :key="i"><li x-text="w"></li></template></ul></details>
-        <div class="buttons" x-show="canApply()"><button class="primary" :disabled="busy" @click="apply()" x-text="t('import.apply_import')"></button><span class="muted" x-text="t('import.writes', {files: filesText()})"></span></div>
-        <p class="muted" x-show="nothing()" x-text="t('import.nothing_would_change')"></p>
+
+        <div class="buttons" x-show="step === 2">
+          <button class="primary" :disabled="!canApply()" @click="apply()" x-text="t('import.apply_import')"></button>
+          <label class="check"><input type="checkbox" name="reload" x-model="reloadAfter"> <span x-text="t('import.reload_now')"></span></label>
+          <button class="danger" :disabled="busy" @click="discard()" x-text="t('import.discard')"></button>
+          <span class="muted small" x-text="applyHint()"></span>
+        </div>
+        <div class="buttons" x-show="step === 3">
+          <a class="button" href="#/config" x-text="t('import.open_config')"></a>
+          <button @click="again()" x-text="t('import.import_another')"></button>
+        </div>
       </div>
     </template>
   </div>

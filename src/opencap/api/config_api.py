@@ -8,7 +8,8 @@ The open equivalent of KEPServerEX's Configuration API, and the only API the web
     /api/v1/map, /map/defaults, /map/devices/{id}                     devices_map.yaml
     /api/v1/overrides, /overrides/devices/{id}, /overrides/channels/{c} overrides.yaml
     /api/v1/project (whole config), /project/status, /project/pending, /project/import,
-    /project/validate (= opencap check), /project/revisions, /project/schema
+    /project/import/{id}[/apply] (staged imports, imports.py), /project/validate (= opencap check),
+    /project/revisions, /project/schema
     /api/v1/audit, /api/v1/whoami, /api/v1/support
     runtime: /api/v1/status, /api/v1/devices/{id}/status|values|plan|identity,
              POST /api/v1/devices/{id}/read-once, POST /api/v1/reload
@@ -32,6 +33,7 @@ from starlette.concurrency import run_in_threadpool
 from opencap.api import schemas as S
 from opencap.api import collection_query as CQ
 from opencap.api.context import ApiContext
+from opencap.api.imports import Staging
 from opencap.config.models import Channel, Device, DeviceMapEntry, DeviceOverride, PublishCfg, Tag
 from opencap.config.store import CURRENT_WRITER, MAX_IMPORT_BYTES, ConfigError, ConfigStore, Invalid, Result
 from opencap.core.support import support_info
@@ -442,28 +444,55 @@ def build_router() -> APIRouter:
 
     @r.post("/project/import", response_model=S.ImportReport, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def project_import(request: Request, dry_run: bool = True, filename: str | None = None,
-                             if_match: IfMatch = None, apply: Apply = False) -> JSONResponse:
-        """A KEPServerEX project.json or an opencap export (GET /api/v1/project). Dry run by default."""
+                             if_match: IfMatch = None, apply: Apply = False,
+                             stage: Annotated[bool, Query(description="keep the importer's output for "
+                                                                      "POST /project/import/{import_id}/apply "
+                                                                      "(the import wizard, #33)")] = False) -> JSONResponse:
+        """A KEPServerEX project.json or an opencap export (GET /api/v1/project). Dry run by default;
+        `stage=true` keeps the result in the config directory for an hour (see `imports.py`)."""
         store = _store(request)
+        raw = await read_json_body(request)
+        if stage:
+            staging = Staging(store)
+            report = await run_in_threadpool(staging.create, raw, filename=filename,
+                                             who=request.state.principal.name)
+            staging.schedule_sweep()
+            report["pending_reload"] = (await run_in_threadpool(_ctx(request).tracker.status)).get("pending_reload", False)
+            return with_rev(report)
         if not dry_run:
             _need_if_match(if_match)
-        raw = await read_json_body(request)
         report = await run_in_threadpool(as_writer, request.state.principal,
                                          lambda: store.import_config(raw, dry_run=dry_run, filename=filename,
                                                                      if_match=if_match))
-        ctx = _ctx(request)
-        result: Result | None = report.pop("result", None)
-        if result is not None:
-            report["applied"], report["changes"] = True, result.changes
-            if apply and result.files:
-                try:
-                    report["reload"] = await ctx.reload(request.state.principal)
-                except Exception as exc:  # noqa: BLE001
-                    report["reload_error"] = f"reload failed, old config kept: {exc}"
-        else:
-            report["applied"] = False
-        report["pending_reload"] = (await run_in_threadpool(ctx.tracker.status)).get("pending_reload", False)
+        return await _import_answer(request, report, apply)
+
+    @r.get("/project/import/{import_id}", response_model=S.ImportReport, response_model_exclude_unset=True,
+           responses=S.ERR_READ)
+    async def staged_import(request: Request, import_id: str) -> JSONResponse:
+        """The report of a staged import (admin: staging is part of changing the configuration)."""
+        _need_admin(request, "staged imports")
+        staging = Staging(_store(request))
+        report = await run_in_threadpool(staging.report, import_id)
+        report["pending_reload"] = (await run_in_threadpool(_ctx(request).tracker.status)).get("pending_reload", False)
         return with_rev(report)
+
+    @r.post("/project/import/{import_id}/apply", response_model=S.ImportReport, response_model_exclude_unset=True,
+            responses=S.ERR_WRITE)
+    async def apply_staged_import(request: Request, import_id: str, if_match: IfMatch = None,
+                                  apply: Apply = False) -> JSONResponse:
+        """Write a staged import: the normal atomic write, new revision and audit entry. `If-Match`
+        is the report's `revision`: 412 when the configuration changed since it was staged."""
+        _need_if_match(if_match)
+        staging = Staging(_store(request))
+        report = await run_in_threadpool(as_writer, request.state.principal,
+                                         lambda: staging.apply(import_id, if_match=if_match))
+        return await _import_answer(request, report, apply)
+
+    @r.delete("/project/import/{import_id}", response_model=S.ImportDiscarded, responses=S.ERR_WRITE)
+    async def discard_staged_import(request: Request, import_id: str) -> dict[str, Any]:
+        staging = Staging(_store(request))
+        await run_in_threadpool(staging.discard, import_id)
+        return {"discarded": import_id}
 
     # --- audit -------------------------------------------------------------------
     @r.get("/audit", response_model=S.AuditList, response_model_exclude_unset=True, responses=S.ERR_READ)
@@ -473,6 +502,28 @@ def build_router() -> APIRouter:
         return {"entries": entries, "limit": limit, "offset": offset}
 
     return r
+
+
+def _need_admin(request: Request, what: str) -> None:
+    if not request.state.principal.is_admin:
+        raise HTTPException(status_code=403, detail=f"{what} need the admin role")
+
+
+async def _import_answer(request: Request, report: dict[str, Any], apply: bool) -> JSONResponse:
+    """The answer to an import that ran: applied or not, the optional reload, pending state."""
+    ctx = _ctx(request)
+    result: Result | None = report.pop("result", None)
+    if result is not None:
+        report["applied"], report["changes"] = True, result.changes
+        if apply and result.files:
+            try:
+                report["reload"] = await ctx.reload(request.state.principal)
+            except Exception as exc:  # noqa: BLE001
+                report["reload_error"] = f"reload failed, old config kept: {exc}"
+    else:
+        report["applied"] = False
+    report["pending_reload"] = (await run_in_threadpool(ctx.tracker.status)).get("pending_reload", False)
+    return with_rev(report)
 
 
 async def read_json_body(request: Request) -> bytes:

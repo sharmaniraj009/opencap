@@ -7,6 +7,7 @@ from config files.
 
 from __future__ import annotations
 
+import functools
 import math
 from typing import Any, Literal
 
@@ -364,13 +365,30 @@ class ApiCfg(_Model):
 def is_known_zone(name: str) -> bool:
     """An IANA zone name the payload can use (the fixed-offset zones cover images without tzdata,
     as `north.payload.zone` does)."""
+    if name in _FALLBACK_ZONES:
+        return True
+    if not name or name != name.strip():
+        return False
+    zones = _available_zones()
+    if zones:                       # exact, case-sensitive key match, as chrono-tz in the Rust engine
+        return name in zones        # (Windows file lookups ignore case and trailing spaces)
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
     try:
         ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError, OSError):
-        return name in ("Asia/Kolkata", "Asia/Calcutta", "UTC")
+        return False
     return True
+
+
+_FALLBACK_ZONES = ("Asia/Kolkata", "Asia/Calcutta", "UTC")
+
+
+@functools.lru_cache(maxsize=1)
+def _available_zones() -> frozenset[str]:
+    from zoneinfo import available_timezones
+
+    return frozenset(available_timezones())
 
 
 class PayloadCfg(_Model):

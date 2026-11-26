@@ -1,0 +1,10 @@
+{
+  "document": "poller",
+  "expected_error": "payload.timezone",
+  "semantic": true,
+  "data": {
+    "payload": {
+      "timezone": "Mars/Olympus"
+    }
+  }
+}

@@ -1733,11 +1733,12 @@ produced once the outbox drains, then every frozen message must reach the subscr
   write. `payload.timezone` must be a tz-database name (or one of the three fixed-offset fallbacks
   of `north.payload`), else the model is refused naming `payload.timezone`. Names with `%`, `#`,
   `?`, `&` and `+` round-trip through their percent-encoded path (pinned by a test).
-- **Not done yet:** the same checks in the Rust models and shared fixtures (they would fail
-  `compare.py` until both engines agree), the v2 error severity (waits for #37), the importer
-  reporting these names, and `params.device_timezone` with its DST vectors (DEV-13).
-- **Why:** PRJ-13, API-07, LOG-21; the shared-fixture comparison is the reason the Python rules
-  are not yet fixtures.
+- **Rust half:** `name_rule_problems` and `PayloadCfg::validate` in `opencap-core` give the same texts
+  and the same warnings (compared by `compare.py` on `valid/devices_bad_names.json`); the zone names
+  both engines accept or refuse are in `tests/conformance/timezones/zones.json`.
+- **Not done yet:** the v2 error severity (waits for #37), the importer reporting these names, and
+  `params.device_timezone` with its DST vectors (DEV-13).
+- **Why:** PRJ-13, API-07, LOG-21.
 
 ### D-085 s7 in the Rust engine: a native S7comm read subset, read PDUs only (#44)
 - **Decision:** `engine/drivers/s7` (`opencap-driver-s7`, feature `driver-s7`) ports the Python driver

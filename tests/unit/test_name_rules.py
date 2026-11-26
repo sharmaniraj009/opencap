@@ -5,6 +5,7 @@ fails at load. Python half; the Rust engine follows (see the PR)."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -77,6 +78,15 @@ def test_known_zones_are_accepted(name):
 def test_unknown_zone_is_refused_naming_the_key(name):
     with pytest.raises(ValidationError, match="payload.timezone"):
         PayloadCfg(timezone=name)
+
+
+def test_shared_zone_fixture():
+    fx = json.loads((Path(__file__).parents[1] / "conformance" / "timezones" / "zones.json").read_text("utf-8"))
+    for name in fx["valid"]:
+        assert PayloadCfg(timezone=name).timezone == name
+    for name in fx["invalid"]:
+        with pytest.raises(ValidationError, match="payload.timezone"):
+            PayloadCfg(timezone=name)
 
 
 # --- API writes -------------------------------------------------------------------

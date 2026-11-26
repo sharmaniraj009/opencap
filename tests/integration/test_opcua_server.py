@@ -196,8 +196,15 @@ async def test_quality_maps_to_status_codes(setup):
 async def test_every_write_is_refused(setup):
     north, _cache, _status, client = setup
     node = client.get_node(north.node_id("SITE 001/8 PUMP", "FLOW_1"))
-    with pytest.raises(ua.UaStatusCodeError, match="BadUserAccessDenied"):
+    with pytest.raises(ua.UaStatusCodeError, match="BadNotWritable"):      # per node (#28), not a ServiceFault
         await node.write_value(ua.DataValue(ua.Variant(99.0, ua.VariantType.Float)))
+    params = ua.WriteParameters(NodesToWrite=[
+        ua.WriteValue(NodeId=node.nodeid, AttributeId=ua.AttributeIds.Value,
+                      Value=ua.DataValue(ua.Variant(1.0, ua.VariantType.Float))),
+        ua.WriteValue(NodeId=ua.NodeId("SITE 001.8 PUMP.NOPE", 2), AttributeId=ua.AttributeIds.Value,
+                      Value=ua.DataValue(ua.Variant(1.0, ua.VariantType.Float)))])
+    codes = await client.uaclient.write(params)
+    assert [c.value for c in codes] == [ua.StatusCodes.BadNotWritable, ua.StatusCodes.BadNodeIdUnknown]
     with pytest.raises(ua.UaStatusCodeError):
         await node.write_attribute(ua.AttributeIds.DisplayName, ua.DataValue(ua.Variant(ua.LocalizedText("x"))))
     system = client.get_node(north.node_id("SITE 001/8 PUMP", "_System._Enabled"))

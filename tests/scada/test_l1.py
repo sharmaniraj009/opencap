@@ -79,7 +79,7 @@ def test_connect_each_policy_and_token(l1, client, run_scenario):
 
 # --- address space ---------------------------------------------------------------------------
 
-@pytest.mark.l1("Browse the full tree (BrowseNext)")
+@pytest.mark.l1("Browse the full tree")
 def test_browse_full_tree(l1, client, run_scenario):
     result = ok(run_scenario(client, "browse", "--max-refs", "50", timeout=180))
     got = {harness.Node(harness.canon(n["id"]), n["name"], n["class"], harness.canon(n["parent"]))
@@ -89,6 +89,15 @@ def test_browse_full_tree(l1, client, run_scenario):
     missing, extra = sorted(want - got, key=str)[:10], sorted(got - want, key=str)[:10]
     assert got == want, f"missing (first 10): {missing}\nunexpected (first 10): {extra}"
     assert len(want) > 1000
+
+
+@pytest.mark.l1("Browse with RequestedMaxReferencesPerNode=50 (BrowseNext)")
+def test_browse_continuation_points(l1, client, run_scenario):
+    result = ok(run_scenario(client, "browse", "--max-refs", "50", timeout=180))
+    folders = sum(1 for n in result["nodes"] if n["class"] == 1)
+    # Every node is browsed once; the four `Values` folders hold 250 variables each, so a server
+    # that honours the limit hands out continuation points: at least 4 x 4 BrowseNext calls.
+    assert result["browse_calls"] >= 1 + folders + 4 * 4, result["browse_calls"]
 
 
 @pytest.mark.l1("TranslateBrowsePathsToNodeIds")
@@ -150,7 +159,6 @@ def test_array_and_string_values(l1, client, run_scenario):
     assert text["value"] == "AUTO MODE" and text["valueRank"] == -1, text
 
 
-@pytest.mark.xfail(strict=True, reason="ArrayDimensions on array variables is #28")
 @pytest.mark.l1("ArrayDimensions of arrays")
 def test_array_dimensions(l1, client, run_scenario):
     by_name = read_static(l1, client, run_scenario)
@@ -158,12 +166,18 @@ def test_array_dimensions(l1, client, run_scenario):
     assert by_name["Static.FloatArray"]["arrayDims"] == [3]
 
 
-@pytest.mark.xfail(strict=True, reason="EURange/EngineeringUnits from Scale is #28")
-@pytest.mark.l1("EURange and EngineeringUnits")
+@pytest.mark.l1("EURange, EngineeringUnits and Description")
 def test_read_eurange(l1, client, run_scenario):
-    level = read_static(l1, client, run_scenario)["Level"]
+    by_name = read_static(l1, client, run_scenario)
+    level = by_name["Level"]
     assert level["euRange"] == {"low": 0.0, "high": 100.0}, level
-    assert level["engineeringUnits"] and level["engineeringUnits"]["display"] == "%", level
+    units = level["engineeringUnits"]
+    assert units and units["display"] == "%", level
+    # UNECE common code "P1" (percent), packed as OPC UA Part 8 says
+    assert units["unitId"] == (ord("P") << 8 | ord("1")), units
+    assert units["namespace"] == "http://www.opcfoundation.org/UA/units/un/cefact", units
+    assert level["description"] == "Tank level", level
+    assert by_name["Static.Int16"]["euRange"] is None, "only scaled tags carry an EURange"
 
 
 # --- subscriptions ---------------------------------------------------------------------------
@@ -178,9 +192,6 @@ def test_subscribe_1000_items(l1, client, run_scenario):
     assert r["changed"] == 1000, f"every item must report a value change driven by the simulator: {r}"
 
 
-@pytest.mark.xfail(strict=True, reason="the asyncua server compares each sample with the previous sample, "
-                   "not with the last reported value (OPC UA Part 4 7.22.2), so a slow ramp is never "
-                   "reported; fixed with #28")
 @pytest.mark.l1("Data-change filter, absolute deadband")
 def test_deadband_absolute(l1, client, run_scenario):
     deadband = 5.0

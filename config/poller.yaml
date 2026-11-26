@@ -48,23 +48,38 @@ defaults:                        # used by `opencap import-kep` when KEPServer h
 check:                           # `opencap check` cycle-time estimate
   est_rtt_ms: 60.0               # assumed round trip per wire request over the IPsec link
 
-opcua_server:                    # northbound OPC UA server for SCADA/HMI clients (PLAN Phase 6)
+opcua_server:                    # northbound OPC UA server for SCADA/HMI clients (PLAN Phase 6, D-046, D-088)
   enabled: false                 # off by default
-  endpoint: opc.tcp://127.0.0.1:4840/opencap   # bind address + advertised URL; 0.0.0.0 = all interfaces
+  endpoint: opc.tcp://127.0.0.1:4840/opencap   # bind address (+ advertised URL); 0.0.0.0 = all interfaces
+  advertised_endpoint: null      # URL GetEndpoints returns instead (NAT, container port mapping);
+                                 #   null = the URL each client connected with
   server_name: opencap
   application_uri: urn:opencap:server
   namespace_uri: urn:opencap     # registered first, so NodeIds are ns=2;s=<channel>.<device>.<tag>
                                  # (set KEPServerEX for clients that address the namespace by URI)
+  kepserverex_namespace_index: true   # start fails if the tag namespace would not be ns=2
   security_policies: [None]      # or Basic256Sha256_Sign, Basic256Sha256_SignAndEncrypt,
                                  # Aes128_Sha256_RsaOaep_*, Aes256_Sha256_RsaPss_*
-  certificate: null              # server certificate + key, needed by secure policies;
-  private_key: null              #   a self-signed pair is generated there when both are missing
-  trusted_certs_dir: null        # when set, only client certificates in this folder are accepted
-  anonymous: false               # anonymous clients only when true; otherwise set the user below
-  username_env: null             # env var NAMES holding the one user name/password (never the values)
+  pki_dir: null                  # e.g. pki: own/ (server certificate, generated), trusted/ (client and CA
+                                 #   certificates), issuers/ (intermediate CAs), crl/, rejected/ (refused
+                                 #   client certificates land here; move one to trusted/ to allow it),
+                                 #   users/ (certificates for X.509 user tokens). Re-read on every session.
+  certificate: null              # or explicit server certificate + key paths (secure policies need
+  private_key: null              #   these or pki_dir); a self-signed pair is generated when both are missing
+  trusted_certs_dir: null        # without pki_dir: only client certificates in this folder are accepted
+  anonymous: false               # anonymous clients only when true; otherwise configure users below
+  username_env: null             # env var NAMES holding one user name/password (never the values)
   password_env: null
+  users: []                      # more users: [{username_env: OPENCAP_UA_USER_2, password_env: OPENCAP_UA_PASSWORD_2}]
+  x509_users: false              # accept X.509 user tokens for certificates in <pki_dir>/users/
   update_ms: 250                 # cache -> address space copy interval (also woken by every device cycle)
   allow_insecure_remote: false   # policy None is refused on a non-loopback endpoint unless true (plaintext)
+  max_sessions: 100              # limits (KEPServerEX "Max Connections" and friends)
+  max_subscriptions_per_session: 50
+  max_monitored_items: 100000    # server-wide
+  min_publishing_interval_ms: 100   # faster requests are revised up
+  min_sampling_interval_ms: 100
+  max_references_per_browse: 1000   # larger folders are returned in pages (BrowseNext)
 
 # Drivers without a Rust port (Rust engine only; the Python engine runs every driver itself).
 # A device with `plugin: python` (devices.json or overrides.yaml) runs its driver in the Python

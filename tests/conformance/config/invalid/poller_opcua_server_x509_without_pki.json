@@ -1,0 +1,13 @@
+{
+  "document": "poller",
+  "expected_error": "x509_users needs pki_dir",
+  "semantic": true,
+  "data": {
+    "opcua_server": {
+      "security_policies": ["Basic256Sha256_SignAndEncrypt"],
+      "certificate": "pki/server.der",
+      "private_key": "pki/server.pem",
+      "x509_users": true
+    }
+  }
+}

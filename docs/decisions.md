@@ -1875,6 +1875,66 @@ beyond ADR-0004 §3 / 03 §3.3:
 - **Harness:** `opencap-engine drivers` reports `"plugins": ["python"]`, and `@pytest.mark.drivers(..., plugin="python")`
   lets an engine-agnostic suite run on the Rust engine through the host (Phase 3 does).
 
+### D-088 OPC UA server hardening (#28)
+Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo, open62541 and asyncua.
+- **Per-server asyncua overrides, no global patch** (`north/opcua_services.py`): a `Server` subclass
+  whose binary server hands every connection a processor subclass (it answers BrowseNext; asyncua's
+  dispatcher has no branch for it), our `InternalSession` subclass (installed through
+  `iserver.create_session`) and our `MonitoredItemService` subclass per subscription. `UaServer.start`
+  is asyncua 2.1's with that one change; the `opcua` extra pins `asyncua>=2.1,<2.2` (D-045).
+- **Deadband against the last reported value.** asyncua compared each sample with the previous sample,
+  so a value ramping by less than the deadband per sample was never reported (found by the L1 suite).
+  Now: Part 4 7.22.2 (absolute; percent of the EURange span; arrays element-wise), a status change is
+  always reported, a deadband on a non-numeric variable is refused (`BadFilterNotAllowed`; before, it
+  raised inside the value copy loop and stalled updates for every client), percent without an
+  EURange is `BadDeadbandFilterInvalid`. The decoded filter is duck-typed: asyncua re-creates
+  structure classes from the nodeset, so `isinstance(..., ua.DataChangeFilter)` can be false.
+- **Writes** are answered per node with `Bad_NotWritable` (`Bad_NodeIdUnknown` for an unknown node)
+  instead of a ServiceFault `BadUserAccessDenied`; nothing is written. HistoryUpdate, Call and node
+  management stay refused by the permission ruleset.
+- **Browse paging:** at most `max_references_per_browse` (default 1000, or fewer if the client asks)
+  references per node, the rest through continuation points (16 per session, then
+  `BadNoContinuationPoints`), BrowseNext with release. asyncua ignored RequestedMaxReferencesPerNode.
+- **Limits:** `max_sessions` (`BadTooManySessions`), `max_subscriptions_per_session`,
+  `max_monitored_items` server-wide (`BadTooManyMonitoredItems` per item),
+  `min_publishing_interval_ms` (revised up) and `min_sampling_interval_ms` (revised up in the
+  result). Sampling is change-driven: values reach the address space when a device cycle ends or
+  every `update_ms`, so the sampling interval is reported, not enforced per item; the publishing
+  interval bounds the notification rate.
+- **Address space:** each device is one AddNodes batch (asyncua's helpers read the parent's type
+  definition per folder). `ValueRank`/`ArrayDimensions` come from the address through the driver's own
+  pure parser (Modbus, S7, MELSEC: `[n]`, `[r][c]`; brackets mean an element elsewhere, e.g. Logix),
+  before the first value; other drivers still switch to ValueRank 1, ArrayDimensions `[0]` at their
+  first list value. Scaled tags are `AnalogItemType` with `EURange` (eng_lo..eng_hi, sorted) and
+  `EngineeringUnits` (UNECE Rec. 20 code for about 40 common units, UnitId -1 otherwise).
+  `Description` is the tag's description (empty, not the name, when there is none).
+- **Namespace:** `kepserverex_namespace_index: true` (default) makes start fail if the tag
+  namespace would not be ns=2.
+- **Security:** `pki_dir` with `own/` (generated server certificate, key 0600), `trusted/`, `issuers/`
+  (intermediates for chain building only), `crl/`, `rejected/` (refused client certificates saved as
+  `CN [thumbprint].der`), `users/` (X.509 user tokens, exact certificate match). The folders are read
+  on every CreateSession, so trusting a client needs no restart. An empty `trusted/` refuses every
+  client cleanly (`BadCertificateUntrusted`; the cryptography store cannot be empty). Several users
+  through `users: [{username_env, password_env}]`; the single pair still works; a user whose
+  variables are unset is skipped with a warning. X.509 user tokens: the session records the token
+  type before asyncua calls the user manager, because asyncua passes the channel certificate for
+  anonymous tokens too. `advertised_endpoint` binds on `endpoint` and advertises one URL
+  (asyncua otherwise echoes the URL each client used); a generated certificate names the advertised
+  host, or this computer's name for a wildcard bind.
+- **Quality → StatusCode** comes from `core/quality.py` (#30), unchanged here.
+- **Not done here:** `maxAge=0` demand reads (`allow_demand_reads`, 03 §3.5) need a rate-limited
+  read path into the ChannelWorker; every read is served from the cache (proposed as its own issue).
+- **Scale** (`tests/integration/test_opcua_scale.py`, acceptance; this container, 4 vCPU,
+  Python 3.12): 100,000 variables in 100 devices build in 9.4 s with garbage collection paused
+  (19-22 s with it running) and take 820 MiB (966 MiB process RSS); 20,000 monitored items at 1 s
+  are created in 0.8 s. Server CPU, monitored items changing per second: 2,000 → 7 % of a core
+  (GC paused) / 19 % (GC on), 5,000 → 34 %, 10,000 → 56 %. At 10,000/s and more the asyncua *client*
+  (one Python process) falls behind and its keep-alive times out, so the server's own ceiling was not
+  reached with that client. asyncua's deep copy of every DataValue in the monitored-item callback was
+  over half of the CPU and is now a shallow copy (the server writes a new DataValue per change).
+  A full GC over an address space this size pauses the loop for seconds (hence `no_gc` in the
+  test); the Rust server (#50) is the target for larger plants.
+
 ### D-089 Project v2, part 1: what moves into `project.json`, and when the layering runs (#37)
 - **Split:** #37 ships in two PRs. Part 1 is the v2 layout, the loader, `opencap config migrate` and
   `import-kep --format v2`. Part 2 is the `ProjectStore` protocol, the v2 store (revision counter,

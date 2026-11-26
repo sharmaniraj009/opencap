@@ -1799,7 +1799,7 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
 
-### D-087 Out-of-process plugin protocol v1 and the Python driver host as built (#49)
+### D-088 Out-of-process plugin protocol v1 and the Python driver host as built (#49)
 `proto/opencap/plugin/v1/driver.proto`, `engine/crates/opencap-plugin`, `src/opencap/plugin_host.py`. Where they go
 beyond ADR-0004 §3 / 03 §3.3:
 - **Opt-in per device: `plugin: python`** (devices.json or overrides.yaml; `plugins.python` in poller.yaml says how to

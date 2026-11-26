@@ -99,7 +99,7 @@ cached, so the HMAC check and unpickling happen once per block per process. In c
 on the wire per channel means ~1 ms more per block, so a PCCC device with 23 blocks at 60 ms RTT
 (~1.4 s cycle) spends ~1.6 % longer per cycle. If this ever matters, the options are a
 leaner transport for a `v2` (length-prefixed protobuf on the socket, no HTTP/2) or porting the
-driver; D-087.
+driver; D-088.
 
 ### Store-and-forward sizing
 ```

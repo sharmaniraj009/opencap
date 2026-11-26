@@ -149,7 +149,7 @@ pub enum DriverError { Comm(String), ConnectionLost(String), BlockConfig(String)
   plans before the registry is built, so `plan()` stays pure; `PluginDriver` implements the
   trait; `PluginHost` supervises one process per channel); host side `src/opencap/plugin_host.py`
   (the Python driver classes unchanged, one channel executor per process). A device opts in
-  with `plugin: python`. Added latency per read ~0.6 ms p50 / ~1.1 ms p99 (04 §4.1, D-087).
+  with `plugin: python`. Added latency per read ~0.6 ms p50 / ~1.1 ms p99 (04 §4.1, D-088).
 
 ## 3.4 Error and retry handling
 

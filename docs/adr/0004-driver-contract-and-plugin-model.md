@@ -62,4 +62,4 @@ WASM component networking matures, or third-party driver demand appears (05 "rev
   host process per channel. Named pipes are not used: Windows uses loopback TCP with a per-run token.
 - Measured cost of a call is ~0.6 ms p50 / ~1.1 ms p99 per read on a 4 vCPU VM, not the 50–100 µs
   estimated above: Python grpcio's fixed per-call cost. Still small against field round trips
-  (04 §4.1, D-087).
+  (04 §4.1, D-088).

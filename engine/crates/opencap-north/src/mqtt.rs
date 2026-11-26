@@ -47,6 +47,32 @@ pub fn lwt_topic(instance: &str, prefix: &str) -> String {
     format!("{prefix}/poller/{}/status", slug(instance))
 }
 
+/// Connection options for `cfg`'s broker under `client_id`: keep-alive, clean session,
+/// credentials (password from `password_env`) and TLS. Each agent adds its own Will and limits
+/// (the MQTT link here, the Sparkplug edge node in `engine/north/sparkplug`).
+pub fn client_options(cfg: &MqttCfg, client_id: &str) -> Result<MqttOptions, String> {
+    let port = u16::try_from(cfg.port).map_err(|_| format!("bad MQTT port {}", cfg.port))?;
+    let mut mo = MqttOptions::new(client_id.to_string(), cfg.host.clone(), port);
+    mo.set_keep_alive(Duration::from_secs(cfg.keepalive_s.max(1) as u64));
+    mo.set_clean_session(true);
+    if let Some(user) = &cfg.username {
+        let password = cfg.password_env.as_ref().and_then(|e| std::env::var(e).ok()).unwrap_or_default();
+        mo.set_credentials(user.clone(), password);
+    }
+    if cfg.tls {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let tls = match &cfg.ca_file {
+            Some(path) => {
+                let ca = std::fs::read(path).map_err(|e| format!("cannot read ca_file {path}: {e}"))?;
+                TlsConfiguration::Simple { ca, alpn: None, client_auth: None }
+            }
+            None => TlsConfiguration::default(),
+        };
+        mo.set_transport(Transport::Tls(tls));
+    }
+    Ok(mo)
+}
+
 /// Reject topics a broker would refuse; such a row would block the outbox forever.
 pub fn check_topic(topic: &str) -> Result<(), String> {
     if topic.is_empty() {
@@ -231,29 +257,10 @@ impl MqttLink {
     }
 
     fn mqtt_options(&self) -> Result<MqttOptions, String> {
-        let cfg = &self.cfg;
-        let port = u16::try_from(cfg.port).map_err(|_| format!("bad MQTT port {}", cfg.port))?;
-        let mut mo = MqttOptions::new(self.client_id.clone(), cfg.host.clone(), port);
-        mo.set_keep_alive(Duration::from_secs(cfg.keepalive_s.max(1) as u64));
-        mo.set_clean_session(true);
+        let mut mo = client_options(&self.cfg, &self.client_id)?;
         mo.set_last_will(LastWill::new(self.lwt_topic.clone(), OFFLINE.to_vec(), QoS::AtLeastOnce, true));
         mo.set_inflight(self.opts.window.min(u16::MAX as usize - 1) as u16);
         mo.set_max_packet_size(self.opts.max_packet_size, self.opts.max_packet_size);
-        if let Some(user) = &cfg.username {
-            let password = cfg.password_env.as_ref().and_then(|e| std::env::var(e).ok()).unwrap_or_default();
-            mo.set_credentials(user.clone(), password);
-        }
-        if cfg.tls {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-            let tls = match &cfg.ca_file {
-                Some(path) => {
-                    let ca = std::fs::read(path).map_err(|e| format!("cannot read ca_file {path}: {e}"))?;
-                    TlsConfiguration::Simple { ca, alpn: None, client_auth: None }
-                }
-                None => TlsConfiguration::default(),
-            };
-            mo.set_transport(Transport::Tls(tls));
-        }
         Ok(mo)
     }
 

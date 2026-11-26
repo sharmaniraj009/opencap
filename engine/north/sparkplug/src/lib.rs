@@ -18,6 +18,7 @@
 pub mod command;
 pub mod datatype;
 pub mod message;
+pub mod node;
 pub mod proto;
 pub mod quality;
 pub mod state;

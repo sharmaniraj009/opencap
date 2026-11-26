@@ -1834,4 +1834,23 @@ Spec: `docs/spec/payload-sparkplug.md`. Code: `engine/north/sparkplug`. Vectors:
   the build. prost and Google's runtime produce identical bytes for every case. Two mutations confirm the replay
   test catches regressions: Tahu Java's sign extension for Int16, and LSB-first BooleanArray bits.
 - **Licence gate:** `scripts/check_licenses.py` learned the `3-Clause BSD License` spelling of protobuf's metadata.
+- **Quality from the shared table.** `quality.rs` follows `tests/conformance/quality/map.json`, and `tests/vectors.rs`
+  checks it. A stale tag that was never read has Quality 0x00, not 0x44. The Python reference calls
+  `opencap.core.quality.to_sparkplug`.
+- **The edge node (spec §8).**
+  - It has its own MQTT connection, because Sparkplug needs its own Will (NDEATH with a new bdSeq on every CONNECT)
+    and its own subscriptions. The broker settings come from `mqtt`, through the new shared
+    `opencap_north::mqtt::client_options`.
+  - A STATE `online: false` ends the session (NDEATH, disconnect, a new CONNECT after 2 s), as the spec requires for
+    a primary host that lost this server.
+  - Data held while the session has no births goes to the node's own outbox as historical DDATA. It is replayed
+    after the next births, with new seq numbers. That includes data read before the host was first online, because
+    it is history the host has not seen.
+  - The outbox rows are deleted once handed to the client, because DDATA is QoS 0 by the spec.
+  - The runtime restarts the node when the `sparkplug` or `mqtt` settings or the device set change, so the births
+    always list every metric.
+- **Known limits.**
+  - `StoreAndForward::put` sets the global `saf_queue` gauge, so it now also counts the Sparkplug outbox. Per-agent
+    labels belong to #142.
+  - The TCK has no headless runner; the tck-ids the integration test covers are listed in spec §8.5.
 

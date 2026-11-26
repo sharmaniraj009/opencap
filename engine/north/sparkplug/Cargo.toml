@@ -12,9 +12,16 @@ build = "build.rs"
 
 [dependencies]
 opencap-core.workspace = true
+opencap-north.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+prometheus.workspace = true
 prost = "0.14"
+rumqttc.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [build-dependencies]
 # Code generation from the vendored, unmodified proto/third_party/sparkplug_b.proto (EPL-2.0).

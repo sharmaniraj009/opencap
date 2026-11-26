@@ -12,8 +12,9 @@ Run from the repository root with opencap and its test helpers installed (`pip i
 4. `stop`, then waits for `status` to say `Stopped` (WinSW 2.12's `stop` can return before the
    service has even entered "stop pending", and `status` prints `Started` for anything but
    Stopped). Then checks for a clean shutdown: `poller_stopped` in the service's stdout log, and
-   WinSW's own record of the exit code, "Child process [...] terminated with 0", in the
-   Application event log.
+   WinSW's own record of the exit code: "Process <pid> canceled with code 0" in its wrapper log
+   (or, failing that, "Child process [...] terminated with 0" in the Application event log).
+   WinSW names its logs after the executable (opencap-service.*.log), not the service id.
 5. `uninstall`, always. On failure it prints the service logs.
 
 Nothing here touches a real device: the simulator and the broker are local and ephemeral.
@@ -24,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +42,7 @@ from tests.helpers.configdir import write_config  # noqa: E402
 from tests.helpers.modbus_sim import free_port, make_sim_devices, start_sims, stop_sims  # noqa: E402
 
 SERVICE_ID = "opencap"
+STOP_EXIT = re.compile(r"Process (\d+) canceled with code (-?\d+)")   # WinSW 2.12 wrapper log, on stop
 XML = ROOT / "deploy" / "windows" / "opencap-service.xml"
 # The paths in the shipped XML, and what each becomes for the test.
 SHIPPED = {
@@ -160,16 +163,24 @@ async def main(winsw_exe: Path) -> None:
                 if not await asyncio.to_thread(wait_stopped, exe):
                     raise SystemExit("the service did not reach Stopped within 60 s")
                 log(f"Stopped after {time.monotonic() - stop_started:.1f} s")
-                out_log = (logdir / f"{SERVICE_ID}.out.log").read_text(encoding="utf-8", errors="replace")
+                out_log = (logdir / f"{exe.stem}.out.log").read_text(encoding="utf-8", errors="replace")
                 stopped = [json.loads(line) for line in out_log.splitlines()
                            if line.startswith("{") and '"poller_stopped"' in line]
                 if not stopped:
                     raise SystemExit("no poller_stopped event in the service's stdout log")
                 log(f"poller_stopped: {stopped[-1]}")
-                events = await wait_for("WinSW's child-process exit event", lambda: exit_events(started_at), timeout=30)
-                log(f"exit events: {events}")
-                if not any(e.endswith("terminated with 0") for e in events):
-                    raise SystemExit(f"opencap did not exit cleanly with 0 on stop: {events}")
+                wrapper = (logdir / f"{exe.stem}.wrapper.log").read_text(encoding="utf-8", errors="replace")
+                codes = [int(m.group(2)) for m in STOP_EXIT.finditer(wrapper)]
+                if codes:
+                    log(f"WinSW: the child exited with {codes[-1]} on stop")
+                    if codes[-1] != 0:
+                        raise SystemExit(f"opencap did not exit cleanly on stop: exit code {codes[-1]}")
+                else:                                    # no DEBUG line: WinSW's event log entry instead
+                    events = await wait_for("WinSW's child-process exit event", lambda: exit_events(started_at),
+                                            timeout=30)
+                    log(f"exit events: {events}")
+                    if not any(e.endswith("terminated with 0") for e in events):
+                        raise SystemExit(f"opencap did not exit cleanly with 0 on stop: {events}")
                 log("OK: installed, started, healthy, stopped cleanly (poller_stopped, exit 0)")
             except BaseException:
                 dump_logs(logdir)

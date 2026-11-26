@@ -23,6 +23,7 @@ an ADR in a PR.
 | [0014](0014-conformance-by-simulators-and-vectors.md) | Behaviour is proven by simulators and shared conformance vectors | Accepted |
 | [0015](0015-dnp3-native-rust-subset.md) | DNP3: native Rust master and outstation for the read subset; opendnp3 and dnp3py as test peers | Proposed |
 | [0016](0016-bacnet-native-rust-client.md) | BACnet/IP: native Rust read-only client; bacpypes3 simulator and a second independent peer | Proposed |
+| [0017](0017-iec104-native-rust-subset.md) | IEC 60870-5-104: native Rust client and server; lib60870 only as a GPL test peer | Proposed |
 
 ## Template
 

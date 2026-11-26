@@ -64,7 +64,8 @@ policy-level summary, reconciled with it after #64.
 | Beckhoff ADS | ads | MIT or Apache-2.0 (*verify*) | no | Evaluate |
 | DNP3 | opendnp3 (C++) | Apache-2.0 ([3.1.2](https://github.com/dnp3/opendnp3/blob/3.1.2/LICENSE); archived 2022) | yes (#14) | Not adopted (EOL C++, no C ABI); design reference allowed. Build: native Rust read subset ([ADR-0015](../adr/0015-dnp3-native-rust-subset.md)) |
 | DNP3 | stepfunc `dnp3` (Rust) | custom non-commercial licence ([1.8.0](https://github.com/stepfunc/dnp3/blob/1.8.0/LICENSE.txt); never OSS in any version) | yes (#14) | **Avoid** in every role, including as a test peer (its §2.6); do not read its source |
-| IEC 60870-5-104 | lib60870-C | GPL-3.0 or commercial | no | Isolated, or Build natively (IEC 104 spike) |
+| IEC 60870-5-104 | lib60870-C | GPL-3.0 or commercial ([v2.4.1](https://github.com/mz-automation/lib60870/blob/v2.4.1/COPYING)) | yes (#16) | Not used in any shipped form. Build: native Rust client and server ([ADR-0017](../adr/0017-iec104-native-rust-subset.md)) |
+| IEC 60870-5-104 | igs-iec104 | Apache-2.0 ([c586279](https://github.com/aklira/igs-iec104/blob/c586279f0634ecebb411079c23e316f63af892c0/LICENSE)) | yes (#16) | Test-only peer (igs104-server/-client); revisit as a dependency at 1.0 |
 | IEC 61850 MMS | libiec61850 | GPL-3.0 or commercial | no | Isolated only |
 | BACnet/IP | bacnet-stack | mixed: core `GPL-2.0-or-later WITH GCC-exception-2.0`, 2 plain GPL-2.0 files, rest MIT/BSD/Apache ([1.7.0](https://github.com/bacnet-stack/bacnet-stack/blob/bacnet-stack-1.7.0/license/readme.txt)) | yes (#15) | **Avoid** in the default build (no client segmentation either); demo apps Test-only. Build: native Rust read subset ([ADR-0016](../adr/0016-bacnet-native-rust-client.md)) |
 | BACnet/IP | rusty-bacnet | MIT ([v0.15.0](https://github.com/jscott3201/rusty-bacnet/blob/v0.15.0/LICENSE)) | yes (#15) | Test-only peer; revisit as a dependency at 1.0 (single maintainer, MSRV 1.95) |
@@ -92,7 +93,7 @@ policy-level summary, reconciled with it after #64.
 | BACnet device simulator | bacpypes3 0.1.0 | MIT declared in [pyproject@v0.1.0](https://github.com/JoelBender/BACpypes3/blob/v0.1.0/pyproject.toml); **no licence file shipped** (classifier says BSD) | Test-only; the lead accepted the declared MIT in its pyproject metadata for a test-only dependency (#15, spike §6 Q1) |
 | ADS test server | pyads (testserver) | MIT (*verify*) | Test-only |
 | SNMP agent simulator | snmpsim | BSD-2-Clause (*verify*) | Test-only |
-| IEC 104 test peer | c104 (Python, wraps lib60870) | GPL-3.0 (*verify*) | Test-only: installed in CI, never vendored or shipped |
+| IEC 104 test peer | c104 2.2.1 (Python, wraps lib60870) | GPL-3.0 ([v2.2.1](https://github.com/Fraunhofer-FIT-DIEN/iec104-python/blob/v2.2.1/LICENSE), verified #16) | Test-only: installed by a separate CI job, never in the `dev` extra, never vendored or shipped |
 | S7 test server | python-snap7 server | MIT | Test-only |
 | Omron FINS client (validates `fins_sim`) | fins-driver 0.3.1 | MIT ([LICENSE at v0.3.1](https://github.com/indrarudianto/fins-driver/blob/v0.3.1/LICENSE), verified) | Test-only (FINS/UDP only: its "tcp" mode lacks the FINS/TCP header) |
 | DNP3 master/outstation peer (opendnp3) | yadnp3 3.2.1.5 | Apache-2.0 ([v3.2.1.5](https://github.com/f0rw4rd/opendnp3/blob/v3.2.1.5/LICENSE), verified #14) | Test-only (spike #14; `dev` extra in the DNP3 simulator issue) |

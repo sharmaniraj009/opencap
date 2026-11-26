@@ -71,6 +71,12 @@ CH-14; their folder names `_Modem` and `_CommunicationSerialization` are reserve
 The bound is measured inside the engine (store write time minus source change time). A north
 interface adds its own publishing interval (for example the OPC UA server's `update_ms`).
 
+**Cost (#238).** A device event recomputes that device's tags and its channel's, nothing else.
+Node and agent tags of the `event` class follow at the next `tick`, which is within the bound.
+Counters are read from plain per-device totals kept beside the metrics, never by querying the
+metrics registry. A whole-node recomputation after every device cycle, with every counter read
+through the registry, costs O(devices²) per second. That took one CPU core at about 10k tags.
+
 ## 3. Paths and names
 
 ### 3.1 Paths

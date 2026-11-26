@@ -111,6 +111,7 @@ jobs:
           tests/integration/test_rust_engine_api.py tests/integration/test_engine_harness.py
           tests/integration/test_rust_engine_rtu.py tests/integration/test_rust_engine_ab_logix.py
           tests/integration/test_rust_engine_melsec.py tests/integration/test_rust_engine_s7.py
+          tests/integration/test_rust_engine_fins.py
       - name: Config conformance, Rust models vs Python models (#39)
         run: |
           cargo build --locked --manifest-path engine/Cargo.toml -p opencap-core --example config_dump

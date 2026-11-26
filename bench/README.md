@@ -89,8 +89,9 @@ every second, a 60 s window after 10 s of warm-up. Where there are two runs, bot
 | 25k | 200 | **40** (25,000) | 242 | 1,410 | 99 % | 139 MB | 13 / 33 s | 78 |
 | 50k | 400 | **0** (50,000) | 3 | 484 | 99 % | 218 MB | (nothing published) | 0 |
 
-**As built, the Python engine saturates one core from about 80 devices.** The system-tag task
-(#120, `opencap.core.system_tags`) is the cause, measured with py-spy at 10k tags:
+**As built, the Python engine saturated one core from about 80 devices** (fixed by #238, see
+[After #238](#after-238-the-system-tag-task-fixed)). The system-tag task (#120,
+`opencap.core.system_tags`) was the cause, measured with py-spy at 10k tags:
 
 - It takes 77 % of the process CPU.
 - Every step reads each device's counters with `REGISTRY.get_sample_value`.
@@ -99,6 +100,41 @@ every second, a 60 s window after 10 s of warm-up. Where there are two runs, bot
 
 At 25k and 50k tags polling nearly stops, and `/metrics` stops answering within 2 s for a third
 of the window. This was reported on #120. Engine code is out of scope here. It still reproduces on `a0fd405`, the tip of `main` when this PR was opened: 1,602 of 10,000 tag updates/s at 98.7 % CPU in a 30 s window.
+
+### After #238: the system-tag task fixed
+
+The system tags now read plain per-device totals kept beside the counters (no registry
+collection). An event step computes only the devices that finished a cycle and their channels.
+The once-per-second tick computes every tag but writes only the changed ones (D-095).
+
+Measured on one 4-vCPU container (Intel Xeon @ 2.1 GHz, Python 3.12.3), not the standard
+runner, so compare the columns with each other rather than with the tables above. Before is
+`main` @ `21a564a` and after is the #238 head on top of it. 30 s window after 10 s of warm-up.
+Where there are two runs, both are shown. The diagnostic column is the same container with
+`--no-system-tags` (`d8571ac`).
+
+| profile | devices | before: tag updates/s, CPU | after: tag updates/s (target) | overruns | failed requests | CPU | RSS | reply → receive | no system tags |
+|---|---|---|---|---|---|---|---|---|---|
+| 1k | 8 | 984, 8.4 % | 983 (1,000) | 0 | 0 | 4.3 % | 71 MB | 2.0 / 26 ms | — |
+| 10k | 80 | **1,115**, 99 % | **9,976 / 9,965** (10,000) | 0 / 0 | 0 | **34 / 33 %** | 95 MB | 26 / 66 ms · 27 / 90 ms | — |
+| 25k | 200 | **132**, 99 % | **24,942 / 24,784** (25,000) | 103 / 467 | 0 | 89 % | 135 MB | 84 / 263 ms · 23 / 359 ms | 24,847, 83 % |
+| 50k | 400 | **160**, 99 % | **19,688** (50,000) | 4,778 | 0 | 97 % | 205 MB | 15 / 21 s | 21,624, 97 % |
+
+- 10k keeps up at about a third of one core: 9,965–9,976 of 10,000 at 33–34 % CPU,
+  against 99 % before.
+- 25k keeps up: 99.1–99.8 % of the target at 89 % CPU. A few hundred late cycles remain in
+  30 s, and none fail.
+- 50k is past the Python ceiling on this machine: 19.7k tag updates/s, against 21.6k without
+  system tags. The task now costs about 6 % more CPU than no system tags at 25k, and about 9 % of
+  throughput at saturation, against 77 % of the CPU before.
+- The guard: `tests/unit/test_system_tag_task.py` fails if a step collects the metrics registry,
+  if an event step computes more than the notified devices, if the totals drift from `/metrics`,
+  or if code bypasses them with `.inc()`.
+
+Reproduce: `python bench/run.py --profile 10k --duration 30 --out after.jsonl` (and `25k`,
+`50k`, `1k`). For the baseline, check out `21a564a` in a second worktree and run the same
+command with `PYTHONPATH=<worktree>/src`. Without that, the editable install keeps importing
+this checkout.
 
 ### Without the system-tag task (diagnostic)
 
@@ -138,7 +174,8 @@ These are the same harness and profiles, using the release build of the same com
 - **NFR-2** (10k tags at 1 s: ≤ 10 % of one core, ≤ 64 MB RSS). Measured on x86-64; the
   ARM64 box is still to be measured.
   - Rust: 8.3–8.5 % and 52–53 MB, within the target.
-  - Python: 28–29 % and 96 MB without the system-tag task.
+  - Python: 33–34 % and 95 MB with the system-tag task fixed (#238, measured on a 4-vCPU
+    container); 28–29 % and 96 MB without it on the standard runner.
 - **NFR-3** (reply → publish ≤ 20 ms p99). Here the latency includes the broker hop, with the
   harness on the same 4 cores.
   - Rust meets it at 10k (p99 15–16 ms), but not at 25k (35 ms) or 50k (61–68 ms).

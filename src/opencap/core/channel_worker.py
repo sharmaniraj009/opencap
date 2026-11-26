@@ -71,9 +71,9 @@ from opencap.metrics import (
     DEVICE_STATE,
     DEVICE_STATE_CODES,
     POLL_CYCLE,
-    POLL_FAILED_READS,
-    POLL_OVERRUN,
-    POLL_REQUESTS,
+    count_failed_read,
+    count_overrun,
+    count_request,
 )
 
 _log = structlog.get_logger("opencap.core.channel_worker")
@@ -304,7 +304,7 @@ class _DeviceRunner:
             reason = "no answer within the safety timeout" if isinstance(exc, TimeoutError) else _describe(exc)
             self.connect_error = f"connect failed: {reason}"
             self.last_connect_failed = True
-            POLL_REQUESTS.labels(self.id, "conn_error").inc()
+            count_request(self.id, "conn_error")
             delay = self.backoff.failure(_mono())
             await self.close_driver()
             self.log.debug("device.connect_failed", error=reason, retry_in_s=round(delay, 3),
@@ -346,7 +346,7 @@ class _DeviceRunner:
     # --- one block --------------------------------------------------------------------
 
     def _count(self, result: str, block: Block, t0: float, attempt: int, error: str | None = None) -> None:
-        POLL_REQUESTS.labels(self.id, result).inc()
+        count_request(self.id, result)
         self.log.debug("device.request", block=block.describe(), result=result, attempt=attempt + 1,
                        ms=round((_perf() - t0) * 1000, 1), error=error)
 
@@ -455,7 +455,7 @@ class _DeviceRunner:
                 self.log.warning("device.block_rejected", block=block.describe(), error=res.error)
             else:
                 comm_failed = True
-                POLL_FAILED_READS.labels(self.id).inc()
+                count_failed_read(self.id)
                 errors.append(res.error or "communication failed")
                 abort = res.kind == _CONN_DOWN or (probe and not any_ok)
                 for b in blocks[i:] if abort else [block]:
@@ -563,7 +563,7 @@ class _DeviceRunner:
         overrun = sched.complete(slot, started, ended)
         self.stats.add(self.cycle_ms, overrun=overrun, good=self.health.state == "ok")
         if overrun:
-            POLL_OVERRUN.labels(self.id).inc()
+            count_overrun(self.id)
             self.log.debug("device.overrun", rate_ms=round(slot.rate_s * 1000), cycle_ms=self.cycle_ms)
         if not self.groups[slot.index]:
             sched.remove(slot.index)

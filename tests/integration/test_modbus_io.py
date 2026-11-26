@@ -259,23 +259,32 @@ async def test_connect_bounded_by_timeout():
         listener.close()
 
 
-async def test_sim_stopped_then_restarted(sim, driver):
-    block = driver.plan(driver.device.tags).blocks[0]
-    await driver.read(block)
-    await sim.stop()
-    t0 = time.monotonic()
-    with pytest.raises(ConnectionLost):
-        await driver.read(block)
-    assert time.monotonic() - t0 < 0.25              # no waiting for the timeout
-    assert not driver.connected
-    with pytest.raises(ConnectionLost):              # nothing listens while stopped
+async def test_sim_stopped_then_restarted(sim):
+    # A long timeout, so "no waiting for the timeout" holds on every OS: a reset/refused
+    # connection takes 1-2 s on Windows (SYN retries, #176), longer than the usual 300 ms.
+    timeout_ms = 5000
+    driver = ModbusTcpDriver(with_(sim.device, timeout_ms=timeout_ms))
+    try:
         await driver.connect()
+        block = driver.plan(driver.device.tags).blocks[0]
+        await driver.read(block)
+        await sim.stop()
+        t0 = time.monotonic()
+        with pytest.raises(ConnectionLost):
+            await driver.read(block)
+        elapsed = time.monotonic() - t0
+        assert elapsed < timeout_ms / 1000 / 2, f"the read waited {elapsed:.2f}s for the timeout"
+        assert not driver.connected
+        with pytest.raises(ConnectionLost):              # nothing listens while stopped
+            await driver.connect()
 
-    port = sim.port
-    await sim.restart()
-    assert sim.port == port and sim.device.port == port
-    await driver.connect()
-    assert raw(await read_all(driver)) == sim.expected()
+        port = sim.port
+        await sim.restart()
+        assert sim.port == port and sim.device.port == port
+        await driver.connect()
+        assert raw(await read_all(driver)) == sim.expected()
+    finally:
+        await driver.close()
 
 
 async def test_sim_stopped_during_a_read(sim):
@@ -285,8 +294,8 @@ async def test_sim_stopped_during_a_read(sim):
     sim.mute = True
     task = asyncio.create_task(drv.read(block))
     await asyncio.sleep(0.05)
-    t0 = time.monotonic()
-    await sim.stop()
+    await sim.stop()             # closes the client connections, then waits (up to 2 s) for its listener
+    t0 = time.monotonic()        # so time the driver's reaction to the close, not the simulator's shutdown
     with pytest.raises(ConnectionLost, match="connection closed"):
         await task
     assert time.monotonic() - t0 < 1.0               # well before the 3 s timeout

@@ -73,6 +73,31 @@ KEPServer keys are shown without the driver prefix where obvious.
 | `dest_moduleio` | int | 1023 (0x3FF) | `mitsubishi_ethernet.DEVICE_CPU` (0x3FF = own CPU, 0x3E0..0x3E3 = CPU No. 1..4; not imported yet) |
 | `dest_modulesta` | int | 0 | — (3E request destination module station) |
 
+## omron_fins  (Omron CS1/CJ1/CJ2 over FINS/UDP or FINS/TCP; Rust engine only)
+Addresses are KEPServerEX "Omron FINS Ethernet" syntax (docs/protocols/omron-fins.md §5): `D100`, `CIO10.05`,
+`W3`, `H5`, `A100`, `E00:00100` (EM bank, decimal), `E00200` (current bank), `T5`/`C7` (present value), `TS5`/`CS7`
+(completion flag), `TK1`, `IR2`, `DR3`, `D0D` (BCD), `D200.10H`/`L`/`D`/`E` (strings), `D300[4]`, `D310[2][3]`.
+There is no Python FINS driver (ADR-0002, Rust-first): the Python engine reports it "not implemented yet".
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `model` | `CS1` \| `CJ1` \| `CJ2` | `CJ1` | address ranges (CJ2: EM banks 13-24, A960-1471, A10000-11535, TK0-127); C-mode and CV-mode CPUs are refused |
+| `transport` | `udp` \| `tcp` | `udp` | FINS/TCP runs the node address handshake; KEPServerEX itself only does UDP |
+| `dest_node` | int 1-254 | last octet of `host` | DA1, the CPU's Ethernet unit node (TCP: the node the unit reports wins) |
+| `dest_network`, `dest_unit` | int | 0, 0 | DNA, DA2 (0 = CPU unit) |
+| `src_node` | int 1-254 | UDP: last octet of the local address; TCP: allocated by the unit | SA1; must be a node the unit can answer, unique per line |
+| `src_network`, `src_unit` | int | 0, 0 | SNA, SA2 |
+| `gateway_count` | int 0-7 | 2 | GCT (7 for 8-level networks) |
+| `request_size` | 32, 64, 128, 256, 512, 1024, 1984 | 512 | KEPServerEX Request Size, bytes per read (at most 999 words) |
+| `max_gap` | int | 8 | unused elements a read may span to merge two tags |
+| `first_word_low` | bool | true | 32/64-bit values: low word at the lower address (Omron native); confirm against KEPServerEX at commissioning |
+| `tc_bcd` | bool | true | timer/counter present values are BCD (CS/CJ default); false for CPUs set to binary timers |
+| `multi_read` | bool | true | read single-element ranges (scattered words, flags, IR, DR) with one MULTIPLE MEMORY AREA READ (0104) |
+| `local_port` | int | 0 | UDP: local port to bind; 9600 for units in static or IP-table mode that reply to the FINS port |
+
+dtypes: `bool` (bits and flags), `int16`/`uint16`, `int32`/`uint32`/`float32` (two words), 64-bit types (four words),
+`string`. KEPServerEX BCD and LBCD are `uint16`/`uint32` with the `D` suffix (Short/Long with `D` = signed BCD).
+
 ## opcua_client
 | key | type | default | KEPServer source |
 |---|---|---|---|

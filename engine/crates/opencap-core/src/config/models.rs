@@ -338,8 +338,18 @@ fn d_30000() -> i64 {
 }
 
 /// Drivers the Python reference engine knows (its `DriverName` literal, same order).
-pub const KNOWN_DRIVERS: [&str; 9] =
-    ["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client", "modbus_rtu", "ab_df1", "simulator"];
+pub const KNOWN_DRIVERS: [&str; 10] = [
+    "modbus_tcp",
+    "ab_logix",
+    "ab_pccc",
+    "s7",
+    "melsec_mc",
+    "opcua_client",
+    "modbus_rtu",
+    "ab_df1",
+    "simulator",
+    "omron_fins",
+];
 
 /// Python `PluginName`: the plugin hosts a device can be routed through (ADR-0004 §3, #49).
 pub const KNOWN_PLUGINS: [&str; 1] = ["python"];

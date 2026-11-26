@@ -347,13 +347,15 @@ async def test_corrupt_crc_drops_one_frame() -> None:
 async def test_split_frames_and_delay(no_gc) -> None:
     async with Dnp3Sim() as sim:
         populate(sim)
-        sim.split_frames, sim.delay = True, 0.2
+        sim.split_frames, sim.delay = True, 0.3
         runner, handler = py_master(sim)
         await runner.open()
         try:
-            started = time.monotonic()
+            started = time.perf_counter()
             await runner.integrity_poll()
-            assert time.monotonic() - started >= 0.2
+            # asyncio fires a timer up to one clock tick early, and the tick is ~15.6 ms on Windows
+            # (#199): allow two ticks. Without the delay a local poll takes a few milliseconds.
+            assert time.perf_counter() - started >= sim.delay - 0.05
         finally:
             await runner.close()
         assert static(handler.rows)[("analog", 0)] == (1234, AnalogQuality.ONLINE)

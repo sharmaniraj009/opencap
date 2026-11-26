@@ -117,7 +117,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   | Workflow | Pull request | Push to `main` | Nightly / manual |
   |---|---|---|---|
   | CI: tests (Python 3.12, 3.13), wheel and container image | always | always | |
-  | CI: `acceptance-pr` (Python 3.12, 8 s outage) | when the PR touches `src/opencap/`, `tests/helpers/`, `tests/integration/`, `tests/conftest.py` or `pyproject.toml` | | |
+  | CI: `acceptance-pr` (Python 3.12, 8 s outage) | when the PR touches `src/opencap/`, `tests/helpers/`, `tests/integration/`, `tests/ui/`, `tests/conftest.py` or `pyproject.toml` | | |
   | CI: acceptance (Python 3.12, 3.13) | | | nightly, and on manual dispatch |
   | CI: Windows (Python 3.12): fast suite, WinSW service smoke test | always | always | acceptance suite + service smoke test |
   | Rust engine: fmt, clippy, test, deny, conformance, Windows | when it touches `engine/`, `src/`, `tests/`, `config/` or `pyproject.toml` | same paths | manual dispatch |
@@ -131,6 +131,11 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   (`tests/integration/test_mosquitto_restart.py`, #8). They set `OPENCAP_REQUIRE_MOSQUITTO`,
   so if neither a `mosquitto` binary nor Docker is there, the job fails instead of skipping
   the test. Locally the test skips with a reason; `apt install mosquitto` makes it run.
+  They also drive the web UI in Chromium (`tests/ui/browser_smoke.js`, run by
+  `tests/integration/test_ui_browser.py`). They install Node, Playwright and Chromium, and set
+  `OPENCAP_REQUIRE_BROWSER`, so a missing browser fails the job (#234); its screenshots are
+  uploaded when the job fails. Locally the test skips without Node and the `playwright`
+  package; `npm install -g playwright && playwright install chromium` makes it run.
 - Tests must exercise behaviour, not just lines: a driver against its simulator, a planner
   against vectors, a fault path by switching on the simulator's fault.
 - A test with a wall-clock bound (a cadence, a gap, a timeout under ~1 s) uses the `no_gc`

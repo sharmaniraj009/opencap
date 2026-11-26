@@ -1,0 +1,459 @@
+{
+  "$defs": {
+    "Channel": {
+      "additionalProperties": false,
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/Device"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "devices"
+      ],
+      "title": "Channel",
+      "type": "object"
+    },
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "title": "Channel",
+          "type": "string"
+        },
+        "demote_after": {
+          "default": 3,
+          "title": "Demote After",
+          "type": "integer"
+        },
+        "demote_for_ms": {
+          "default": 30000,
+          "title": "Demote For Ms",
+          "type": "integer"
+        },
+        "driver": {
+          "enum": [
+            "modbus_tcp",
+            "ab_logix",
+            "ab_pccc",
+            "s7",
+            "melsec_mc",
+            "opcua_client",
+            "modbus_rtu",
+            "ab_df1",
+            "simulator"
+          ],
+          "title": "Driver",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "host": {
+          "title": "Host",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "min_scan_ms": {
+          "default": 1000,
+          "title": "Min Scan Ms",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "port": {
+          "title": "Port",
+          "type": "integer"
+        },
+        "publish": {
+          "$ref": "#/$defs/PublishCfg"
+        },
+        "retries": {
+          "default": 2,
+          "title": "Retries",
+          "type": "integer"
+        },
+        "scan_ms": {
+          "default": 1000,
+          "title": "Scan Ms",
+          "type": "integer"
+        },
+        "source": {
+          "additionalProperties": true,
+          "title": "Source",
+          "type": "object"
+        },
+        "tags": {
+          "items": {
+            "$ref": "#/$defs/Tag"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "timeout_ms": {
+          "default": 3000,
+          "title": "Timeout Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "channel",
+        "name",
+        "driver",
+        "host",
+        "port",
+        "tags"
+      ],
+      "title": "Device",
+      "type": "object"
+    },
+    "ExcludedDevice": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "title": "Channel",
+          "type": "string"
+        },
+        "device": {
+          "title": "Device",
+          "type": "string"
+        },
+        "kep_driver": {
+          "title": "Kep Driver",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "tags": {
+          "default": 0,
+          "title": "Tags",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "channel",
+        "device",
+        "kep_driver",
+        "reason"
+      ],
+      "title": "ExcludedDevice",
+      "type": "object"
+    },
+    "PublishCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "deadband": {
+          "default": 0.0,
+          "title": "Deadband",
+          "type": "number"
+        },
+        "env": {
+          "default": "prod",
+          "title": "Env",
+          "type": "string"
+        },
+        "format": {
+          "default": "subdevice_json",
+          "enum": [
+            "subdevice_json",
+            "iotgw_json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "heartbeat_ms": {
+          "default": 300000,
+          "title": "Heartbeat Ms",
+          "type": "integer"
+        },
+        "interval_ms": {
+          "default": 10000,
+          "title": "Interval Ms",
+          "type": "integer"
+        },
+        "mode": {
+          "default": "interval",
+          "enum": [
+            "interval",
+            "on_change"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "sub_device_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sub Device Id"
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Topic"
+        }
+      },
+      "title": "PublishCfg",
+      "type": "object"
+    },
+    "Scale": {
+      "additionalProperties": false,
+      "description": "Kepware-style tag scaling. Defaults match Kepware's defaults.",
+      "properties": {
+        "clamp_hi": {
+          "default": false,
+          "title": "Clamp Hi",
+          "type": "boolean"
+        },
+        "clamp_lo": {
+          "default": false,
+          "title": "Clamp Lo",
+          "type": "boolean"
+        },
+        "eng_hi": {
+          "default": 1000.0,
+          "title": "Eng Hi",
+          "type": "number"
+        },
+        "eng_lo": {
+          "default": 0.0,
+          "title": "Eng Lo",
+          "type": "number"
+        },
+        "negate": {
+          "default": false,
+          "title": "Negate",
+          "type": "boolean"
+        },
+        "raw_hi": {
+          "default": 1000.0,
+          "title": "Raw Hi",
+          "type": "number"
+        },
+        "raw_lo": {
+          "default": 0.0,
+          "title": "Raw Lo",
+          "type": "number"
+        },
+        "type": {
+          "default": "linear",
+          "enum": [
+            "linear",
+            "sqrt"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "title": "Scale",
+      "type": "object"
+    },
+    "Tag": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "dtype": {
+          "enum": [
+            "bool",
+            "int16",
+            "uint16",
+            "int32",
+            "uint32",
+            "int64",
+            "uint64",
+            "float32",
+            "float64",
+            "string"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scale"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scan_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan Ms"
+        }
+      },
+      "required": [
+        "name",
+        "address",
+        "dtype"
+      ],
+      "title": "Tag",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/sharmaniraj009/opencap/schema/project.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Schema of config/project.json, the v2 project: the single editable document.\n\nChannels, devices and tags with everything that v1 layers on at load time already applied\n(overrides, `devices_map.yaml` publish settings, mapped serial ports), so the loader reads\nit as is. `revision` counts saved versions (the v2 store, #37 part 2, bumps it).",
+  "properties": {
+    "channels": {
+      "items": {
+        "$ref": "#/$defs/Channel"
+      },
+      "title": "Channels",
+      "type": "array"
+    },
+    "excluded": {
+      "items": {
+        "$ref": "#/$defs/ExcludedDevice"
+      },
+      "title": "Excluded",
+      "type": "array"
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
+    },
+    "generated_from": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated From"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "title": {
+      "default": "",
+      "title": "Title",
+      "type": "string"
+    },
+    "version": {
+      "const": 2,
+      "default": 2,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "channels"
+  ],
+  "title": "ProjectV2",
+  "type": "object",
+  "version": 1
+}

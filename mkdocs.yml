@@ -98,6 +98,7 @@ nav:
       - Phase 2 contracts: phase2_contracts.md
       - Phase 3 contracts: phase3_contracts.md
       - "RFC 0001: Rust engine": rfc/0001-rust-engine.md
+      - "RFC 0002: write safety (proposed)": rfc/0002-write-safety.md
       - Specs: spec/README.md
       - "Spec: system and diagnostic tags": spec/system-tags.md
       - "Spec: IoT Gateway JSON payload": spec/payload-iotgw-json.md

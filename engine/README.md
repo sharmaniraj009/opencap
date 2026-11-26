@@ -43,6 +43,7 @@ requests to `localhost` (D-062).
 | `opencap-serial` | serial lines: line settings, endpoints (`transport`), shared lines, local echo, TCP and local serial streams (tokio-serial) |
 | `drivers/modbus_tcp` (`opencap-driver-modbus-tcp`) | Modbus TCP: address parser, block planner, decoder, tokio-modbus I/O |
 | `drivers/modbus_rtu` (`opencap-driver-modbus-rtu`) | Modbus RTU on a serial line or RTU over TCP: the Modbus TCP planner/decoder, tokio-modbus RTU framing |
+| `drivers/ab_logix` (`opencap-driver-ab-logix`) | Allen-Bradley Logix / Micro800 symbolic tags: native EtherNet/IP + CIP client (read services only), tag-list upload and cache, Multiple Service Packet packing and the Micro800 batching probe |
 | `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
 | `opencap-conformance` | test harness for the shared vectors in `tests/conformance` (ADR-0014): vector loader, value codec, structural diff, `run_area`; the adapters for Modbus, scaling and payload are in its `tests/` |

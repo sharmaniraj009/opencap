@@ -517,7 +517,7 @@ Status: ✅ done, 🚧 in progress, 📋 planned. Python = reference engine, Rus
 | KEPServerEX feature | opencap equivalent | Python | Rust | Milestone | Acceptance criteria |
 |---|---|---|---|---|---|
 | Modbus TCP/IP Ethernet | `modbus_tcp` | ✅ | ✅ (this PR) | M2 | Phase 1 suite green on both engines; vectors (#40) |
-| Allen-Bradley ControlLogix / Micro800 / model 23 | `ab_logix`, `ab_pccc` | ✅ | 📋 #43, #48 | M3 | Phase 2 acceptance and the AB simulator suites (`test_ab_logix_sim.py`, `test_ab_pccc_sim.py`) green with `OPENCAP_ENGINE=rust`; Micro800 batching probe identical (D-025); writes refused |
+| Allen-Bradley ControlLogix / Micro800 / model 23 | `ab_logix`, `ab_pccc` | ✅ | `ab_logix` ✅ (#43, D-076), `ab_pccc` 📋 #48 | M3 | Phase 2 acceptance and the AB simulator suites (`test_ab_logix_sim.py`, `test_ab_pccc_sim.py`) green with `OPENCAP_ENGINE=rust`; Micro800 batching probe identical (D-025); writes refused |
 | Siemens, Mitsubishi, OPC UA client, Modbus serial, DF1 | `s7`, `melsec_mc`, `opcua_client`, `modbus_rtu`, `ab_df1` | 🚧 | 📋 #44–#47, #53 | M3 | each driver's Python simulator suite green on Rust |
 | FINS, BACnet, DNP3, IEC 104, ADS, SNMP, MQTT/ODBC/OPC DA clients | Rust-first drivers | 📋 | 📋 | M5 | simulator + vectors + read-only guard (ADR-0004 §5) |
 | **Advanced Tags** (derived) | derived tags on virtual devices | 📋 | 📋 #55 | M5 | `docs/spec/derived-tags.md` vectors pass; DAG check rejects cycles at load; values in OPC UA, MQTT and the API |

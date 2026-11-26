@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from opencap.config.models import Device, PayloadCfg, Scale, Tag
+from opencap.core import quality as quality_mod
 from opencap.core.cache import TagValue
 from opencap.core.channel_worker import scale_value
 from opencap.drivers import ab_logix, ab_pccc, melsec_mc
@@ -242,6 +243,21 @@ def system_tags(inp: dict[str, Any]) -> dict[str, Any]:
     return {"steps": steps}
 
 
+def quality(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {op: "map", quality, ever_good} -> the quality in every north model (ADR-0006), or
+    {op: "worst", qualities} -> {worst}."""
+    if inp["op"] == "worst":
+        return {"worst": quality_mod.worst(inp["qualities"])}
+    q, ever_good = inp["quality"], inp["ever_good"]
+    return {
+        "opcua": quality_mod.to_opcua(q, ever_good),
+        "opcua_name": quality_mod.opcua_name(q, ever_good),
+        "opcda": quality_mod.to_opcda(q, ever_good),
+        "sparkplug": quality_mod.to_sparkplug(q, ever_good),
+        "subdevice": quality_mod.to_subdevice(q),
+    }
+
+
 def omron_fins_addresses(inp: dict[str, Any]) -> dict[str, Any]:
     """input {address, dtype?, model?} -> {area_code, word, bit, kind, dims, str_len, str_order, bcd,
     words}, or {error: "syntax" | "range" | "unsupported"}. The reference is the FINS simulator's own
@@ -360,6 +376,9 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "ab_pccc/plan": ab_pccc_plan,
     "ab_pccc/decode": ab_pccc_decode,
     "system_tags": system_tags,
+    "quality": quality,
+
+
     "omron_fins/addresses": omron_fins_addresses,
     "melsec_mc/plan": melsec_mc_plan,
     "melsec_mc/decode": melsec_mc_decode,

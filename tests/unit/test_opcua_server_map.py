@@ -10,14 +10,9 @@ from pydantic import ValidationError
 
 from opencap.config.models import OpcUaServerCfg, PollerConfig, Scale, Tag
 from opencap.core.cache import TagValue
+from opencap.core.quality import STATUS_CODES
 from opencap.north.opcua_server import (
-    BAD_COMMUNICATION_ERROR,
-    BAD_CONFIGURATION_ERROR,
-    BAD_DATA_ENCODING_INVALID,
-    BAD_WAITING_FOR_INITIAL_DATA,
-    GOOD,
     SYSTEM_VARS,
-    UNCERTAIN_LAST_USABLE_VALUE,
     _security_policy_type,
     coerce,
     status_code,
@@ -35,26 +30,18 @@ def test_variant_types():
     assert variant_type(Tag(name="a", address="x", dtype="int16", scale=Scale(eng_hi=10))) == "Double"
 
 
-@pytest.mark.parametrize("tv, code", [
-    (TagValue(1.0, "good", TS), GOOD),
-    (TagValue(1.0, "stale", TS), UNCERTAIN_LAST_USABLE_VALUE),
-    (TagValue(None, "stale", None), BAD_WAITING_FOR_INITIAL_DATA),       # registered, never read
-    (TagValue(1.0, "bad_comm", TS), BAD_COMMUNICATION_ERROR),
-    (TagValue(None, "bad_config", None), BAD_CONFIGURATION_ERROR),
-    (TagValue(None, "bad_decode", None), BAD_DATA_ENCODING_INVALID),
+@pytest.mark.parametrize("tv, name", [
+    (TagValue(1.0, "good", TS), "Good"),
+    (TagValue(1.0, "stale", TS), "UncertainLastUsableValue"),
+    (TagValue(None, "stale", None), "BadWaitingForInitialData"),       # registered, never read
+    (TagValue(1.0, "bad_comm", TS), "BadCommunicationError"),
+    (TagValue(None, "bad_comm", None), "BadCommunicationError"),
+    (TagValue(None, "bad_config", None), "BadConfigurationError"),
+    (TagValue(None, "bad_decode", None), "BadDataEncodingInvalid"),
 ])
-def test_status_code(tv, code):
-    assert status_code(tv) == code
-
-
-def test_status_constants_match_asyncua():
-    ua = pytest.importorskip("asyncua").ua
-    for name, code in [("UncertainLastUsableValue", UNCERTAIN_LAST_USABLE_VALUE),
-                       ("BadWaitingForInitialData", BAD_WAITING_FOR_INITIAL_DATA),
-                       ("BadCommunicationError", BAD_COMMUNICATION_ERROR),
-                       ("BadConfigurationError", BAD_CONFIGURATION_ERROR),
-                       ("BadDataEncodingInvalid", BAD_DATA_ENCODING_INVALID)]:
-        assert getattr(ua.StatusCodes, name) == code, name
+def test_status_code(tv, name):
+    """The server maps through opencap.core.quality (ADR-0006; codes checked in test_quality.py)."""
+    assert status_code(tv) == STATUS_CODES[name]
 
 
 @pytest.mark.parametrize("vtype, value, want", [

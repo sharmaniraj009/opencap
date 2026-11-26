@@ -58,30 +58,31 @@ Invented names only; every simulator listens on 127.0.0.1.
 
 ## Matrix
 
-Every cell is one test. `pass` = green in CI; `pending` = a strict `xfail` for a known server
-gap: the test fails (XPASS) as soon as the gap is closed, so the PR that closes it removes the
-marker.
+Every cell is one test. `pass` = green in CI. A known server gap is marked with a strict
+`xfail` naming its issue ("pending"): the test fails (XPASS) as soon as the gap is closed, so
+the PR that closes it removes the marker. None is pending today.
 
 | Scenario | Milo | open62541 | asyncua |
 |---|---|---|---|
 | GetEndpoints: all policies, anonymous + username tokens, server certificate | pass | pass | pass |
 | Connect with every policy x {anonymous, username}; wrong password refused | pass | pass | pass |
-| Browse the full tree (folders per channel/device/group, `_System`), with BrowseNext | pass | pass | pass |
+| Browse the full tree (folders per channel/device/group, `_System`) | pass | pass | pass |
+| Browse with RequestedMaxReferencesPerNode=50: continuation points and BrowseNext | pass | pass | pass |
 | TranslateBrowsePathsToNodeIds (and `BadNoMatch` for a missing path) | pass | pass | pass |
 | Read Value, DataType, AccessLevel/UserAccessLevel = CurrentRead, SourceTimestamp | pass | pass | pass |
 | Arrays (ValueRank 1) and strings | pass | pass | pass |
-| ArrayDimensions of array variables | pending (#28) | pending (#28) | pending (#28) |
-| EURange and EngineeringUnits from the tag's scaling | pending (#28) | pending (#28) | pending (#28) |
+| ArrayDimensions of array variables | pass | pass | pass |
+| EURange and EngineeringUnits (UNECE code) from the tag's scaling, Description | pass | pass | pass |
 | Subscribe 1,000 items, every item sees a simulator-driven change | pass | pass | pass |
-| Data-change filter, absolute deadband | pending (#28) | pending (#28) | pending (#28) |
+| Data-change filter, absolute deadband (against the last reported value) | pass | pass | pass |
 | Write attempt rejected, value unchanged | pass | pass | pass |
 | Reconnect after a server restart, data flows again | pass | pass | pass |
 
 Notes from the runs:
 
-- **Writes** are refused with a ServiceFault `BadUserAccessDenied` (0x801F0000), seen the same
-  way by all three clients; #28 makes that a per-node `BadNotWritable`. The test accepts
-  `BadNotWritable`, `BadUserAccessDenied` and `BadWriteNotSupported`.
+- **Writes** are answered per node with `Bad_NotWritable` (0x803B0000), seen the same way by
+  all three clients; nothing is written. The test also accepts `BadUserAccessDenied` and
+  `BadWriteNotSupported` (other servers, e.g. the Rust engine later).
 - **Reconnect**: a restarted server has no sessions or subscriptions, so every client ends up
   re-creating its subscription. Milo reconnects and re-activates by itself and reports
   `onSubscriptionTransferFailed` (the client re-creates there, as Ignition does); open62541 1.4
@@ -89,10 +90,11 @@ Notes from the runs:
   but gives up while the port refuses connections, so the client reconnects then; asyncua has
   no session recovery, so the client runs the usual reconnect loop. Recovery took 3.5-7.5 s
   after a graceful restart of the engine.
-- **Deadband**: the server (asyncua's server side) compares each sample with the previous
-  sample instead of the last reported value (OPC UA Part 4, 7.22.2 DataChangeFilter), so a
-  value that ramps by less than the deadband per sample is never reported. All three clients
-  see only the initial value. Found by this suite; the fix belongs to the server hardening (#28).
+- **Found by this suite and fixed in #28** (docs/decisions.md D-088): the absolute deadband was
+  checked against the previous sample instead of the last reported value (OPC UA Part 4,
+  7.22.2 DataChangeFilter), so a value ramping by less than the deadband per sample was never
+  reported; and the server ignored RequestedMaxReferencesPerNode and answered BrowseNext with
+  `BadServiceUnsupported`.
 - A deliberate bug shows what the suite catches: serving `int16` tags as `Int32` fails
   "Read Value, DataType" for every client (`assert 'i=6' == 'i=4'`).
 

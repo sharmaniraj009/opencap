@@ -334,14 +334,18 @@ async def test_power_off_gives_connection_lost_and_power_on_reconnects(executor)
     sim = await S7Sim.start(AREAS, port=stable_port())
     try:
         load_forms(sim)
-        drv = make_driver(sim, tags, executor)
+        # A long device timeout, so "failed fast" (connection reset) and "waited out the timeout"
+        # stay apart on every OS: a reset/refused connection takes 1-2 s on Windows (SYN retries, #176).
+        timeout_ms = 5000
+        drv = make_driver(sim, tags, executor, timeout_ms=timeout_ms)
         await drv.connect()
         assert_forms(await read_all(drv), tags)
         await sim.stop()
         started = time.monotonic()
         with pytest.raises(ConnectionLost):
             await drv.read(blocks(drv)[0])
-        assert time.monotonic() - started < 1.0
+        elapsed = time.monotonic() - started
+        assert elapsed < timeout_ms / 1000 / 2, f"the read waited {elapsed:.2f}s: not a fast connection loss"
         assert not drv.connected
         with pytest.raises(ConnectionLost, match="connect failed"):
             await drv.connect()

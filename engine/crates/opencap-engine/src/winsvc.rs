@@ -13,9 +13,9 @@
 //!   poller stops, the outbox is kept and the `offline` status is published.
 //! - **Recovery:** restart after 5 s, 5 s, then 30 s; the failure count resets after a day, and a
 //!   non-zero exit counts as a failure too.
-//! - **Event log:** source `opencap-engine` under Application, with the message file .NET ships
-//!   (one `%1` message for every id) when present, so Event Viewer shows the text as written.
-//!   The service writes "started", "stopped" and the error that ended a failed run.
+//! - **Event log:** source `opencap-engine` under Application, created by `eventcreate.exe` (its
+//!   message file shows the text as written). The service writes "started", "stopped" and the
+//!   error that ended a failed run.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -221,120 +221,63 @@ fn config_label() -> String {
     CONFIG.get().map(|p| p.display().to_string()).unwrap_or_default()
 }
 
-/// The Application event log source `opencap-engine`.
+/// The Application event log source `opencap-engine`, through Windows' own `eventcreate.exe`
+/// and `reg.exe`: the workspace forbids `unsafe` (no FFI to ReportEventW), and `eventcreate`
+/// registers a new source with its message file, in which ids 1–1000 show the text as written.
 mod eventlog {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
-    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
-    use windows_sys::Win32::System::EventLog::{
-        DeregisterEventSource, RegisterEventSourceW, ReportEventW, EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE,
-    };
-    use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_WRITE, REG_DWORD,
-        REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE,
-    };
+    use std::io;
+    use std::os::windows::process::CommandExt as _;
+    use std::process::Command;
 
     use super::SERVICE_NAME;
 
-    const KEY: &str = r"SYSTEM\CurrentControlSet\Services\EventLog\Application\opencap-engine";
-    /// .NET's message file: every event id has the message "%1".
-    const DOTNET_MESSAGES: &str = r"%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll";
+    const KEY: &str = r"HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\opencap-engine";
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     pub enum Level {
         Info,
         Error,
     }
 
-    fn wide(s: &str) -> Vec<u16> {
-        OsStr::new(s).encode_wide().chain(Some(0)).collect()
+    /// Creates the source (and writes an "installed" event); needs an elevated prompt.
+    pub fn register() -> io::Result<()> {
+        write(Level::Info, &format!("{SERVICE_NAME} service installed"))
     }
 
-    pub fn register() -> std::io::Result<()> {
-        let message_file = if std::path::Path::new(
-            &DOTNET_MESSAGES
-                .replace("%SystemRoot%", &std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into())),
-        )
-        .is_file()
-        {
-            DOTNET_MESSAGES.to_string()
-        } else {
-            std::env::current_exe()?.display().to_string()
-        };
-        let mut key: HKEY = std::ptr::null_mut();
-        let key_name = wide(KEY);
-        // SAFETY: valid NUL-terminated wide strings and an out-pointer for the key handle.
-        let rc = unsafe {
-            RegCreateKeyExW(
-                HKEY_LOCAL_MACHINE,
-                key_name.as_ptr(),
-                0,
-                std::ptr::null(),
-                REG_OPTION_NON_VOLATILE,
-                KEY_WRITE,
-                std::ptr::null(),
-                &mut key,
-                std::ptr::null_mut(),
-            )
-        };
-        if rc != ERROR_SUCCESS {
-            return Err(std::io::Error::from_raw_os_error(rc as i32));
-        }
-        let file = wide(&message_file);
-        let types: u32 = 7; // error, warning, information
-        let name_file = wide("EventMessageFile");
-        let name_types = wide("TypesSupported");
-        // SAFETY: `key` is an open key; the data pointers and byte lengths match their buffers.
-        let (rc1, rc2) = unsafe {
-            (
-                RegSetValueExW(
-                    key,
-                    name_file.as_ptr(),
-                    0,
-                    REG_EXPAND_SZ,
-                    file.as_ptr().cast(),
-                    (file.len() * 2) as u32,
-                ),
-                RegSetValueExW(key, name_types.as_ptr(), 0, REG_DWORD, (&types as *const u32).cast(), 4),
-            )
-        };
-        // SAFETY: closing the key opened above.
-        unsafe { RegCloseKey(key) };
-        for rc in [rc1, rc2] {
-            if rc != ERROR_SUCCESS {
-                return Err(std::io::Error::from_raw_os_error(rc as i32));
-            }
-        }
-        Ok(())
+    pub fn unregister() -> io::Result<()> {
+        run(Command::new("reg").args(["delete", KEY, "/f"]))
     }
 
-    pub fn unregister() -> std::io::Result<()> {
-        let key_name = wide(KEY);
-        // SAFETY: a valid NUL-terminated wide string.
-        let rc = unsafe { RegDeleteKeyW(HKEY_LOCAL_MACHINE, key_name.as_ptr()) };
-        if rc != ERROR_SUCCESS {
-            return Err(std::io::Error::from_raw_os_error(rc as i32));
-        }
-        Ok(())
-    }
-
-    /// Write one event; a failure (source not registered, no rights) is ignored.
+    /// Write one event; a failure (no rights, source missing) is ignored.
     pub fn report(level: Level, text: &str) {
-        let source = wide(SERVICE_NAME);
-        let message = wide(text);
-        let strings = [message.as_ptr()];
-        let kind = match level {
-            Level::Info => EVENTLOG_INFORMATION_TYPE,
-            Level::Error => EVENTLOG_ERROR_TYPE,
+        let _ = write(level, text);
+    }
+
+    fn write(level: Level, text: &str) -> io::Result<()> {
+        let (kind, id) = match level {
+            Level::Info => ("INFORMATION", "1"),
+            Level::Error => ("ERROR", "2"),
         };
-        // SAFETY: valid wide strings; the handle is checked and deregistered.
-        unsafe {
-            let handle = RegisterEventSourceW(std::ptr::null(), source.as_ptr());
-            if handle.is_null() {
-                return;
-            }
-            ReportEventW(handle, kind, 0, 1, std::ptr::null_mut(), 1, 0, strings.as_ptr(), std::ptr::null());
-            DeregisterEventSource(handle);
+        run(Command::new("eventcreate").args([
+            "/L",
+            "APPLICATION",
+            "/T",
+            kind,
+            "/SO",
+            SERVICE_NAME,
+            "/ID",
+            id,
+            "/D",
+            text,
+        ]))
+    }
+
+    fn run(cmd: &mut Command) -> io::Result<()> {
+        let out = cmd.creation_flags(CREATE_NO_WINDOW).output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_string()))
         }
     }
 }

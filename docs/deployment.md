@@ -257,8 +257,8 @@ opencap-engine.exe service uninstall
 - **Stop and shutdown** do the same clean stop as SIGTERM on Linux: the API stops, PLC
   connections close, the outbox keeps whatever the broker has not acknowledged, and `offline`
   is published.
-- **Event log:** source `opencap-engine` under Application, with "started", "stopped" and, if a
-  run fails, the error that ended it.
+- **Event log:** source `opencap-engine` under Application (created at install with
+  `eventcreate`), with "started", "stopped" and, if a run fails, the error that ended it.
 - **Uninstall** stops the service and removes it and its event log source. The config, the
   outbox and the logs stay.
 - There is no reload on Windows yet: change the config, then `sc stop` and `sc start`.

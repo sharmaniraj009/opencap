@@ -1733,9 +1733,9 @@ produced once the outbox drains, then every frozen message must reach the subscr
   as SIGTERM, so the shutdown path is the one the acceptance suites exercise. Recovery:
   restart after 5 s, 5 s, 30 s, also on a non-zero exit. `%ProgramData%\opencap` is the working
   directory; logs go to a file there, because a service has no console.
-- **Event log:** the source's `EventMessageFile` is .NET's `EventLogMessages.dll` (one `%1`
-  message for every id) when it exists, so Event Viewer shows the text as written without a
-  message resource in our binary; otherwise the exe, and Event Viewer prefixes "the description
-  cannot be found". Only start, stop and a fatal error are written there; the JSON log has the rest.
+- **Event log:** written with Windows' own `eventcreate.exe`, which registers the source on
+  first use (at install) with its message file, in which ids 1–1000 show the text as written;
+  uninstall removes the source with `reg delete`. The workspace forbids `unsafe`, so no FFI to
+  ReportEventW. Only start, stop and a fatal error are written there; the JSON log has the rest.
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).

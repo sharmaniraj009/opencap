@@ -130,6 +130,7 @@ class TestBroker:
         self._gate_open = True
         self._collectors: set[Collector] = set()
         self._in_hand = 0                     # messages amqtt has PUBACKed but not yet queued for broadcast
+        self._conns: set[asyncio.StreamWriter] = set()   # connections the broker accepted and still handles
         # Every PUBLISH the broker accepted (PUBACKed) from a non-collector client, in arrival order:
         # (client_id, topic, payload). Lets tests check a publisher's guarantee at the broker itself,
         # independent of how reliably amqtt fans messages out to subscribers.
@@ -167,8 +168,10 @@ class TestBroker:
                 warnings.simplefilter("ignore", DeprecationWarning)
                 broker = Broker(self._config())
             self._track_in_hand(broker)
+            self._track_connections(broker)
             try:
                 await broker.start()
+                self._abort_leftovers_at_shutdown(broker)
                 break
             except BrokerError:
                 # the port can stay busy for a moment after a stop; a new port is never chosen
@@ -193,7 +196,9 @@ class TestBroker:
         self._broker = None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            await broker.shutdown()
+            # bounded: a connection nobody closes would otherwise hang the test until its own timeout
+            async with asyncio.timeout(max(timeout, 10.0)):
+                await broker.shutdown()
 
     async def restart(self, down_s: float = 0.0) -> None:
         await self.stop()
@@ -258,6 +263,55 @@ class TestBroker:
                 self._in_hand -= 1
 
         broker._handle_message_delivery = tracked                      # noqa: SLF001
+
+    def _track_connections(self, broker: Broker) -> None:
+        """Know every connection the broker accepts, and close each one once amqtt is done with it.
+
+        amqtt leaves some connections open:
+        - one whose first packet is not a CONNECT, which returns without closing the writer;
+        - one that has not sent its CONNECT yet;
+        - a reconnect that amqtt makes wait in a loop while the client's old session is still
+          disconnecting. That connection is not in `broker.sessions`, so `shutdown()` never stops it.
+        A peer's close then leaves the server side half-open, because asyncio's stream protocol
+        keeps the transport for writing. Since Python 3.12.1, `asyncio.Server.wait_closed()` waits
+        for every accepted connection, so `broker.shutdown()` hung for good. Under load, a client
+        caught mid-handshake when the engine stopped did this to
+        test_fifty_simulator_devices_through_the_poller (#223).
+        """
+        original = broker.stream_connected
+
+        async def tracked(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, listener_name: str) -> None:
+            self._conns.add(writer)
+            try:
+                await original(reader, writer, listener_name=listener_name)
+            finally:
+                self._conns.discard(writer)
+                if not writer.transport.is_closing():
+                    writer.transport.close()
+
+        broker.stream_connected = tracked                               # type: ignore[method-assign]
+
+    def _abort_leftovers_at_shutdown(self, broker: Broker) -> None:
+        """Abort the connections amqtt still holds when it closes its listener.
+
+        By then `shutdown()` has stopped the handler of every session. What is left (see
+        `_track_connections`), or a close stuck flushing to a peer that stopped reading, would keep
+        `wait_closed()` waiting forever.
+        """
+        for server in broker._servers.values():                         # noqa: SLF001
+            original = server.close_instance
+
+            async def close_instance(original: Any = original) -> None:
+                left = [w for w in self._conns if not w.transport.is_closing()]
+                if left:
+                    log.warning("test broker shutdown: aborting %d connection(s) amqtt left open: %s",
+                                len(left), [w.get_extra_info("peername") for w in left])
+                for writer in list(self._conns):
+                    writer.transport.abort()
+                self._conns.clear()
+                await original()
+
+            server.close_instance = close_instance                      # type: ignore[method-assign]
 
     def _idle(self, broker: Broker) -> bool:
         if self._in_hand:

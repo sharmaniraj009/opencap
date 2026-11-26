@@ -1,0 +1,492 @@
+{
+  "$defs": {
+    "ApiCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_log": {
+          "default": "data/audit.jsonl",
+          "title": "Audit Log",
+          "type": "string"
+        },
+        "bind": {
+          "default": "127.0.0.1",
+          "title": "Bind",
+          "type": "string"
+        },
+        "cors_origins": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cors Origins",
+          "type": "array"
+        },
+        "port": {
+          "default": 8080,
+          "title": "Port",
+          "type": "integer"
+        },
+        "token_env": {
+          "default": "OPENCAP_API_TOKEN",
+          "title": "Token Env",
+          "type": "string"
+        },
+        "tokens": {
+          "items": {
+            "$ref": "#/$defs/ApiToken"
+          },
+          "title": "Tokens",
+          "type": "array"
+        }
+      },
+      "title": "ApiCfg",
+      "type": "object"
+    },
+    "ApiToken": {
+      "additionalProperties": false,
+      "description": "A named API token (also used to log in to the web UI). The secret lives in the env var\n`token_env`, never in yaml.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "default": "viewer",
+          "enum": [
+            "viewer",
+            "admin"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "token_env": {
+          "minLength": 1,
+          "title": "Token Env",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "token_env"
+      ],
+      "title": "ApiToken",
+      "type": "object"
+    },
+    "CheckCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "est_rtt_ms": {
+          "default": 60.0,
+          "title": "Est Rtt Ms",
+          "type": "number"
+        }
+      },
+      "title": "CheckCfg",
+      "type": "object"
+    },
+    "DeviceDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "demote_after": {
+          "default": 3,
+          "title": "Demote After",
+          "type": "integer"
+        },
+        "demote_for_ms": {
+          "default": 30000,
+          "title": "Demote For Ms",
+          "type": "integer"
+        },
+        "min_scan_ms": {
+          "default": 1000,
+          "title": "Min Scan Ms",
+          "type": "integer"
+        },
+        "retries": {
+          "default": 2,
+          "title": "Retries",
+          "type": "integer"
+        },
+        "scan_ms": {
+          "default": 1000,
+          "title": "Scan Ms",
+          "type": "integer"
+        },
+        "timeout_ms": {
+          "default": 3000,
+          "title": "Timeout Ms",
+          "type": "integer"
+        }
+      },
+      "title": "DeviceDefaults",
+      "type": "object"
+    },
+    "MqttCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "ca_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ca File"
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "host": {
+          "default": "localhost",
+          "title": "Host",
+          "type": "string"
+        },
+        "keepalive_s": {
+          "default": 30,
+          "title": "Keepalive S",
+          "type": "integer"
+        },
+        "password_env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "OPENCAP_MQTT_PASSWORD",
+          "title": "Password Env"
+        },
+        "port": {
+          "default": 1883,
+          "title": "Port",
+          "type": "integer"
+        },
+        "qos": {
+          "default": 1,
+          "title": "Qos",
+          "type": "integer"
+        },
+        "tls": {
+          "default": false,
+          "title": "Tls",
+          "type": "boolean"
+        },
+        "topic_prefix": {
+          "default": "opencap",
+          "title": "Topic Prefix",
+          "type": "string"
+        },
+        "username": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Username"
+        }
+      },
+      "title": "MqttCfg",
+      "type": "object"
+    },
+    "OpcUaServerCfg": {
+      "additionalProperties": false,
+      "description": "Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046): the cache as a\nread-only, KEPServer-style address space. Off by default.",
+      "properties": {
+        "allow_insecure_remote": {
+          "default": false,
+          "title": "Allow Insecure Remote",
+          "type": "boolean"
+        },
+        "anonymous": {
+          "default": false,
+          "title": "Anonymous",
+          "type": "boolean"
+        },
+        "application_uri": {
+          "default": "urn:opencap:server",
+          "title": "Application Uri",
+          "type": "string"
+        },
+        "certificate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Certificate"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "endpoint": {
+          "default": "opc.tcp://127.0.0.1:4840/opencap",
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "namespace_uri": {
+          "default": "urn:opencap",
+          "title": "Namespace Uri",
+          "type": "string"
+        },
+        "password_env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Env"
+        },
+        "private_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Key"
+        },
+        "security_policies": {
+          "items": {
+            "enum": [
+              "None",
+              "Basic256Sha256_Sign",
+              "Basic256Sha256_SignAndEncrypt",
+              "Aes128_Sha256_RsaOaep_Sign",
+              "Aes128_Sha256_RsaOaep_SignAndEncrypt",
+              "Aes256_Sha256_RsaPss_Sign",
+              "Aes256_Sha256_RsaPss_SignAndEncrypt"
+            ],
+            "type": "string"
+          },
+          "title": "Security Policies",
+          "type": "array"
+        },
+        "server_name": {
+          "default": "opencap",
+          "title": "Server Name",
+          "type": "string"
+        },
+        "trusted_certs_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trusted Certs Dir"
+        },
+        "update_ms": {
+          "default": 250,
+          "title": "Update Ms",
+          "type": "integer"
+        },
+        "username_env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Username Env"
+        }
+      },
+      "title": "OpcUaServerCfg",
+      "type": "object"
+    },
+    "PayloadCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "bad_tags_field": {
+          "default": true,
+          "title": "Bad Tags Field",
+          "type": "boolean"
+        },
+        "float_decimals": {
+          "default": 4,
+          "title": "Float Decimals",
+          "type": "integer"
+        },
+        "timezone": {
+          "default": "Asia/Kolkata",
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "title": "PayloadCfg",
+      "type": "object"
+    },
+    "SafCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "max_bytes": {
+          "default": 2147483648,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "default": "data/saf.sqlite",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "title": "SafCfg",
+      "type": "object"
+    },
+    "SparkplugCfg": {
+      "additionalProperties": false,
+      "description": "Sparkplug B 3.0 edge node (#51, docs/spec/payload-sparkplug.md). Served by the Rust engine;\nthe Python engine loads and validates it, and warns. Uses the broker of `mqtt` on its own\nconnection (its own client id and Will).",
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "devices": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Devices",
+          "type": "object"
+        },
+        "edge_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Edge Node Id"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "group_id": {
+          "default": "opencap",
+          "title": "Group Id",
+          "type": "string"
+        },
+        "outbox": {
+          "default": "data/sparkplug-outbox.sqlite",
+          "title": "Outbox",
+          "type": "string"
+        },
+        "outbox_max_bytes": {
+          "default": 67108864,
+          "title": "Outbox Max Bytes",
+          "type": "integer"
+        },
+        "primary_host_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Host Id"
+        }
+      },
+      "title": "SparkplugCfg",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/sharmaniraj009/opencap/schema/node.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Schema of config/node.yaml (project v2): what differs per node. Today exactly the fields\nof `poller.yaml`, which it replaces; north agents move into the project when ADR-0005's\nnorth plug-in model lands, and the redundancy role (ADR-0012) is added here.",
+  "properties": {
+    "api": {
+      "$ref": "#/$defs/ApiCfg"
+    },
+    "check": {
+      "$ref": "#/$defs/CheckCfg"
+    },
+    "defaults": {
+      "$ref": "#/$defs/DeviceDefaults"
+    },
+    "instance": {
+      "default": "opencap-1",
+      "title": "Instance",
+      "type": "string"
+    },
+    "log_level": {
+      "default": "INFO",
+      "title": "Log Level",
+      "type": "string"
+    },
+    "mqtt": {
+      "$ref": "#/$defs/MqttCfg"
+    },
+    "opcua_server": {
+      "$ref": "#/$defs/OpcUaServerCfg"
+    },
+    "payload": {
+      "$ref": "#/$defs/PayloadCfg"
+    },
+    "saf": {
+      "$ref": "#/$defs/SafCfg"
+    },
+    "sparkplug": {
+      "$ref": "#/$defs/SparkplugCfg"
+    },
+    "stats_interval_s": {
+      "default": 300.0,
+      "title": "Stats Interval S",
+      "type": "number"
+    }
+  },
+  "title": "NodeConfig",
+  "type": "object",
+  "version": 1
+}

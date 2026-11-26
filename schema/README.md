@@ -13,6 +13,8 @@ cut-over, [ADR-0003](../docs/adr/0003-shared-config-schema.md)). **Do not edit b
 | `poller.schema.json` | `PollerConfig` | `config/poller.yaml` |
 | `devices_map.schema.json` | `DeviceMap` | `config/devices_map.yaml` |
 | `overrides.schema.json` | `Overrides` | `config/overrides.yaml` |
+| `project.schema.json` | `ProjectV2` | `config/project.json` (project v2, ADR-0013) |
+| `node.schema.json` | `NodeConfig` | `config/node.yaml` (project v2) |
 
 JSON Schema 2020-12; each file has `$id` and a top-level `version` (the schema contract version, bumped on a
 non-additive config change together with a migration). Output is deterministic (sorted keys). Unknown keys are

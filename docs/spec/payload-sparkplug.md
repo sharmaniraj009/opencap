@@ -8,7 +8,7 @@ runtime and replayed byte for byte by `engine/north/sparkplug/tests/vectors.rs`
 
 Normative source: the Eclipse Sparkplug 3.0.0 specification (chapters 4–6). The protobuf schema is
 `proto/third_party/sparkplug_b.proto`, Eclipse Tahu v1.0.19, vendored unmodified (EPL-2.0). This page
-says how opencap fills it, and pins what the specification leaves open. Decisions: D-087.
+says how opencap fills it, and pins what the specification leaves open. Decisions: D-090.
 
 ## 1. Topics
 

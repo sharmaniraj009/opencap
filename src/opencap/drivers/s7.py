@@ -43,6 +43,7 @@ import structlog
 from opencap.config.models import Device, Tag
 from opencap.core.cache import TagValue
 from opencap.drivers._cip_common import Attempt, describe_exc
+from opencap.drivers import _schema as sc
 from opencap.drivers.base import (
     Block,
     BlockConfigError,
@@ -738,6 +739,23 @@ class S7Driver(Driver):
 
     name: ClassVar[str] = "s7"
     is_async: ClassVar[bool] = False
+    transport: ClassVar[str] = "tcp (ISO-on-TCP)"
+    address_examples: ClassVar[tuple[str, ...]] = (
+        "DB1,REAL8", "DB100,W04", "DB1,X5.6", "DB1,STRING0.20", "M10.3", "I0.0", "QW4", "T1", "C2")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("s7 params", {
+        "rack": sc.integer("CPU rack", 0, minimum=0, maximum=7),
+        "slot": sc.integer("CPU slot", 1, minimum=0, maximum=31),
+        "max_pdu": sc.integer("PDU size requested at connect; blocks are planned for it", 480,
+                              minimum=MIN_PDU, maximum=MAX_PDU),
+        "link_type": {"type": ["integer", "string", "null"],
+                      "description": "connection type of the remote TSAP: 1 or PG, 2 or OP, 3 or PC "
+                                     "(null: 3, Kepware's default)"},
+        "byte_order_big": sc.boolean("false = Kepware 'Little Endian': the bytes of 16/32/64-bit values reversed",
+                                     True),
+        "max_gap": sc.integer("unused bytes allowed between merged tags", 16, minimum=0),
+        "nonnormal_float": sc.string("NaN, Inf and denormal floats: replace with zero or pass unmodified",
+                                     "zero", enum=NONNORMAL_FLOAT_MODES),
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)

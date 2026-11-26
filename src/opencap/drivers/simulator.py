@@ -36,6 +36,7 @@ from typing import Any, ClassVar
 
 from opencap.config.models import Device, Tag
 from opencap.core.cache import TagValue
+from opencap.drivers import _schema as sc
 from opencap.drivers.base import Block, CommError, ConnectionLost, DecodeError, Driver, Plan
 
 UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -446,6 +447,20 @@ class SimulatorDriver(Driver):
 
     name: ClassVar[str] = "simulator"
     is_async: ClassVar[bool] = True
+    transport: ClassVar[str] = "none (computed values)"
+    address_examples: ClassVar[tuple[str, ...]] = (
+        "RAMP(10000,0,100)", "SINE(60000,-1,1)", "RANDOM(1000,0,10,42)", "SQUARE(2000,0,1)",
+        "CONST(5)", "K1", "TIME", "COUNTER")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("simulator params", {
+        "epoch": {"type": ["integer", "string", "null"],
+                  "description": "time zero of the waveforms: ms since the Unix epoch, or an ISO 8601 time "
+                                 "with a zone (null: the Unix epoch)"},
+        "memory": sc.obj('memory registers: {"K1": value, ...}'),
+        "fail_connect": sc.boolean("every connect attempt fails", False),
+        "fail_every_n_reads": sc.integer("every Nth read fails (0 = never)", 0, minimum=0),
+        "latency_ms": sc.integer("added delay per read", 0, minimum=0),
+        "bad_decode_tags": sc.array_of_strings("tag names whose value cannot be decoded"),
+    })
 
     def __init__(self, device: Device, executor: Any = None, *,
                  clock: Callable[[], datetime] = _utc_now,

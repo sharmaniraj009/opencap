@@ -32,7 +32,11 @@ from tests.helpers.modbus_sim import free_port
 N_DEVICES = 50
 CHANNELS = 5
 INTERVAL_MS = 1000
-SCAN_MS = 250
+# 500 ms, not 250: with 10 devices per channel (one request on the wire, D-015) and STALE_FACTOR 3, a
+# 250 ms scan leaves a 750 ms stale window, which a loaded CI runner overran: a whole device went
+# stale and its payload had DataValid false (seen on #177 and #208). 1.5 s absorbs the scheduling
+# delay; the publish cadence (INTERVAL_MS) and the formula checks are unchanged.
+SCAN_MS = 500
 API_TOKEN = "simulator-integration-token"
 
 # (name, address, dtype); K1 is set per device through params.memory

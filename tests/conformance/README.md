@@ -22,6 +22,11 @@ tests/conformance/
   system_tags/*.json   system and diagnostic tags: engine state -> tags, device event sequences (docs/spec/system-tags.md)
   system_tags_catalogue.json  every system tag as data (level, name, dtype, update class, presence)
   quality/*.json       quality -> OPC UA StatusCode, OPC DA byte, Sparkplug, SubDevice JSON; worst-of (ADR-0006)
+  omron_fins/addresses/*.json  KEPServerEX Omron FINS address parsing (#13, #166; no Python driver, see below)
+  melsec_mc/plan/*.json    MELSEC MC address parsing, block planning, params (D-054, D-055)
+  melsec_mc/decode/*.json  MELSEC words to values
+  melsec_mc/frame/*.json   MC 3E batch-read request bytes as pymcprotocol builds them (needs pymcprotocol)
+  melsec_mc/reply/*.json   MC 3E reply checks, end codes and their config/comm classification
   config/              config model fixtures: an older, separate format, see config/compare.py
   simulator/vectors.json  simulator driver address grammar and values (D-071); see simulator/README.md
 ```
@@ -297,6 +302,43 @@ The one quality mapping table of ADR-0006 (`opencap.core.quality`). Two kinds of
   property Ignition reads.
 - `{"op": "worst", "qualities": ["<quality>", ...]}` -> `{"worst": "<quality>"}`, by
   bad_config > bad_decode > bad_comm > stale > good; the worst of none is good.
+
+### `omron_fins/addresses`
+
+KEPServerEX Omron FINS address parsing for CS1, CJ1 and CJ2. The syntax and ranges come from
+PTC's manual and the area codes from W342; `docs/protocols/omron-fins.md` §5 summarises them.
+
+There is no Python FINS driver (Rust-first, ADR-0002), so the reference is the FINS simulator's
+own parser (`tests/helpers/fins_sim.py`). Each case in `scripts/gen_conformance_fins.py` also
+carries a hand-written expectation, and `tests/unit/test_fins_sim.py` checks that the generated
+files equal it.
+
+- `input`: `{"address", "dtype"?, "model"?}`.
+  - `dtype` is an opencap name, plus `bcd16`/`bcd32` for KEPServerEX BCD/LBCD. Without it, the
+    address's KEPServerEX default type applies.
+  - `model` is `CS1`, `CJ1` or `CJ2` (default `CJ1`).
+- `expected` for an accepted address:
+  `{"area_code": "0x82", "word", "bit", "kind", "dims", "str_len", "str_order", "bcd", "words"}`.
+  - `word` is the FINS word address on the wire: counter *n* is `0x8000 + n`, IR *n* is
+    `0x0100 + n` and DR *n* is `0x0200 + n`.
+  - `kind` is `word`, `bit`, `flag` or `string`.
+  - `words` is how many elements a read covers.
+- `expected` for a refused address: `{"error": "syntax" | "range" | "unsupported"}`, a category
+  rather than a message.
+### `melsec_mc/plan`, `melsec_mc/decode`
+
+- plan `input`: `{"params", "tags"}`; `expected`: `{"blocks": [{device, start, count, head_number, last_number,
+  describe, tags, items: [{names, offset, text, dtype, words, bit, dims, str_len, str_order}]}], "invalid"}`
+  or `{"error"}` when the params are refused.
+- decode `input`: `{"params", "tags", "reply": {"words": [u16, ...]}}` (tags plan to one block);
+  `expected`: `{"values": {...}}`.
+
+### `melsec_mc/frame`, `melsec_mc/reply`
+
+- frame `input`: `{"params", "tags", "timeout_ms"}`; `expected`: `{"requests": [hex per block], "cpu_model": hex}`,
+  the 3E binary request frames (generated through pymcprotocol).
+- reply `input`: `{"frame": hex, "words": n}`; `expected`: `{"frame_error"}`, `{"end_code", "kind": "config"|"comm",
+  "message"}` or `{"words": [...]}` (exactly `n` words, never zero-filled).
 
 ## Regenerating
 

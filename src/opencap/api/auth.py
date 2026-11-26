@@ -48,10 +48,11 @@ class Principal:
 class AuthError(Exception):
     """401 (not authenticated) or 403 (authenticated, not allowed)."""
 
-    def __init__(self, status: int, message: str) -> None:
+    def __init__(self, status: int, message: str, who: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
+        self.who = who              # token name when the caller was identified (never the token itself)
 
 
 def is_safe(method: str) -> bool:
@@ -83,6 +84,10 @@ class Auth:
             raise RuntimeError("api tokens: two tokens have the same secret; give each its own")
         self.open = not self._tokens
 
+    @property
+    def token_count(self) -> int:
+        return len(self._tokens)
+
     def check_token(self, given: str) -> tuple[str, Role] | None:
         """(name, role) of the token, or None. Compares against every token (constant time)."""
         given_b = given.encode()
@@ -98,9 +103,10 @@ class Auth:
         if self.open:
             # DNS rebinding: a foreign page reaching the loopback API sends its own host name
             if host_name(host) not in LOOPBACK_HOSTS:
-                raise AuthError(403, "no API token is configured: only requests to localhost are answered")
+                raise AuthError(403, "no API token is configured: only requests to localhost are answered",
+                                "anonymous")
             if not is_safe(method):
-                raise AuthError(403, OPEN_READ_ONLY)
+                raise AuthError(403, OPEN_READ_ONLY, "anonymous")
             return Principal("anonymous", "viewer", via)
         scheme, _, given = headers.get("authorization", "").partition(" ")
         found = self.check_token(given.strip()) if scheme.lower() == "bearer" and given.strip() else None
@@ -108,5 +114,5 @@ class Auth:
             raise AuthError(401, "missing or bad bearer token")
         principal = Principal(found[0], found[1], via)
         if not is_safe(method) and not principal.is_admin:
-            raise AuthError(403, f"token {principal.name!r} has role viewer: read-only")
+            raise AuthError(403, f"token {principal.name!r} has role viewer: read-only", principal.name)
         return principal

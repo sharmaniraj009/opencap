@@ -34,6 +34,8 @@ for _p in (ROOT, ROOT / "scripts"):        # the repo (opencap, tests) and the A
 
 import gen_conformance_ab  # noqa: E402
 import gen_conformance_system_tags  # noqa: E402
+import gen_conformance_fins  # noqa: E402
+import gen_conformance_mc  # noqa: E402
 
 from opencap import FIRM_VERSION  # noqa: E402
 from opencap.config.models import Device, PayloadCfg, PublishCfg, Scale, Tag  # noqa: E402
@@ -1175,6 +1177,8 @@ SPECS: dict[str, list[FileSpec]] = {
 
 SPECS.update(gen_conformance_ab.SPECS)      # Allen-Bradley Logix and PCCC (#5)
 SPECS.update(gen_conformance_system_tags.SPECS)   # system and diagnostic tags (#120)
+SPECS.update(gen_conformance_fins.SPECS)    # Omron FINS address parsing (#13, #166)
+SPECS.update(gen_conformance_mc.SPECS)      # Mitsubishi MELSEC MC 3E (#45)
 SPECS["quality"] = [
     ("map", "Each quality in every north model, with and without a last good value (ADR-0006).", quality_map()),
     ("worst", "The worst of several qualities: bad_config > bad_decode > bad_comm > stale > good.",

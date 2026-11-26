@@ -1,0 +1,21 @@
+[package]
+name = "opencap-driver-melsec-mc"
+description = "opencap engine driver (read-only): Mitsubishi MELSEC over the MC protocol, 3E binary frame, TCP or UDP, native client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencap-core.workspace = true
+async-trait.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

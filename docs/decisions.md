@@ -1363,7 +1363,9 @@ ADR-0005 / 03 §3.2 would expect:
   licensed Python FINS client validates the simulator over UDP and TCP.
 - **Done:** we followed PTC's *Omron FINS Ethernet Driver* manual (v1.083) for the syntax. It writes
   a banked EM word as `E<bank>:<word>` with a **decimal** bank (`E00:00100`, `E12:32767`; CJ2 up
-  to `E24:`), and the current bank as `E<word>`. `E0_100` is Omron's own notation (W342 5-2-2).
+  to `E24:`), and the current bank as `E<word>`. The source is the "Expansion Data Memory" rows:
+  CS1 p. 59, CJ1 p. 64 (`E00:00000-E12:32767`), CJ2 p. 68 (`E00:00000-E24:32767`), with the current bank
+  `E00000-E32767` on the same pages (re-checked for #166). `E0_100` is Omron's own notation (W342 5-2-2).
   The vectors list `E0_100` and `EM100` as invalid, so an importer cannot accept them silently.
   The same manual sets the rest of the vector set: data types (no 64-bit types and no Double),
   default types (BCD for timers and counters, DWord for IR), `H`/`L`/`D`/`E` strings, the `D`
@@ -1577,3 +1579,82 @@ reader would expect:
   KEPServerEX CSV writer (#10) when it is in the build, else it fails with that reason. Merging into a device
   is the config API's job (plan DEV-12), not this command's.
 - **Rust:** not ported; follow-up issue (trait method, ab_logix mapping on its own CIP client, same skip rules).
+
+### D-079 Config and API events, refusal records, API start and bind failure (#135)
+
+- **Events** (Python engine): `config.write_failed` (ERROR: `who`, `via`, `action`, `files`, `reason` = `read_only` |
+  `disk_full` | `partial` | `io`, `status`, and for `partial` the `.bak` files to copy back as `restore`),
+  `config.change_rejected` (INFO: `who`, `via`, `action`, `target`, `status`, `count`, first error's `loc` and `msg`),
+  `api.request_refused` (WARNING for 401 and 403, INFO otherwise: `method`, `path`, `status`, `who`, `client`, `via`,
+  `suppressed`), `api.started` (INFO: `bind`, `port`, `open_mode`, `tokens`) and `api.bind_failed` (ERROR: `bind`,
+  `port`, `reason` = `in_use` | `permission_denied` | `address_unavailable` | `bad_address` | `config` | `io`).
+- **One event per refusal.** A refused config write (any 4xx of a POST/PUT/PATCH/DELETE through the config API,
+  including 412, 422 and 428) is `config.change_rejected` only; `api.request_refused` covers everything else with
+  401, 403, 412, 413, 422 or 428 (bad token, role, body size, malformed query). Nothing is written to the audit log
+  (D-043). Field values, bodies, query strings and token values are never logged; `who` is the token name or `unknown`.
+- **Flood control.** `api.request_refused` is written at most once per second per client address and status; the next
+  line carries `suppressed`. This is a local limiter; replace it with the shared flood control of #133 when that lands.
+- **Open question 7 (plan 15): the client address is acceptable** in these lines. The API listens on loopback or a VPN
+  address, the address is the peer's (behind a reverse proxy it is the proxy's), and it is what an operator needs to
+  find a failing client. It is not logged for accepted requests.
+- **API start.** The API socket is bound by opencap before uvicorn takes it, so a taken port, a bad address or open
+  mode on a non-loopback bind is reported as `api.bind_failed` and `opencap run` exits with status 1 after stopping what
+  had started. Python had no start line before; Rust logs `api_started` (`bind`, `port`).
+- **Legacy name.** Rust keeps `api_started` for now: existing INFO names are frozen until LOG-R1's rename question is
+  decided (#134). Python emits only the dotted `api.started`, so until then the engines differ in this one name.
+- **Correlation (LOG-R15).** `config_reloaded` carries `revision`, and `who` and `via` when the reload came from the API;
+  `poller_started` carries `version`, `engine`, `instance` and `revision`. Audit entries already carry `revision`.
+- **Rust engine** (not in this change, no Rust build was run): `config.change_rejected`/`config.write_failed` come with
+  the Rust config API (API-35, #140); until then it needs `api.request_refused` for its 401, 403 and 413 answers with the
+  same fields and the one-per-second limit, `api.bind_failed` (reason codes above) with a non-zero exit when the port
+  is taken, `revision` on `config_reloaded`, and `engine`, `instance`, `revision` on `poller_started`.
+- **Secrets test.** `tests/unit/test_api_events.py` and `tests/integration/test_api_events_runtime.py` run the API with
+  known token and broker-password values and fail if any captured event or audit line contains them.
+### D-080 melsec_mc in the Rust engine: a native MC 3E binary client, read commands only (#45)
+- **Decision:** `engine/drivers/melsec_mc` (`opencap-driver-melsec-mc`, feature `driver-melsec-mc`)
+  ports the Python driver (D-053 to D-057) with its own client instead of pymcprotocol (no Rust
+  crate exists; the framing is a 15-byte header plus a device spec). The address parser, planner,
+  decoder, params validation and error texts are the Python ones; conformance areas
+  `melsec_mc/plan`, `decode`, `frame` and `reply` (1,048 vectors generated from Python, request
+  bytes taken from pymcprotocol itself) pass in `opencap-conformance`.
+- **Whole frames (D-053):** a TCP reply is read as the 9-byte header and then exactly the bytes it
+  announces; the reply must carry exactly the words asked for, else `Comm` and the socket is
+  dropped. A reply split across segments reads correctly (unit test and the simulator's
+  `split_replies`). 3E has no sequence number, so a timeout also drops the socket.
+- **Read-only:** `frame.rs` can build only 0401/0000, 0401/0002 (iQ-R) and 0101/0000;
+  `check_read_only` runs before every send. Tests assert 0x1401/0x1402/remote run/stop and the
+  rest of the write list are refused and never named elsewhere in the sources.
+- **Error mapping (D-056):** same end-code classes: `BlockConfig` for 0xC051-0xC054, 0xC056,
+  0xC059, 0xC05B, 0xC05C, 0xC060, 0x4030, 0x4031, `Comm` otherwise; the socket stays open.
+- **Not ported:** ASCII frames and 4E (as in Python). Message text for OS errors differs from
+  Python's exception text. Untested on real PLCs, like the Python driver.
+- **Licence:** no new dependency; `deny.toml` unchanged.
+### D-081 Driver catalogue, params schemas, collection queries (#129)
+
+- **Schemas live next to each driver** as `Driver.params_schema` (JSON Schema draft 2020-12, built with
+  `drivers/_schema.py`), with `transport`, `dtypes`, `address_examples` and `supports_browse`; `supports_identity` is
+  true when the driver overrides `identity()`. `GET /api/v1/drivers[/{name}]` serves them (viewer role). The schemas
+  state types, ranges and enums; cross-key rules (OPC UA security policy needs a certificate, a Logix path with an odd
+  number of segments) stay in the driver and still surface at plan time.
+- **Lenient on purpose.** Unknown keys are allowed (drivers ignore them and the importer keeps provenance keys), and a
+  `null` value means the default, as in every driver. Booleans must be `true`/`false` and numbers numbers: the 0/1 and
+  string spellings some drivers still tolerate in hand-written YAML are not accepted on an API write. A `PATCH` that
+  leaves such a value in place therefore gets a 422 until it is corrected.
+- **Only API writes are checked** (device create, update, and channel create with devices). Loading files from disk,
+  `opencap check` and import are unchanged, so existing configs keep loading. The 422 `loc` of a bad param is now
+  `["params", "<key>"]` instead of `["params"]`; the message no longer comes from the driver constructor.
+  This tightens request validation inside `/api/v1`, which `api/README.md` calls a v2 matter; the issue asks for it
+  and the project is pre-release, so the contract moved to 1.4.0 (additive routes and parameters).
+- **Own validator, no new dependency.** `validate_params` implements `type`, `enum`, `minimum`, `maximum`,
+  `minLength`, `items` and `required`; tests run every schema through `jsonschema` (a dev dependency) and compare.
+- **Collections.** `q` matches `name` and `description` (channels and devices have no description, so only the name);
+  `sort` offers a documented field list per collection (channels: name, enabled, devices; devices: id, channel, name,
+  driver, host, port, enabled, tags; tags: name, address, dtype, scan_ms, enabled, description). Strings sort naturally
+  without case (`A2` before `A10`), numbers numerically; an item without a value goes last in both directions. Without
+  `limit` the whole collection is returned and `limit` is `null`; `total` counts after filtering. `/channels/{c}/devices`
+  is unchanged.
+- **Rust engine** (API-35, #140): serve the same `/drivers` entries (the schemas are data; generate a JSON file per driver
+  from the Python classes into the shared fixtures so both engines return identical documents), run the same schema check on
+  device writes with `loc` `["params", key]`, and add `q`, `sort`, `order`, `limit`, `offset` to the three list routes with
+  the natural-order comparison above (case-folded text split into digit and non-digit runs).
+

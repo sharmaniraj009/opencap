@@ -51,6 +51,7 @@ from opencap.core.cache import TagValue
 from opencap.drivers._cip_common import WRITE_SERVICES, describe_exc, is_comm_error, is_timeout, oo_socket_class
 from opencap.drivers._cip_common import Attempt as _Attempt
 from opencap.drivers._cip_common import exc_chain as _chain
+from opencap.drivers import _schema as sc
 from opencap.drivers.ab_pccc import coerce_value, parse_pccc_address
 from opencap.drivers.base import Block, BrowseResult, CommError, ConnectionLost, DecodeError, Driver, Plan
 
@@ -785,6 +786,19 @@ class AbLogixDriver(Driver):
 
     name: ClassVar[str] = "ab_logix"
     is_async: ClassVar[bool] = False
+    transport: ClassVar[str] = "tcp (EtherNet/IP)"
+    supports_browse: ClassVar[bool] = True      # Driver.browse() maps the uploaded tag list (#11, D-077)
+    address_examples: ClassVar[tuple[str, ...]] = (
+        "Pump1_Speed", "Program:MainProgram.Counter", "Recipe[3]", "Motor1.Status.Running", "Flags.5")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("ab_logix params", {
+        "micro800": sc.boolean("the device is a Micro800 (no backplane, no tag-list upload)", False),
+        "path": sc.string("CIP route after the IP address, as port,link pairs, e.g. 1,0", nullable=True),
+        "slot": sc.integer("backplane slot of the controller", minimum=0, maximum=255, nullable=True),
+        "max_batch": sc.integer("tags per read call", DEFAULT_MAX_BATCH, minimum=1),
+        "batching": {**sc.string("Multiple Service Packet batching (Micro800): auto probes on connect",
+                                 "auto", enum=(*BATCHING_MODES, True, False)), "type": ["string", "boolean"]},
+        "connection_size": sc.integer("CIP connection size in bytes (wire estimate)", minimum=1, nullable=True),
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)

@@ -54,6 +54,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from tests.helpers.netcut import stable_port
+
 SIM_HOST = "127.0.0.1"
 DEFAULT_NODE = 10                     # the CPU's FINS node number (DA1 of requests)
 DEFAULT_MODEL = "CJ1H-CPU66H"
@@ -267,12 +269,20 @@ class FinsSim:
         return len(self._writers)
 
     async def _listen(self) -> None:
+        # With no port given, candidates come from stable_port(): random, below the ephemeral range.
+        # Taking an ephemeral TCP port and then UDP on the same number failed 20 times in a row on
+        # Windows, where ephemeral ports are handed out close together ("no port free", #216).
         loop = asyncio.get_running_loop()
         for _ in range(20):
             server = None
-            port = self.port
+            port = self.port or stable_port(self.host)
             if self.tcp:
-                server = await asyncio.start_server(self._serve_tcp, self.host, self.port, reuse_address=True)
+                try:
+                    server = await asyncio.start_server(self._serve_tcp, self.host, port, reuse_address=True)
+                except OSError:
+                    if self.port:
+                        raise
+                    continue
                 port = server.sockets[0].getsockname()[1]
             if self.udp:
                 try:

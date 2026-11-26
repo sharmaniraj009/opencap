@@ -451,7 +451,7 @@ mod tests {
         std::fs::write(d.join(DEVICES_FILE), j.to_string()).unwrap();
         let e = load_config(&d).unwrap_err().to_string();
         assert!(e.contains("Site 001/8 PUMP: driver: Input should be 'modbus_tcp', 'ab_logix'"), "{e}");
-        assert!(e.contains("'ab_df1' or 'simulator' (got 'profibus')"), "{e}");
+        assert!(e.contains("'simulator' or 'omron_fins' (got 'profibus')"), "{e}");
     }
 
     #[test]

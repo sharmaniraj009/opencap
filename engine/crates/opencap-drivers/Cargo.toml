@@ -12,12 +12,13 @@ publish.workspace = true
 # One feature per driver crate in engine/drivers/<name>; `default` = every driver that exists.
 # A build without a feature still knows the driver's name and reports "not compiled in".
 [features]
-default = ["driver-modbus-tcp", "driver-modbus-rtu", "driver-ab-logix", "driver-melsec-mc", "driver-s7"]
+default = ["driver-modbus-tcp", "driver-modbus-rtu", "driver-ab-logix", "driver-melsec-mc", "driver-s7", "driver-omron-fins"]
 driver-modbus-tcp = ["dep:opencap-driver-modbus-tcp"]
 driver-modbus-rtu = ["dep:opencap-driver-modbus-rtu"]
 driver-ab-logix = ["dep:opencap-driver-ab-logix"]
 driver-melsec-mc = ["dep:opencap-driver-melsec-mc"]
 driver-s7 = ["dep:opencap-driver-s7"]
+driver-omron-fins = ["dep:opencap-driver-omron-fins"]
 
 [dependencies]
 opencap-core.workspace = true
@@ -26,6 +27,7 @@ opencap-driver-modbus-rtu = { path = "../../drivers/modbus_rtu", optional = true
 opencap-driver-ab-logix = { path = "../../drivers/ab_logix", optional = true }
 opencap-driver-melsec-mc = { path = "../../drivers/melsec_mc", optional = true }
 opencap-driver-s7 = { path = "../../drivers/s7", optional = true }
+opencap-driver-omron-fins = { path = "../../drivers/omron_fins", optional = true }
 
 [lints]
 workspace = true

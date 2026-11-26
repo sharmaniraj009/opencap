@@ -1838,6 +1838,66 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
 
+### D-088 OPC UA server hardening (#28)
+Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo, open62541 and asyncua.
+- **Per-server asyncua overrides, no global patch** (`north/opcua_services.py`): a `Server` subclass
+  whose binary server hands every connection a processor subclass (it answers BrowseNext; asyncua's
+  dispatcher has no branch for it), our `InternalSession` subclass (installed through
+  `iserver.create_session`) and our `MonitoredItemService` subclass per subscription. `UaServer.start`
+  is asyncua 2.1's with that one change; the `opcua` extra pins `asyncua>=2.1,<2.2` (D-045).
+- **Deadband against the last reported value.** asyncua compared each sample with the previous sample,
+  so a value ramping by less than the deadband per sample was never reported (found by the L1 suite).
+  Now: Part 4 7.22.2 (absolute; percent of the EURange span; arrays element-wise), a status change is
+  always reported, a deadband on a non-numeric variable is refused (`BadFilterNotAllowed`; before, it
+  raised inside the value copy loop and stalled updates for every client), percent without an
+  EURange is `BadDeadbandFilterInvalid`. The decoded filter is duck-typed: asyncua re-creates
+  structure classes from the nodeset, so `isinstance(..., ua.DataChangeFilter)` can be false.
+- **Writes** are answered per node with `Bad_NotWritable` (`Bad_NodeIdUnknown` for an unknown node)
+  instead of a ServiceFault `BadUserAccessDenied`; nothing is written. HistoryUpdate, Call and node
+  management stay refused by the permission ruleset.
+- **Browse paging:** at most `max_references_per_browse` (default 1000, or fewer if the client asks)
+  references per node, the rest through continuation points (16 per session, then
+  `BadNoContinuationPoints`), BrowseNext with release. asyncua ignored RequestedMaxReferencesPerNode.
+- **Limits:** `max_sessions` (`BadTooManySessions`), `max_subscriptions_per_session`,
+  `max_monitored_items` server-wide (`BadTooManyMonitoredItems` per item),
+  `min_publishing_interval_ms` (revised up) and `min_sampling_interval_ms` (revised up in the
+  result). Sampling is change-driven: values reach the address space when a device cycle ends or
+  every `update_ms`, so the sampling interval is reported, not enforced per item; the publishing
+  interval bounds the notification rate.
+- **Address space:** each device is one AddNodes batch (asyncua's helpers read the parent's type
+  definition per folder). `ValueRank`/`ArrayDimensions` come from the address through the driver's own
+  pure parser (Modbus, S7, MELSEC: `[n]`, `[r][c]`; brackets mean an element elsewhere, e.g. Logix),
+  before the first value; other drivers still switch to ValueRank 1, ArrayDimensions `[0]` at their
+  first list value. Scaled tags are `AnalogItemType` with `EURange` (eng_lo..eng_hi, sorted) and
+  `EngineeringUnits` (UNECE Rec. 20 code for about 40 common units, UnitId -1 otherwise).
+  `Description` is the tag's description (empty, not the name, when there is none).
+- **Namespace:** `kepserverex_namespace_index: true` (default) makes start fail if the tag
+  namespace would not be ns=2.
+- **Security:** `pki_dir` with `own/` (generated server certificate, key 0600), `trusted/`, `issuers/`
+  (intermediates for chain building only), `crl/`, `rejected/` (refused client certificates saved as
+  `CN [thumbprint].der`), `users/` (X.509 user tokens, exact certificate match). The folders are read
+  on every CreateSession, so trusting a client needs no restart. An empty `trusted/` refuses every
+  client cleanly (`BadCertificateUntrusted`; the cryptography store cannot be empty). Several users
+  through `users: [{username_env, password_env}]`; the single pair still works; a user whose
+  variables are unset is skipped with a warning. X.509 user tokens: the session records the token
+  type before asyncua calls the user manager, because asyncua passes the channel certificate for
+  anonymous tokens too. `advertised_endpoint` binds on `endpoint` and advertises one URL
+  (asyncua otherwise echoes the URL each client used); a generated certificate names the advertised
+  host, or this computer's name for a wildcard bind.
+- **Quality → StatusCode** comes from `core/quality.py` (#30), unchanged here.
+- **Not done here:** `maxAge=0` demand reads (`allow_demand_reads`, 03 §3.5) need a rate-limited
+  read path into the ChannelWorker; every read is served from the cache (proposed as its own issue).
+- **Scale** (`tests/integration/test_opcua_scale.py`, acceptance; this container, 4 vCPU,
+  Python 3.12): 100,000 variables in 100 devices build in 9.4 s with garbage collection paused
+  (19-22 s with it running) and take 820 MiB (966 MiB process RSS); 20,000 monitored items at 1 s
+  are created in 0.8 s. Server CPU, monitored items changing per second: 2,000 → 7 % of a core
+  (GC paused) / 19 % (GC on), 5,000 → 34 %, 10,000 → 56 %. At 10,000/s and more the asyncua *client*
+  (one Python process) falls behind and its keep-alive times out, so the server's own ceiling was not
+  reached with that client. asyncua's deep copy of every DataValue in the monitored-item callback was
+  over half of the CPU and is now a shallow copy (the server writes a new DataValue per change).
+  A full GC over an address space this size pauses the loop for seconds (hence `no_gc` in the
+  test); the Rust server (#50) is the target for larger plants.
+
 ### D-089 Project v2, part 1: what moves into `project.json`, and when the layering runs (#37)
 - **Split:** #37 ships in two PRs. Part 1 is the v2 layout, the loader, `opencap config migrate` and
   `import-kep --format v2`. Part 2 is the `ProjectStore` protocol, the v2 store (revision counter,
@@ -1872,6 +1932,47 @@ produced once the outbox drains, then every frozen message must reach the subscr
   reload keep working. The revision is then a hash of `project.json` and `node.yaml`.
 - **Rust:** its loader reads v1 only. Follow-up #186: load `project.json` + `node.yaml` with the same finalize
   steps, and the shared config fixtures for the `project` and `node` documents.
+
+### D-091 Omron FINS driver, Rust-first (#54)
+- **Layout.** `engine/drivers/omron_fins` (`opencap-driver-omron-fins`, feature `driver-omron-fins`, a default). There
+  is no Python FINS driver (ADR-0002 §4): `omron_fins` is added to `DriverName` and `KNOWN_DRIVERS`, and the Python
+  engine reports it "not implemented yet". Written from docs/protocols/omron-fins.md and accepted against
+  `tests/helpers/fins_sim.py`; the address parser passes every `omron_fins/addresses` vector (111).
+- **Read-only.** `wire::Command` can only be 0101, 0104 or 0501; every frame is checked again before it is sent, and a
+  test feeds every write/control command code of W342 5-1-1 to the guard. The simulator's `write_attempts` stays 0.
+- **Planning.** Bits are read as part of their word (word code), so `D100` and `D100.03` are one read; flags (TS, CS,
+  TK) are 1-byte elements with the flag code; IR is a 4-byte element. Per area code, items merge when the hole is at most
+  `max_gap` (8) elements and the read stays within `min(request_size, 1998)` bytes; timers (below 0x8000) and counters
+  (0x8000+) share code 0x89 but never one read. When at least two ranges are single elements, they share a MULTIPLE
+  MEMORY AREA READ (0104, up to 167 items): in the integration test, 33 tags cost 5 requests.
+- **0104 fallback.** A 0104 refused with 0401/0402 switches the device to 0101 for good (logged once; the block's
+  `wire_requests()` then counts one per range). A 0104 refused with any other configuration end code (the simulator
+  answers the whole command with the failing item's code, protocol notes §2.2) is re-read range by range in the same
+  call, so only the ranges the CPU rejects become `bad_config` (and are not read again); the others keep their values.
+- **End codes** as the protocol notes §4 (`code & 0x7F3F`; a relay error word after MRES bit 7 is skipped). A reply
+  is matched by SID and command code; any other frame (a late reply, another client) is dropped while waiting, so a
+  timeout is a CommError and the socket is kept (no `close_on_timeout`: SIDs make late replies harmless). CPU error
+  bits (SRES 7/6) with a normal end code are logged once (`omron_fins.cpu_error`); the data is used.
+- **Transports.** UDP binds an ephemeral port by default (`local_port: 9600` for units in static or IP-table mode),
+  connects the socket to the unit and needs no handshake: the first read shows whether the CPU answers; DA1 defaults to
+  the last octet of the host (KEPServerEX), SA1 to the last octet of the local address. TCP connects and runs the node
+  address handshake (node 0 = allocate, or `src_node`); DA1/SA1 are then the nodes the unit reports; FINS/TCP error
+  notifications and handshake errors are named (W421 7-4).
+- **No BCD dtypes in the config.** KEPServerEX BCD/LBCD become `uint16`/`uint32` with the `D` suffix (Short/Long with
+  `D` = signed BCD, MSB as the sign, PTC's `D0D @ Short = -50`). Timer and counter present values decode as BCD when
+  `tc_bcd` (default true, the CS/CJ default; the parser refuses `D` on T/C). The parser still accepts the `bcd16`/
+  `bcd32` dtype names the vectors use. **Importer:** "Omron FINS Ethernet" devices now map to `omron_fins` (UDP, the
+  model family from the KEPServerEX model text, node/request-size properties by key suffix). No FINS export is
+  available here, so the property keys are **not verified** and every device is flagged; BCD/LBCD tags are still
+  imported disabled, as for every driver (a follow-up can rewrite them to the `D` suffix).
+- **Identity** is CPU UNIT DATA READ with data `00`: model and version (plus transport, nodes, model family); a refused
+  0501 gives an empty identity and reads go on.
+- **Tests.** `tests/integration/test_rust_engine_fins.py` (UDP and TCP): every address form against `sim.value()`, the
+  0104 pool, `check -v`, identity, mute, one area refused (only its tags `bad_config`, also inside the 0104), wrong CPU
+  mode, replies with another SID, a wrong destination node, split TCP replies, a CPU without 0104; the engine-level case
+  (acceptance, Rust only, skipped on the Python engine) power-cycles the simulator and checks demotion and resume.
+- **Still to check on hardware:** KEPServerEX's word order for 32-bit values (`first_word_low`), the reply port in
+  static/table mode, and whether a real CPU answers a multi-read item error like the simulator.
 
 ## Sparkplug B (#51)
 

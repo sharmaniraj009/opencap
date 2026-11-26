@@ -643,17 +643,28 @@ async def test_cancelling_run_closes_the_connections():
 
 async def test_sync_driver_runs_on_the_channel_executor():
     workers, factories = [], []
-    for _ in range(2):
+    # Qualities are captured when a cycle of device 0 has just updated the cache (on_cycle):
+    # "stale" is a wall-clock rule (3 x scan_ms), so a snapshot taken at an arbitrary moment
+    # turns stale whenever a loaded runner delays one 20 ms cycle (Windows CI).
+    fresh: list[dict] = []
+    for k in range(2):
         name = uniq()
         devs = [device(name, f"D{i}", tags("A", 2), scan_ms=20) for i in range(2)]
         factory = FakeFactory(sync=True)
         for dev in devs:
             factory.script(dev.id).delay_s = 0.003
-        workers.append(make_worker(channel(name, devs), factory)[0])
+        fresh.append({})
+
+        def on_cycle(device_id: str, k: int = k) -> None:
+            worker = workers[k]
+            if device_id == worker.device_ids[0]:
+                fresh[k]["snap"] = worker.cache.snapshot(device_id)
+
+        workers.append(make_worker(channel(name, devs), factory, on_cycle=on_cycle)[0])
         factories.append(factory)
     async with running(*workers):
         await asyncio.sleep(0.2)
-        values = [w.cache.snapshot(w.device_ids[0]) for w in workers]
+    values = [f["snap"] for f in fresh]
     per_channel_threads = []
     for worker, factory in zip(workers, factories):
         assert all(type(dr).is_async is False for dr in factory.drivers.values())

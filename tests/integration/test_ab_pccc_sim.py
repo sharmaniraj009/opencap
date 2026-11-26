@@ -261,14 +261,18 @@ async def test_mute_plc_gives_comm_error_then_recovers(executor) -> None:
 async def test_power_off_gives_connection_lost_and_power_on_reconnects(executor) -> None:
     sim = await PcccSim.start({**SYSTEM_FILES, **tables_for(TAGS, seed=3)}, port=stable_port())
     try:
-        drv = make_driver(sim, TAGS, executor)
+        # A long device timeout, so "failed fast" (connection reset) and "waited out the timeout"
+        # stay apart on every OS: a reset/refused connection takes 1-2 s on Windows (SYN retries, #176).
+        timeout_ms = 5000
+        drv = make_driver(sim, TAGS, executor, timeout_ms=timeout_ms)
         await drv.connect()
         assert_values(sim, TAGS, await read_all(drv))
         await sim.stop()
         started = time.monotonic()
         with pytest.raises(ConnectionLost):
             await drv.read(blocks(drv)["F8:0{2}"])
-        assert time.monotonic() - started < 1.0
+        elapsed = time.monotonic() - started
+        assert elapsed < timeout_ms / 1000 / 2, f"the read waited {elapsed:.2f}s: not a fast connection loss"
         assert not drv.connected
         with pytest.raises(ConnectionLost, match="connect failed"):
             await drv.connect()

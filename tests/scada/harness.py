@@ -233,7 +233,8 @@ class Node:
 
 
 def expected_tree(ns: int, devices: Iterable[Device], system_vars: Iterable[str]) -> set[Node]:
-    """Folders per channel/device/tag group, a variable per enabled tag, the `_System` folder."""
+    """Folders per channel/device/tag group, a variable per enabled tag (with EURange and
+    EngineeringUnits properties when scaled), the `_System` folder."""
     nodes: set[Node] = set()
     for dev in devices:
         nodes.add(Node(f"ns={ns};s={dev.channel}", f"{ns}:{dev.channel}", 1, "i=85"))
@@ -248,7 +249,11 @@ def expected_tree(ns: int, devices: Iterable[Device], system_vars: Iterable[str]
                 path = f"{parent}.{part}"
                 nodes.add(Node(f"ns={ns};s={path}", f"{ns}:{part}", 1, f"ns={ns};s={parent}"))
                 parent = path
-            nodes.add(Node(f"ns={ns};s={parent}.{parts[-1]}", f"{ns}:{parts[-1]}", 2, f"ns={ns};s={parent}"))
+            var = f"{parent}.{parts[-1]}"
+            nodes.add(Node(f"ns={ns};s={var}", f"{ns}:{parts[-1]}", 2, f"ns={ns};s={parent}"))
+            if tag.scale is not None:        # AnalogItemType properties (HasProperty is hierarchical)
+                props = ["EURange", *(["EngineeringUnits"] if tag.scale.units else [])]
+                nodes.update(Node(f"ns={ns};s={var}.{p}", f"0:{p}", 2, f"ns={ns};s={var}") for p in props)
         system = f"{base}._System"
         nodes.add(Node(f"ns={ns};s={system}", f"{ns}:_System", 1, f"ns={ns};s={base}"))
         for name in system_vars:

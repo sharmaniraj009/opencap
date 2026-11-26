@@ -47,6 +47,7 @@ from opencap.drivers import _schema as sc
 from opencap.drivers.base import (
     Block,
     BlockConfigError,
+    ByteCounter,
     CommError,
     ConnectionLost,
     DecodeError,
@@ -643,6 +644,8 @@ def s7_client_class() -> type:
     - `_connect`: ISO-on-TCP connect and PDU negotiation with our timeout (snap7 uses a fixed
       5 s), no heartbeat thread, no multi-read optimizer, no auto-reconnect.
     - `_send_data`: every PDU passes `check_read_only` first; a refused one never reaches the socket.
+    - `OcIsoConnection`: counts the TPKT frames (TPKT + COTP + S7 PDU) of every request and reply
+      after the handshake into `client.oc_counter` (#130); `snap7` exposes no hook for this.
     - `oc_read`: one read var request; returns (item return code, data) instead of raising on a
       refused item, so the driver can map return codes to `BlockConfigError`.
     """
@@ -651,8 +654,42 @@ def s7_client_class() -> type:
     from snap7.datatypes import S7Area, S7WordLen
     from snap7.type import Parameter
 
+    class OcIsoConnection(ISOTCPConnection):
+        """ISO-on-TCP connection that counts the bytes of S7 data frames (not the handshake or the
+        disconnect request) into `counter` once one is set."""
+
+        counter: ByteCounter | None = None
+        _oc_in_data = False
+
+        def send_data(self, data: bytes) -> None:
+            self._oc_in_data = True
+            try:
+                super().send_data(data)
+            finally:
+                self._oc_in_data = False
+
+        def receive_data(self) -> bytes:
+            self._oc_in_data = True
+            try:
+                return super().receive_data()
+            finally:
+                self._oc_in_data = False
+
+        def _build_tpkt(self, payload: bytes) -> bytes:
+            frame = super()._build_tpkt(payload)
+            if self._oc_in_data and self.counter is not None:
+                self.counter.add_tx(len(frame))       # built before the send: a failed send still counts
+            return frame
+
+        def _recv_exact(self, size: int) -> bytes:
+            data = super()._recv_exact(size)
+            if self._oc_in_data and self.counter is not None:
+                self.counter.add_rx(len(data))
+            return data
+
     class OcS7Client(Client):
-        def __init__(self, timeout_s: float, pdu_request: int, connection_type: int) -> None:
+        def __init__(self, timeout_s: float, pdu_request: int, connection_type: int,
+                     counter: ByteCounter | None = None) -> None:
             super().__init__()                         # auto_reconnect off, heartbeat off by default
             self.oc_timeout_s = timeout_s
             self.use_optimizer = False
@@ -661,11 +698,12 @@ def s7_client_class() -> type:
             self.set_connection_type(connection_type)
             self.oc_sent = 0
             self.oc_refused = 0
+            self.oc_counter = counter
 
         def _connect(self, address: str, rack: int, slot: int, tcp_port: int) -> Any:
             self.host, self.port, self.rack, self.slot = address, tcp_port, rack, slot
             self._params[Parameter.RemotePort] = tcp_port
-            conn = ISOTCPConnection(host=address, port=tcp_port, local_tsap=self.local_tsap,
+            conn = OcIsoConnection(host=address, port=tcp_port, local_tsap=self.local_tsap,
                                     remote_tsap=self.remote_tsap)
             self.connection = conn
             try:
@@ -674,6 +712,7 @@ def s7_client_class() -> type:
             except BaseException:
                 self.disconnect()
                 raise
+            conn.counter = self.oc_counter          # count from the first data request on
             self.connected = True
             self._is_alive = True
             return self
@@ -740,6 +779,7 @@ class S7Driver(Driver):
     name: ClassVar[str] = "s7"
     is_async: ClassVar[bool] = False
     transport: ClassVar[str] = "tcp (ISO-on-TCP)"
+    counts_bytes: ClassVar[bool] = True      # OcIsoConnection counts TPKT frames (#130)
     address_examples: ClassVar[tuple[str, ...]] = (
         "DB1,REAL8", "DB100,W04", "DB1,X5.6", "DB1,STRING0.20", "M10.3", "I0.0", "QW4", "T1", "C2")
     params_schema: ClassVar[dict[str, Any]] = sc.params_schema("s7 params", {
@@ -899,7 +939,7 @@ class S7Driver(Driver):
         if attempt.abandoned:
             return None
         p = self.params
-        client = s7_client_class()(self.timeout_s, p.max_pdu, p.connection_type)
+        client = s7_client_class()(self.timeout_s, p.max_pdu, p.connection_type, self.byte_counter)
         try:
             client.connect(self.device.host, p.rack, p.slot, self.device.port)
             pdu = int(client.get_pdu_length())

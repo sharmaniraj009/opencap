@@ -100,6 +100,7 @@ class ModbusRtuDriver(ModbusTcpDriver):
     name: ClassVar[str] = "modbus_rtu"
     is_async: ClassVar[bool] = True
     transport: ClassVar[str] = "serial, tcp"
+    counts_bytes: ClassVar[bool] = False     # inherits the TCP driver; its clients are built without the trace hook (#130)
     params_schema: ClassVar[dict[str, Any]] = sc.params_schema("modbus_rtu params", {
         **MODBUS_PROPERTIES,
         **serial_properties(("tcp", "serial", "unmapped")),

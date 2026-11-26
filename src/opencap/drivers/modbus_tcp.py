@@ -565,6 +565,7 @@ class ModbusTcpDriver(Driver):
     name: ClassVar[str] = "modbus_tcp"
     is_async: ClassVar[bool] = True
     transport: ClassVar[str] = "tcp"
+    counts_bytes: ClassVar[bool] = True      # pymodbus' public trace_packet hook; MBAP header + PDU (#130)
     address_examples: ClassVar[tuple[str, ...]] = (
         "400001", "300010", "000005", "100002", "400001.5", "400001[8]", "400010.10H")
     params_schema: ClassVar[dict[str, Any]] = sc.params_schema("modbus_tcp params", MODBUS_PROPERTIES)
@@ -620,6 +621,10 @@ class ModbusTcpDriver(Driver):
 
         lost: asyncio.Future[None] = asyncio.get_running_loop().create_future()
 
+        def on_packet(sending: bool, data: bytes) -> bytes:   # pymodbus trace_packet: every frame, both ways
+            (self.byte_counter.add_tx if sending else self.byte_counter.add_rx)(len(data))
+            return data
+
         def on_connect(up: bool) -> None:   # pymodbus trace_connect: True on connect, False on peer close
             if not up and not lost.done():
                 lost.set_result(None)
@@ -633,6 +638,7 @@ class ModbusTcpDriver(Driver):
             reconnect_delay=0,          # no auto-reconnect: the worker reconnects with backoff
             reconnect_delay_max=0,
             trace_connect=on_connect,
+            trace_packet=on_packet,
         )
         client.set_max_no_responses(_NO_AUTO_DISCONNECT)
         started = time.monotonic()

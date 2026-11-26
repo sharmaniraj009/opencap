@@ -150,7 +150,7 @@ async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch,
             try:
                 loaded = {d.id: d for c in engine.loaded.channels for d in c.devices}
                 topics = {d.id: loaded[d.id].publish.topic for d in devices}
-                await _check_publishing(col, topics)
+                await _check_publishing(broker, col, topics)
                 await _check_values_match_the_formulas(engine, devices)
                 await _check_api_and_faults(engine, api_port, devices)
             finally:
@@ -160,18 +160,21 @@ async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch,
     assert outbound and not stray, f"sockets to something other than the broker or the API: {stray}"
 
 
-async def _check_publishing(col, topics) -> None:
+async def _check_publishing(broker, col, topics) -> None:
     await _wait(lambda: all(len(col.topic(t)) >= 2 for t in topics.values()), 20, "2 messages per device")
-    # One message per interval: count over a measured window, not a nominal one. Under load the
-    # sleep overshoots, and a fixed "3 ± 1" then failed a correct engine (#223). ±1 covers the
-    # window's two ends cutting an interval.
+    # One publish per interval per device. Count what the engine published, as the broker accepted
+    # it, over a measured window (#223). The collector's arrival count also measured the in-process
+    # broker's fan-out, which lags when the runner is starved. A nominal window let the sleep's
+    # overshoot fail a correct engine too. ±1 covers the window's two ends cutting an interval.
+    def published() -> dict[str, int]:
+        return {t: len(broker.accepted_payloads(t)) for t in topics.values()}
+
     loop = asyncio.get_running_loop()
-    start = {t: len(col.topic(t)) for t in topics.values()}
-    began = loop.time()
+    start, began = published(), loop.time()
     await asyncio.sleep(3 * INTERVAL_MS / 1000)
-    intervals = (loop.time() - began) / (INTERVAL_MS / 1000)
+    end, intervals = published(), (loop.time() - began) / (INTERVAL_MS / 1000)
     for dev_id, t in topics.items():
-        got = len(col.topic(t)) - start[t]
+        got = end[t] - start[t]
         assert math.floor(intervals) - 1 <= got <= math.ceil(intervals) + 1, (dev_id, got, round(intervals, 2))
     for i, t in enumerate(topics.values()):
         msg = col.last(t).json()

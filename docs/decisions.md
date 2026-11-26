@@ -1578,7 +1578,7 @@ reader would expect:
   is the config API's job (plan DEV-12), not this command's.
 - **Rust:** not ported; follow-up issue (trait method, ab_logix mapping on its own CIP client, same skip rules).
 
-### D-078 Config and API events, refusal records, API start and bind failure (#135)
+### D-079 Config and API events, refusal records, API start and bind failure (#135)
 
 - **Events** (Python engine): `config.write_failed` (ERROR: `who`, `via`, `action`, `files`, `reason` = `read_only` |
   `disk_full` | `partial` | `io`, `status`, and for `partial` the `.bak` files to copy back as `restore`),

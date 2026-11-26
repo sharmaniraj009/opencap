@@ -148,7 +148,10 @@ async def test_the_task_ticks_once_per_second_on_the_real_clock(tmp_path, no_gc)
             await asyncio.sleep(0.02)
         assert len(seen) == 3, seen
         stamps = [datetime.fromisoformat(s.replace("Z", "+00:00")) for s in seen]
-        assert all(0 <= s.microsecond < 150_000 for s in stamps), seen        # aligned to the second (50 ms + CI slack)
+        # aligned to the second (50 ms + CI slack). asyncio may wake up to one clock resolution
+        # early (~15.6 ms for time.monotonic on Windows with Python 3.12, ~1 ns on Linux).
+        early_us = time.get_clock_info("monotonic").resolution * 1e6
+        assert all(s.microsecond < 150_000 or s.microsecond >= 1_000_000 - early_us for s in stamps), seen
         assert [(b - a).total_seconds() for a, b in zip(stamps, stamps[1:], strict=False)] == pytest.approx(
             [1.0, 1.0], abs=0.15)
     finally:

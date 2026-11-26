@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import threading
 from datetime import datetime
 
 import httpx
@@ -88,17 +89,31 @@ def outbound(monkeypatch):
     """Every address this process connects a socket to (TCP or UDP), from now on."""
     peers: list[object] = []
     real_connect, real_connect_ex = socket.socket.connect, socket.socket.connect_ex
+    real_socketpair = socket.socketpair
+    pairing = threading.local()
+
+    def socketpair(*args, **kwargs):
+        # Windows emulates socketpair() (the event loop's wake-up pipe) with a loopback TCP
+        # connect inside this process: not a peer the engine talks to, so it is not recorded.
+        pairing.active = True
+        try:
+            return real_socketpair(*args, **kwargs)
+        finally:
+            pairing.active = False
 
     def connect(self, address):
-        peers.append(address)
+        if not getattr(pairing, "active", False):
+            peers.append(address)
         return real_connect(self, address)
 
     def connect_ex(self, address):
-        peers.append(address)
+        if not getattr(pairing, "active", False):
+            peers.append(address)
         return real_connect_ex(self, address)
 
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    monkeypatch.setattr(socket, "socketpair", socketpair)
     return peers
 
 

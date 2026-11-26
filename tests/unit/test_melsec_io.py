@@ -8,6 +8,7 @@ The driver's error mapping (`_call`) is checked with a fake client.
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -259,8 +260,9 @@ async def test_not_connected_and_identity_without_a_session() -> None:
 async def test_connect_refused_is_connection_lost() -> None:
     from tests.helpers.modbus_sim import free_port
 
+    # Windows takes 1-2 s to report a refused connect (it retries the SYN), longer than 500 ms
     dev = Device(id="S/P", channel="S", name="P", driver="melsec_mc", host="127.0.0.1", port=free_port(),
-                 timeout_ms=500, tags=[])
+                 timeout_ms=5000 if sys.platform == "win32" else 500, tags=[])
     with ThreadPoolExecutor(max_workers=1) as ex:
         drv = MelsecMcDriver(dev, ex)
         with pytest.raises(ConnectionLost, match="connect failed: .*refused"):

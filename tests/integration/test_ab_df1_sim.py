@@ -381,6 +381,10 @@ async def test_two_stations_share_one_line(sim):
     try:
         await a.connect()
         await b.connect()
+        for _ in range(200):                                       # the sim counts on accept, which may
+            if sim.connections:                                    # run after connect() has returned
+                break
+            await asyncio.sleep(0.01)
         assert sim.connections == 1                                # one TCP connection for the line
         _assert_values(sim, PATTERN_TAGS, await _read_all(a))
         _assert_values(sim, tags2, await _read_all(b), station=2)

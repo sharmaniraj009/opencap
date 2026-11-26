@@ -201,6 +201,15 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
     assert go("put", f"{V1}/overrides/devices/{DEV}", {"retries": 0}, admin_w(c)).status_code == 200
     assert go("patch", f"{V1}/overrides/devices/{DEV}", {"retries": 1}, admin_w(c)).status_code == 200
 
+    # the driver catalogue and the paged lists (#129)
+    assert go("get", f"{V1}/drivers", headers=VIEWER).status_code == 200
+    assert go("get", f"{V1}/drivers/modbus_tcp", headers=VIEWER).status_code == 200
+    assert go("get", f"{V1}/drivers/nope", headers=VIEWER).status_code == 404
+    assert go("get", f"{V1}/channels?q=site&sort=name&order=desc&limit=1&offset=0", headers=VIEWER).status_code == 200
+    assert go("get", f"{V1}/devices?sort=port&limit=5", headers=VIEWER).status_code == 200
+    assert go("get", f"{DEV_PATH}/tags?sort=name&limit=2&offset=1", headers=VIEWER).status_code == 200
+    assert go("get", f"{V1}/channels?sort=colour", headers=VIEWER).status_code == 422
+
     assert go("get", f"{V1}/channels", headers={}).status_code == 401
     assert go("patch", DEV_PATH, {"retries": 1}, VIEWER).status_code == 403
     assert go("get", f"{V1}/channels/NOPE").status_code == 404

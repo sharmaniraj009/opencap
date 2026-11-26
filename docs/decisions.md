@@ -1629,4 +1629,32 @@ reader would expect:
 - **Not ported:** ASCII frames and 4E (as in Python). Message text for OS errors differs from
   Python's exception text. Untested on real PLCs, like the Python driver.
 - **Licence:** no new dependency; `deny.toml` unchanged.
+### D-081 Driver catalogue, params schemas, collection queries (#129)
+
+- **Schemas live next to each driver** as `Driver.params_schema` (JSON Schema draft 2020-12, built with
+  `drivers/_schema.py`), with `transport`, `dtypes`, `address_examples` and `supports_browse`; `supports_identity` is
+  true when the driver overrides `identity()`. `GET /api/v1/drivers[/{name}]` serves them (viewer role). The schemas
+  state types, ranges and enums; cross-key rules (OPC UA security policy needs a certificate, a Logix path with an odd
+  number of segments) stay in the driver and still surface at plan time.
+- **Lenient on purpose.** Unknown keys are allowed (drivers ignore them and the importer keeps provenance keys), and a
+  `null` value means the default, as in every driver. Booleans must be `true`/`false` and numbers numbers: the 0/1 and
+  string spellings some drivers still tolerate in hand-written YAML are not accepted on an API write. A `PATCH` that
+  leaves such a value in place therefore gets a 422 until it is corrected.
+- **Only API writes are checked** (device create, update, and channel create with devices). Loading files from disk,
+  `opencap check` and import are unchanged, so existing configs keep loading. The 422 `loc` of a bad param is now
+  `["params", "<key>"]` instead of `["params"]`; the message no longer comes from the driver constructor.
+  This tightens request validation inside `/api/v1`, which `api/README.md` calls a v2 matter; the issue asks for it
+  and the project is pre-release, so the contract moved to 1.4.0 (additive routes and parameters).
+- **Own validator, no new dependency.** `validate_params` implements `type`, `enum`, `minimum`, `maximum`,
+  `minLength`, `items` and `required`; tests run every schema through `jsonschema` (a dev dependency) and compare.
+- **Collections.** `q` matches `name` and `description` (channels and devices have no description, so only the name);
+  `sort` offers a documented field list per collection (channels: name, enabled, devices; devices: id, channel, name,
+  driver, host, port, enabled, tags; tags: name, address, dtype, scan_ms, enabled, description). Strings sort naturally
+  without case (`A2` before `A10`), numbers numerically; an item without a value goes last in both directions. Without
+  `limit` the whole collection is returned and `limit` is `null`; `total` counts after filtering. `/channels/{c}/devices`
+  is unchanged.
+- **Rust engine** (API-35, #140): serve the same `/drivers` entries (the schemas are data; generate a JSON file per driver
+  from the Python classes into the shared fixtures so both engines return identical documents), run the same schema check on
+  device writes with `loc` `["params", key]`, and add `q`, `sort`, `order`, `limit`, `offset` to the three list routes with
+  the natural-order comparison above (case-folded text split into digit and non-digit runs).
 

@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 import structlog
 
 from opencap.config.models import Device
+from opencap.drivers import _schema as sc
 from opencap.drivers._serial import (
     Endpoint,
     Lease,
@@ -41,11 +42,13 @@ from opencap.drivers._serial import (
     TransportUnmapped,
     endpoint_for,
     link_pool,
+    serial_properties,
 )
 from opencap.drivers.base import ConnectionLost
 from opencap.drivers.modbus_tcp import (
     _LIBRARY_TIMEOUT_SLACK_S,
     _NO_AUTO_DISCONNECT,
+    MODBUS_PROPERTIES,
     ModbusTcpDriver,
 )
 
@@ -79,6 +82,14 @@ class _RtuLine:
 class ModbusRtuDriver(ModbusTcpDriver):
     name: ClassVar[str] = "modbus_rtu"
     is_async: ClassVar[bool] = True
+    transport: ClassVar[str] = "serial, tcp"
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("modbus_rtu params", {
+        **MODBUS_PROPERTIES,
+        **serial_properties(("tcp", "serial", "unmapped")),
+        "inter_frame_ms": sc.number("silence kept between frames (null: 3.5 characters at the baud rate)",
+                                    minimum=0, nullable=True),
+        "local_echo": sc.boolean("drop the echo of our own request (2-wire RS-485 adapters)", False),
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)                       # ModbusParams: ValueError on bad params

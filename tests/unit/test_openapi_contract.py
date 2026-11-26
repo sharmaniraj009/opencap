@@ -190,6 +190,20 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
     go("post", f"{V1}/project/import?dry_run=false&filename=project.json",
        headers={**ADMIN, "Content-Type": "application/json", "If-Match": "0000000000000000"},
        content=SAMPLE.read_bytes())
+    # staged imports (#33): stage, read, refuse a viewer, apply, discard, unknown id
+    json_admin = {**ADMIN, "Content-Type": "application/json"}
+    staged = go("post", f"{V1}/project/import?stage=true&filename=project.json", headers=json_admin,
+                content=SAMPLE.read_bytes()).json()
+    iid = staged["import_id"]
+    assert go("get", f"{V1}/project/import/{iid}").status_code == 200
+    assert go("get", f"{V1}/project/import/{iid}", headers=VIEWER).status_code == 403
+    assert go("post", f"{V1}/project/import/{iid}/apply", headers=ADMIN).status_code == 428
+    assert go("post", f"{V1}/project/import/{iid}/apply",
+              headers={**ADMIN, "If-Match": f'"{c.get(f"{V1}/project/status", headers=VIEWER).json()["revision"]}"'}).status_code == 200
+    assert go("post", f"{V1}/project/import/{iid}/apply", headers={**ADMIN, "If-Match": '"x"'}).status_code == 404
+    other = go("post", f"{V1}/project/import?stage=true", headers=json_admin, content=SAMPLE.read_bytes()).json()["import_id"]
+    assert go("delete", f"{V1}/project/import/{other}").status_code == 200
+    assert go("delete", f"{V1}/project/import/{other}").status_code == 404
 
     # verbs the shared table does not use
     device = c.get(DEV_PATH, headers=VIEWER).json()["device"]

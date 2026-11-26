@@ -176,6 +176,52 @@ def run_cmd(
         pass
 
 
+tags_app = typer.Typer(no_args_is_help=True, help="Tag lists as KEPServerEX-compatible CSV files")
+app.add_typer(tags_app, name="tags")
+
+
+@tags_app.command("export")
+def tags_export_cmd(
+    device_id: str = typer.Argument(..., help="'<channel>/<device>', e.g. 'Plant A/PLC1'"),
+    out: Path = typer.Argument(..., dir_okay=False, help="CSV file to write"),
+    config_dir: Path = CONFIG_OPT,
+) -> None:
+    """Write a configured device's tags as a KEPServerEX tag CSV."""
+    from opencap.config.kep_csv import write_kep_csv
+
+    _, _, device = _find_device(config_dir, device_id)
+    write_kep_csv(device.tags, out)
+    typer.echo(f"wrote {len(device.tags)} tags to {out}")
+
+
+@tags_app.command("import")
+def tags_import_cmd(
+    csv_file: Path = typer.Argument(..., exists=True, dir_okay=False, help="KEPServerEX tag CSV"),
+    driver: str = typer.Option(..., "--driver", help="opencap driver the tags belong to, e.g. modbus_tcp"),
+    out: Path = typer.Option(..., "--out", help="JSON tag list to write"),
+    default_type: str | None = typer.Option(None, "--default-type", help="opencap dtype for 'Default' rows, e.g. int16"),
+) -> None:
+    """Convert a KEPServerEX tag CSV to a JSON tag list (nothing is written if a row fails)."""
+    import json
+
+    from opencap.config.kep_csv import KepCsvError, read_kep_csv
+
+    try:
+        tags, warnings = read_kep_csv(csv_file, driver, default_dtype=default_type)
+    except KepCsvError as exc:
+        for warning in exc.warnings:
+            typer.echo(f"warning: {warning}", err=True)
+        for error in exc.errors:
+            typer.echo(f"error: {error}", err=True)
+        typer.echo(f"{len(exc.errors)} row(s) failed; {out} not written", err=True)
+        raise typer.Exit(1) from None
+    for warning in warnings:
+        typer.echo(f"warning: {warning}", err=True)
+    out.write_text(json.dumps([t.model_dump(mode="json", exclude_defaults=True) for t in tags], indent=2) + "\n",
+                   encoding="utf-8")
+    typer.echo(f"wrote {len(tags)} tags to {out}")
+
+
 def main() -> None:
     app()
 

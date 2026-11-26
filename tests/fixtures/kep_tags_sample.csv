@@ -1,0 +1,10 @@
+Tag Name,Address,Data Type,Respect Data Type,Client Access,Scan Rate,Scaling,Raw Low,Raw High,Scaled Low,Scaled High,Scaled Data Type,Clamp Low,Clamp High,Eng Units,Description,Negate Value
+FLOW_1,400001,Float,1,Read Only,0,None,,,,,,,,,Inlet flow,
+PUMP_1_RUN,000001,Boolean,1,Read Only,500,None,,,,,,,,,Run status,
+TOTAL,400003,DWord,1,Read Only,0,None,,,,,,,,,"Totalizer, resettable",
+LEVEL_1,400005,Short,1,Read Only,1000,Linear,0,32767,0,10,Double,1,1,m,Tank level,0
+LEVEL_2,400006,Word,1,Read/Write,0,Square Root,0,4095,0,100,Double,0,1,%,Flow from dP,1
+Tank1.Temp,400007,Char,1,Read Only,0,None,,,,,,,,,Grouped tag,
+Tank1.Mode,400008,Byte,1,Read Only,0,None,,,,,,,,,,
+Meter.Raw,400010,BCD,1,Read Only,0,None,,,,,,,,,Packed digits,
+Label,400020.020H,String,1,Read Only,0,None,,,,,,,,,,

@@ -1477,3 +1477,27 @@ reader of the KEPServerEX manual would expect:
   path, user name or environment variable name. `opencap info` falls back to the build facts when the config cannot
   be loaded. `version` is the package version (`0.1.0`), not `FIRM_VERSION` (`opencap-0.1.0`).
 - `info.version` of the OpenAPI contract moved to 1.3.0 (additive).
+
+### D-073 KEPServerEX tag CSV import and export (#10)
+`src/opencap/config/kep_csv.py` reads and writes a device's tags as KEPServerEX's tag CSV. Header, in this order:
+`Tag Name,Address,Data Type,Respect Data Type,Client Access,Scan Rate,Scaling,Raw Low,Raw High,Scaled Low,Scaled High,
+Scaled Data Type,Clamp Low,Clamp High,Eng Units,Description,Negate Value` (written on one line, CRLF, UTF-8 without a
+BOM; read tolerates a BOM, any column order and case, extra and missing optional columns). The spelling is from the
+public KEPServerEX manual's CSV import/export description; no real export was used. Data type names map with
+`kep_import.py`'s tables (Char/Byte widened with a warning, BCD/LBCD/Date imported disabled). Where it differs from what a
+reader would expect:
+- **`Default` data type** needs the device's default, which a CSV does not carry: `read_kep_csv(..., default_dtype=)` /
+  `--default-type`; without one the row fails (kep_import skips such a tag too).
+- **`Read/Write` access** is imported as read-only with a warning (ADR-0008); the export always writes `Read Only`.
+- **A failing row fails the import.** Every bad row is reported with its physical line number (`KepCsvError.errors`), the
+  CLI exits 1 and writes no JSON, so a half-converted tag list is never used by accident.
+- **Address check is a warning, not an error:** each tag is planned alone with the driver's default parameters; a
+  rejected address warns, because a driver's parameters (e.g. address style) can change what is valid.
+- **`Enabled` column (opencap extension).** The CSV has no way to say "disabled", so the export appends an `Enabled`
+  column only when some tag is disabled; this makes write-then-read lossless. Drop the column before importing into
+  KEPServerEX. Fields that exist only in opencap or only in KEPServerEX (`Respect Data Type`, `Scaled Data Type`, array
+  types, tag groups as separate rows) are written with fixed values, ignored, or rejected (arrays) respectively.
+- **Scan Rate** empty or 0 means the device's rate (`scan_ms` None), unlike KEPServerEX's own default of 100 ms in an
+  export, so a re-export of an imported file keeps the "device rate" meaning.
+- **CLI:** `opencap tags export <device-id> out.csv` and `opencap tags import in.csv --driver <name> --out tags.json
+  [--default-type <dtype>]`. Wiring the JSON into a project waits for project v2 (ADR-0013).

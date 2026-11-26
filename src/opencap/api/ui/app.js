@@ -671,7 +671,7 @@
         modeText: function () { return tr("quick.mode_" + this.mode); },
         modeClass: function () { return "badge mode-" + this.mode; },
         modeTitle: function () {
-          return this.mode === "live" ? "Connected to the live feed" : tr("quick.title_" + this.mode);   // THROWAWAY (#234 negative control): reverted next
+          return tr("quick.title_" + this.mode);
         },
         // --- demand read
         readDisabled: function () { return this.busy || !!this.unavailable; },

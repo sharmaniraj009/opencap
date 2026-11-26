@@ -40,6 +40,7 @@ example after a GitHub outage), start the workflow by hand on the tag with *dry 
 |---|---|---|
 | Wheel and sdist | GitHub Release `vX.Y.Z` | `opencap-X.Y.Z-py3-none-any.whl`, `opencap-X.Y.Z.tar.gz` |
 | Container image | `ghcr.io/sharmaniraj009/opencap:X.Y.Z`, and `:latest` for a final (non-pre) release | one multi-arch tag: `linux/amd64` and `linux/arm64`, each smoke-tested before the push |
+| Desktop installers | GitHub Release | `opencap-desktop_<v>_x64_en-US.msi`, `opencap-desktop_<v>_amd64.deb`, `opencap-desktop_<v>_amd64.AppImage`, with the Rust engine bundled ([desktop/README.md](../desktop/README.md), "Installers"); **unsigned** until the owner decides on code signing; `<v>` is the desktop app's own version (`desktop/src-tauri/tauri.conf.json`) |
 | SBOMs (syft, SPDX JSON) | GitHub Release | `opencap-X.Y.Z-image-linux-amd64.spdx.json`, `...-arm64.spdx.json`: every OS and Python package in each image |
 | `SHA256SUMS` | GitHub Release | over every file attached to the release |
 | Provenance attestations | GitHub attestations; the image's also in GHCR | for the wheel, the sdist and the image digest (SLSA build provenance, signed with Sigstore) |

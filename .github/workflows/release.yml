@@ -1,8 +1,9 @@
 name: Release
 
 # A tagged release (docs/release.md): the CI checks, then wheel + sdist, the container image for
-# linux/amd64 and linux/arm64 (each smoke-tested, then pushed to GHCR), SBOMs (syft), provenance
-# attestations (GitHub's attestation action) and a GitHub Release with SHA256SUMS.
+# linux/amd64 and linux/arm64 (each smoke-tested, then pushed to GHCR), the desktop installers
+# with the engine bundled (desktop.yml, #58), SBOMs (syft), provenance attestations (GitHub's
+# attestation action) and a GitHub Release with SHA256SUMS.
 #
 # Publishes only for a pushed tag `v<__version__>` (or a manual run on such a tag with
 # dry_run off). Everything else is a dry run that builds and tests all of it and publishes
@@ -233,9 +234,14 @@ jobs:
             echo "- pushed: $PUBLISH"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  desktop:
+    name: desktop installers (MSI, deb, AppImage; engine bundled)
+    needs: [plan, ci]
+    uses: ./.github/workflows/desktop.yml
+
   release:
     name: GitHub Release
-    needs: [plan, dist, image-test, image-push]
+    needs: [plan, dist, image-test, image-push, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -256,17 +262,31 @@ jobs:
           pattern: sbom-*
           path: assets
           merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: opencap-desktop-*      # desktop.yml: the Linux and the Windows installers
+          path: assets
+          merge-multiple: true
       - name: The release attaches exactly these files
         working-directory: assets
         run: |
+          # the installers arrive in deb/, appimage/ and msi/ subfolders: attach plain files
+          find . -mindepth 2 -type f -exec mv -t . {} +
+          find . -mindepth 1 -type d -empty -delete
           expected="opencap-$VERSION-image-linux-amd64.spdx.json
           opencap-$VERSION-image-linux-arm64.spdx.json
           opencap-$VERSION-py3-none-any.whl
           opencap-$VERSION.tar.gz"
-          actual="$(find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)"
+          # plus one installer of each kind (named by Tauri after the desktop app's own version)
+          actual="$(find . -mindepth 1 -printf '%P\n' | grep -vE '\.(deb|AppImage|msi)$' | LC_ALL=C sort)"
           if [ "$actual" != "$(echo "$expected" | sed 's/^ *//' | LC_ALL=C sort)" ]; then
-            echo "::error::unexpected release assets:"; echo "$actual"; exit 1
+            echo "::error::unexpected release assets:"; ls -l; exit 1
           fi
+          for ext in deb AppImage msi; do
+            if [ "$(find . -maxdepth 1 -name "*.$ext" | wc -l)" -ne 1 ]; then
+              echo "::error::expected exactly one .$ext installer"; ls -l; exit 1
+            fi
+          done
       - name: SHA256SUMS
         working-directory: assets
         run: |

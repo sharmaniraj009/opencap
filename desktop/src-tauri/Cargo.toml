@@ -28,6 +28,10 @@ thiserror = "2"
 url = "2"
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+getrandom = "0.3"   # the bundled engine's API token (#58); MIT OR Apache-2.0, already in the tree
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"        # SIGTERM for a clean stop of the bundled engine (#58); MIT OR Apache-2.0
 
 [dev-dependencies]
 tempfile = "3"

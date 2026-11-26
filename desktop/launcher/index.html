@@ -16,6 +16,19 @@
 <main>
   <p id="error" class="error" role="alert" hidden></p>
   <p id="notice" class="notice" role="status" hidden></p>
+  <section id="local" class="profile local" hidden aria-labelledby="local-title">
+    <div class="row">
+      <div>
+        <div class="name" id="local-title">Engine bundled with this app</div>
+        <div id="local-state" class="small muted">stopped</div>
+        <div id="local-paths" class="small muted"></div>
+      </div>
+      <div class="actions">
+        <button id="local-start" class="primary">Start</button>
+        <button id="local-stop">Stop</button>
+      </div>
+    </div>
+  </section>
   <ul id="profiles" class="profiles" aria-live="polite"></ul>
 
   <dialog id="editor">

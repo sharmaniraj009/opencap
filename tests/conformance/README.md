@@ -214,5 +214,6 @@ Inputs use invented names and documentation addresses only (`Plant A/PLC1`, `192
 4. Collect every failure and report its key, `description` and a diff, then fail once at the
    end, so one run shows the whole picture.
 
-The Rust harness is engine work: Modbus, scaling and payload in #40; Allen-Bradley in #43.
-Keep the loader generic (vector loader + per-area adapters) so later areas reuse it.
+The Rust harness is `engine/crates/opencap-conformance` (`cargo test -p opencap-conformance`):
+a generic loader and `run_area` plus one adapter per area in its `tests/`. It covers Modbus,
+scaling and payload (#40); Allen-Bradley follows in #43. A new area is one adapter closure.

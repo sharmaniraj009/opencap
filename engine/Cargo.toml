@@ -7,6 +7,7 @@ members = [
     "crates/opencap-api",
     "crates/opencap-engine",
     "crates/opencap-serial",
+    "crates/opencap-conformance",     # shared conformance-vector harness (#40, ADR-0014)
     "drivers/*",                      # one crate per driver (#67): see README "How to add a driver crate"
 ]
 

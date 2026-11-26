@@ -32,7 +32,11 @@ The running server does not serve this document (`openapi_url=None`, D-019).
   directory or read-only config), 400 (`reload failed, old config kept`).
 - **Device ids** are `<channel>/<device>` and contain `/` (and often spaces): in a path, send them as is
   (`{device_id}` accepts slashes); URL-encode spaces.
-- **Request bodies** of configuration writes are JSON documents; their field-level schema is served by
-  `GET /api/v1/project/schema` (not duplicated here, see D-064).
+- **Request bodies** of configuration writes are described in the contract (since 1.2.0, #89): each `POST`/`PUT`/`PATCH`
+  has a `requestBody` pointing to a `Config*` component. Those are the definitions `GET /api/v1/project/schema` serves
+  (the config models), plus per-route variants: on create, what the URL determines (`id`, `channel`) is not required;
+  a `PATCH` is a JSON merge patch (RFC 7386) with no `required`, where `null` removes a key. The server validates with
+  the config loader's rules, not with these schemas, so a 422 keeps its resource-relative `loc`s (D-064). It also
+  accepts what pydantic coerces (e.g. `"502"` for an integer); clients should send the documented types.
 - The Rust engine must pass the same contract; the dual-engine acceptance suite (#42) will run
   `tests/unit/test_openapi_contract.py`-style checks against both.

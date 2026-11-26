@@ -41,7 +41,7 @@ from opencap.config.store import ConfigError, ConfigStore
 if TYPE_CHECKING:
     from opencap.core.runtime import Poller
 
-API_VERSION = "1.1.0"     # the contract in api/openapi.json; additive changes bump the minor
+API_VERSION = "1.2.0"     # the contract in api/openapi.json; additive changes bump the minor
 LIVE_PATH = "/api/v1/ws"
 UI_DIR = Path(__file__).parent / "ui"
 # The UI has no inline script or style; Alpine.js runs as its CSP build (no eval).
@@ -179,7 +179,7 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
 
     app.include_router(build_router(), dependencies=auth_dep)
     app.add_api_websocket_route(LIVE_PATH, live_endpoint)
-    _document_live(app)
+    _document(app)
 
     @app.get("/", include_in_schema=False)
     def root() -> Response:
@@ -193,54 +193,64 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
     return app
 
 
-def _document_live(app: FastAPI) -> None:
-    """OpenAPI has no WebSocket operations: describe `GET /api/v1/ws` (the upgrade) by hand, with
-    the message schemas under `components.schemas` and an `x-websocket` block pointing to them."""
-    from pydantic.json_schema import models_json_schema
-
+def _document(app: FastAPI) -> None:
+    """What FastAPI cannot generate: the live-values WebSocket and the request bodies of the
+    configuration writes (handlers take the raw body, see `schemas.request_body_components`)."""
     base = app.openapi
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is not None:
             return app.openapi_schema
         schema = base()
-        models = [*S.WS_CLIENT_MESSAGES, *S.WS_SERVER_MESSAGES]
-        _, top = models_json_schema([(m, "validation") for m in models], ref_template="#/components/schemas/{model}")
-        schema.setdefault("components", {}).setdefault("schemas", {}).update(top["$defs"])
-        ref = "#/components/schemas/{}".format
-        error = {"content": {"application/json": {"schema": {"$ref": ref("Error")}}}}
-        schema["paths"][LIVE_PATH] = {"get": {
-            "tags": ["live"],
-            "summary": "Live values (WebSocket)",
-            "operationId": "live_values_ws",
-            "description": (
-                "WebSocket upgrade: the Quick Client feed (#31). Authenticated in the handshake with the REST "
-                "API's tokens: `Authorization: Bearer <token>`, or for browsers the subprotocol "
-                f"`opencap.bearer.<base64url(token)>` offered next to `{PROTOCOL}`; the server selects "
-                f"`{PROTOCOL}`. A browser `Origin` must be the API's own origin or listed in `api.cors_origins`. "
-                "The client sends `WsSubscribe`; the server answers `WsSubscribed`, then a `snapshot` of each "
-                "device and conflated `changes` (at most one message per device per `conflate_ms`), "
-                "`unavailable` for a device that is not polled, `error` for a message it cannot use. A client "
-                "that falls behind gets fresh snapshots instead of a backlog."),
-            "parameters": [{"name": "Sec-WebSocket-Protocol", "in": "header", "required": False,
-                            "schema": {"type": "string"},
-                            "description": f"`{PROTOCOL}`, optionally `opencap.bearer.<base64url(token)>`"}],
-            "responses": {
-                "101": {"description": f"Switching Protocols: a WebSocket speaking `{PROTOCOL}` (JSON text frames)"},
-                "400": {**error, "description": f"subprotocols offered without `{PROTOCOL}`"},
-                "401": {**error, "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"},
-                "403": {**error, "description": "origin not allowed, or open mode reached through a non-loopback "
-                                                "host name"},
-                "503": {**error, "description": "too many live connections"},
-            },
-            "x-websocket": {
-                "subprotocol": PROTOCOL,
-                "conflate_ms": round(CONFLATE_S * 1000),
-                "client_messages": {"oneOf": [{"$ref": ref(m.__name__)} for m in S.WS_CLIENT_MESSAGES]},
-                "server_messages": {"oneOf": [{"$ref": ref(m.__name__)} for m in S.WS_SERVER_MESSAGES]},
-            },
-        }}
+        _document_live(schema)
+        components, bodies = S.request_body_components()
+        schema["components"]["schemas"].update(components)
+        for (method, path), body in bodies.items():
+            schema["paths"][path][method]["requestBody"] = body
         app.openapi_schema = schema
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]
+
+
+def _document_live(schema: dict[str, Any]) -> None:
+    """OpenAPI has no WebSocket operations: describe `GET /api/v1/ws` (the upgrade) by hand, with
+    the message schemas under `components.schemas` and an `x-websocket` block pointing to them."""
+    from pydantic.json_schema import models_json_schema
+
+    models = [*S.WS_CLIENT_MESSAGES, *S.WS_SERVER_MESSAGES]
+    _, top = models_json_schema([(m, "validation") for m in models], ref_template="#/components/schemas/{model}")
+    schema.setdefault("components", {}).setdefault("schemas", {}).update(top["$defs"])
+    ref = "#/components/schemas/{}".format
+    error = {"content": {"application/json": {"schema": {"$ref": ref("Error")}}}}
+    schema["paths"][LIVE_PATH] = {"get": {
+        "tags": ["live"],
+        "summary": "Live values (WebSocket)",
+        "operationId": "live_values_ws",
+        "description": (
+            "WebSocket upgrade: the Quick Client feed (#31). Authenticated in the handshake with the REST "
+            "API's tokens: `Authorization: Bearer <token>`, or for browsers the subprotocol "
+            f"`opencap.bearer.<base64url(token)>` offered next to `{PROTOCOL}`; the server selects "
+            f"`{PROTOCOL}`. A browser `Origin` must be the API's own origin or listed in `api.cors_origins`. "
+            "The client sends `WsSubscribe`; the server answers `WsSubscribed`, then a `snapshot` of each "
+            "device and conflated `changes` (at most one message per device per `conflate_ms`), "
+            "`unavailable` for a device that is not polled, `error` for a message it cannot use. A client "
+            "that falls behind gets fresh snapshots instead of a backlog."),
+        "parameters": [{"name": "Sec-WebSocket-Protocol", "in": "header", "required": False,
+                        "schema": {"type": "string"},
+                        "description": f"`{PROTOCOL}`, optionally `opencap.bearer.<base64url(token)>`"}],
+        "responses": {
+            "101": {"description": f"Switching Protocols: a WebSocket speaking `{PROTOCOL}` (JSON text frames)"},
+            "400": {**error, "description": f"subprotocols offered without `{PROTOCOL}`"},
+            "401": {**error, "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"},
+            "403": {**error, "description": "origin not allowed, or open mode reached through a non-loopback "
+                                            "host name"},
+            "503": {**error, "description": "too many live connections"},
+        },
+        "x-websocket": {
+            "subprotocol": PROTOCOL,
+            "conflate_ms": round(CONFLATE_S * 1000),
+            "client_messages": {"oneOf": [{"$ref": ref(m.__name__)} for m in S.WS_CLIENT_MESSAGES]},
+            "server_messages": {"oneOf": [{"$ref": ref(m.__name__)} for m in S.WS_SERVER_MESSAGES]},
+        },
+    }}

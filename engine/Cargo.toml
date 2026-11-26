@@ -55,6 +55,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time",
 tokio-modbus = { version = "0.17", default-features = false, features = ["tcp"] }
 tokio-util = { version = "0.7", default-features = false }
 tokio-serial = { version = "5.4", default-features = false }   # MIT; serialport is MPL-2.0 (unmodified, ADR-0007), no libudev
+windows-service = "0.8"   # MIT OR Apache-2.0: the native Windows service (#57)
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_EventLog", "Win32_System_Registry"] }   # MIT OR Apache-2.0; the version windows-service uses
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }

@@ -1,6 +1,57 @@
 {
   "components": {
     "schemas": {
+      "About": {
+        "properties": {
+          "api_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Api Versions",
+            "type": "array"
+          },
+          "config_schema_version": {
+            "title": "Config Schema Version",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "version_major": {
+            "title": "Version Major",
+            "type": "integer"
+          },
+          "version_minor": {
+            "title": "Version Minor",
+            "type": "integer"
+          },
+          "version_patch": {
+            "title": "Version Patch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product",
+          "version",
+          "version_major",
+          "version_minor",
+          "version_patch",
+          "engine",
+          "api_versions",
+          "config_schema_version"
+        ],
+        "title": "About",
+        "type": "object"
+      },
       "AuditList": {
         "additionalProperties": true,
         "properties": {
@@ -1387,6 +1438,15 @@
             "title": "Env",
             "type": "string"
           },
+          "format": {
+            "default": "subdevice_json",
+            "enum": [
+              "subdevice_json",
+              "iotgw_json"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
           "heartbeat_ms": {
             "default": 300000,
             "title": "Heartbeat Ms",
@@ -2130,6 +2190,41 @@
         "title": "DeviceStates",
         "type": "object"
       },
+      "DriverInfo": {
+        "properties": {
+          "library": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library"
+          },
+          "library_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Version"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DriverInfo",
+        "type": "object"
+      },
       "Error": {
         "additionalProperties": true,
         "description": "Every non-2xx answer. `detail` is a message, or the list of problems for a 400/422.",
@@ -2221,6 +2316,28 @@
           },
           "devices": {
             "$ref": "#/components/schemas/DeviceStates"
+          },
+          "initial_scan_complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Scan Complete"
+          },
+          "initial_scan_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Scan Ms"
           },
           "instance": {
             "title": "Instance",
@@ -2324,6 +2441,19 @@
           "pending_reload"
         ],
         "title": "ImportReport",
+        "type": "object"
+      },
+      "Live": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "Live",
         "type": "object"
       },
       "MapEntry": {
@@ -2763,6 +2893,38 @@
         "title": "ProjectStatus",
         "type": "object"
       },
+      "Ready": {
+        "properties": {
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "waiting": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Waiting",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ready",
+          "waiting"
+        ],
+        "title": "Ready",
+        "type": "object"
+      },
       "ReloadResult": {
         "additionalProperties": true,
         "description": "Which channels a reload touched (`unchanged` is not part of the audit detail).",
@@ -2822,6 +2984,98 @@
           "config"
         ],
         "title": "Status",
+        "type": "object"
+      },
+      "Support": {
+        "properties": {
+          "api_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Api Versions",
+            "type": "array"
+          },
+          "arch": {
+            "title": "Arch",
+            "type": "string"
+          },
+          "config_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Revision"
+          },
+          "config_schema_version": {
+            "title": "Config Schema Version",
+            "type": "integer"
+          },
+          "drivers": {
+            "items": {
+              "$ref": "#/components/schemas/DriverInfo"
+            },
+            "title": "Drivers",
+            "type": "array"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "north_interfaces": {
+            "items": {
+              "type": "string"
+            },
+            "title": "North Interfaces",
+            "type": "array"
+          },
+          "os": {
+            "title": "Os",
+            "type": "string"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "toolchain": {
+            "$ref": "#/components/schemas/Toolchain"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "version_major": {
+            "title": "Version Major",
+            "type": "integer"
+          },
+          "version_minor": {
+            "title": "Version Minor",
+            "type": "integer"
+          },
+          "version_patch": {
+            "title": "Version Patch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product",
+          "version",
+          "version_major",
+          "version_minor",
+          "version_patch",
+          "engine",
+          "api_versions",
+          "config_schema_version",
+          "os",
+          "arch",
+          "toolchain",
+          "drivers",
+          "north_interfaces"
+        ],
+        "title": "Support",
         "type": "object"
       },
       "TagList": {
@@ -2905,6 +3159,45 @@
           "quality"
         ],
         "title": "TagValueJson",
+        "type": "object"
+      },
+      "Toolchain": {
+        "properties": {
+          "implementation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation"
+          },
+          "python": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Python"
+          },
+          "rust": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rust"
+          }
+        },
+        "title": "Toolchain",
         "type": "object"
       },
       "ValidationError": {
@@ -3323,10 +3616,32 @@
   "info": {
     "description": "Admin and configuration API of opencap (contract: api/README.md).",
     "title": "opencap",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/about": {
+      "get": {
+        "description": "Open: product, version, engine and API versions (no site information).",
+        "operationId": "about_api_v1_about_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/About"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "About",
+        "tags": [
+          "open"
+        ]
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "operationId": "audit_api_v1_audit_get",
@@ -8833,6 +9148,65 @@
         "summary": "Status"
       }
     },
+    "/api/v1/support": {
+      "get": {
+        "description": "Support information (viewer): safe to paste into a public issue, as `opencap info`.",
+        "operationId": "support_summary_api_v1_support_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Support"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "the token's role may not do this (viewer: GET only)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "unknown channel, device, tag or entry"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "the API runs without a config directory"
+          }
+        },
+        "summary": "Support Summary"
+      }
+    },
     "/api/v1/whoami": {
       "get": {
         "operationId": "whoami_api_v1_whoami_get",
@@ -9313,6 +9687,60 @@
           }
         },
         "summary": "Health",
+        "tags": [
+          "open"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "description": "Open: 200 while the process serves requests (a liveness probe).",
+        "operationId": "health_live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Live"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Live",
+        "tags": [
+          "open"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "Open: 200 once the config is loaded, the north servers are started and every enabled device\nhas finished one cycle (or is offline or demoted); 503 with the devices still waiting.",
+        "operationId": "health_ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            },
+            "description": "not ready yet: `waiting` lists the devices"
+          }
+        },
+        "summary": "Health Ready",
         "tags": [
           "open"
         ]

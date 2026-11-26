@@ -186,6 +186,7 @@ class _DeviceRunner:
         self.last_error: str | None = None
         self.connect_error: str | None = None
         self.cycle_ms: float | None = None
+        self.first_cycle_done = False         # one poll cycle finished, whatever its outcome (readiness)
         self.stats = CycleStats()             # summary for the periodic INFO `device.stats` line
         self.unsupported: str | None = None
         self.registered = False
@@ -522,6 +523,7 @@ class _DeviceRunner:
             await self.cycle(list(self.groups[slot.index]), probe=probe, force_connect=False)
             ended = _mono()
         self.cycle_ms = round((ended - started) * 1000, 1)
+        self.first_cycle_done = True
         POLL_CYCLE.labels(self.id).observe(ended - started)
         overrun = sched.complete(slot, started, ended)
         self.stats.add(self.cycle_ms, overrun=overrun, good=self.health.state == "ok")
@@ -694,6 +696,13 @@ class ChannelWorker:
 
     def health(self, device_id: str) -> DeviceHealth:
         return self._runner(device_id).health
+
+    def awaiting_first_cycle(self, device_id: str) -> bool:
+        """True while the device is polled but has not finished a cycle (and is not demoted):
+        what `/health/ready` waits for. A device that is not polled never waits."""
+        r = self._runner(device_id)
+        return (r.not_polled_reason() is None and not r.first_cycle_done
+                and r.health.state != "demoted")
 
     def device_status(self, device_id: str) -> dict:
         r = self._runner(device_id)

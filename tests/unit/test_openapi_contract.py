@@ -42,7 +42,7 @@ def test_generation_is_deterministic():
 def test_every_operation_is_typed(spec):
     """No untyped answers: each operation has a 2xx response with a schema (or text for /metrics), and
     an error model for 401 where it needs a token."""
-    open_paths = {"/health", "/metrics", "/api/v1/auth-info"}
+    open_paths = {"/health", "/health/ready", "/health/live", "/metrics", "/api/v1/auth-info", "/api/v1/about"}
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
             if "x-websocket" in op:             # an upgrade: 101, then the messages of x-websocket
@@ -169,6 +169,12 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
 
     # the rest: open and legacy routes, import, and the error answers
     go("get", "/health", headers={})
+    go("get", "/health/live", headers={})
+    assert go("get", "/health/ready", headers={}).status_code == 200
+    c.app.state.ctx.poller.waiting = {DEV}
+    assert go("get", "/health/ready", headers={}).status_code == 503
+    c.app.state.ctx.poller.waiting = set()
+    go("get", f"{V1}/about", headers={})
     go("get", f"{V1}/auth-info", headers={})
     r = c.get("/metrics")
     seen.add(_validate(spec, "get", "/metrics", r))

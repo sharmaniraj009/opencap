@@ -4,7 +4,7 @@ Bind to localhost or the VPN only.
 Auth (D-019, D-040): `Authorization: Bearer <token>`. Tokens are named and carry a role
 (`viewer`: GET only; `admin`: also changes), see `opencap.api.auth`. The legacy single
 token from the env var named in `poller.yaml` `api.token_env` is the admin "default".
-`/health`, `/metrics`, `/api/v1/auth-info` and the UI's static files are open; everything
+`/health`, `/health/ready`, `/health/live`, `/metrics`, `/api/v1/auth-info`, `/api/v1/about` and the UI's static files are open; everything
 else needs a token, checked before the request body is read (`guard.py`, which also caps
 body sizes).
 With no token set the API refuses to start unless it is bound to a loopback address, and
@@ -37,11 +37,12 @@ from opencap.api.guard import ApiGuard
 from opencap.api.live import CONFLATE_S, PROTOCOL, LiveHub, live_endpoint
 from opencap.config.models import ApiCfg
 from opencap.config.store import ConfigError, ConfigStore
+from opencap.core import support
 
 if TYPE_CHECKING:
     from opencap.core.runtime import Poller
 
-API_VERSION = "1.2.0"     # the contract in api/openapi.json; additive changes bump the minor
+API_VERSION = "1.3.0"     # the contract in api/openapi.json; additive changes bump the minor
 LIVE_PATH = "/api/v1/ws"
 UI_DIR = Path(__file__).parent / "ui"
 # The UI has no inline script or style; Alpine.js runs as its CSP build (no eval).
@@ -133,6 +134,24 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
     @app.get("/health", response_model=S.Health, response_model_exclude_unset=True, tags=["open"])
     def health() -> dict:
         return poller.health()
+
+    @app.get("/health/live", response_model=S.Live, tags=["open"])
+    def health_live() -> dict:
+        """Open: 200 while the process serves requests (a liveness probe)."""
+        return {"status": "live"}
+
+    @app.get("/health/ready", response_model=S.Ready, response_model_exclude_unset=True, tags=["open"],
+             responses={503: {"model": S.Ready, "description": "not ready yet: `waiting` lists the devices"}})
+    def health_ready() -> JSONResponse:
+        """Open: 200 once the config is loaded, the north servers are started and every enabled device
+        has finished one cycle (or is offline or demoted); 503 with the devices still waiting."""
+        state = poller.readiness()
+        return JSONResponse(state, status_code=200 if state["ready"] else 503)
+
+    @app.get("/api/v1/about", response_model=S.About, tags=["open"])
+    def about() -> dict:
+        """Open: product, version, engine and API versions (no site information)."""
+        return support.about()
 
     @app.get("/api/v1/auth-info", response_model=S.AuthInfo, tags=["open"])
     def auth_info() -> dict:

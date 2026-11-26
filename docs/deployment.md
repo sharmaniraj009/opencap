@@ -102,6 +102,45 @@ sudo systemctl enable --now opencap
   from the unit and keep `/etc/opencap` and its files root-owned (`0755`/`0644`): the UI then
   shows editing as off, and config writes answer 503 with the path.
 
+## Waiting for readiness
+
+`GET /health/live` answers 200 while the process serves requests. `GET /health/ready` answers 200 once
+the config is loaded, the north servers are started and every enabled device has finished one poll
+cycle (a device that failed its first cycle is `offline` and counts, a demoted one too); until then it
+answers 503 with `{"ready": false, "waiting": ["<channel>/<device>", ...]}`. Both are open (no token).
+Readiness is sticky: once reached it stays until a restart. `/health` also shows `initial_scan_complete`
+and `initial_scan_ms`. The OPC UA server is `Running` from the start, so clients may connect earlier.
+
+A SCADA start script (Linux):
+
+```bash
+until curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; do sleep 2; done
+```
+
+On Windows (PowerShell), with a limit of two minutes:
+
+```powershell
+$deadline = (Get-Date).AddMinutes(2)
+while ((Get-Date) -lt $deadline) {
+  try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8080/health/ready | Out-Null; break }
+  catch { Start-Sleep -Seconds 2 }
+}
+```
+
+A systemd unit that must start after opencap has its first values:
+
+```ini
+[Service]
+ExecStartPre=/usr/bin/curl -fsS --retry 60 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/health/ready
+```
+
+A container health check can use `/health/live` (the image probes `/health`); a readiness probe in an
+orchestrator uses `/health/ready`.
+
+`opencap info` prints a support summary (versions, platform, drivers, north interfaces, config revision)
+that is safe to paste into an issue: no addresses, host names or secrets. The same data is at
+`GET /api/v1/support` (viewer token); `GET /api/v1/about` (open) has only the product and version.
+
 ## Logs and log rotation
 
 opencap writes **one JSON object per line to stdout**: `timestamp` (ISO-8601 UTC), `level`,

@@ -2,7 +2,7 @@
 
 A pure ASGI middleware in front of the whole app:
 
-- every route except the open ones (`/health`, `/metrics`, `/api/v1/auth-info`, the UI's
+- every route except the open ones (`/health`, `/health/ready`, `/health/live`, `/metrics`, `/api/v1/auth-info`, `/api/v1/about`, the UI's
   static files) is authenticated from the headers alone, so an unauthenticated caller gets
   401/403 before a single body byte is read or parsed;
 - the body is capped at `MAX_BODY` (1 MiB), or `MAX_IMPORT_BODY` (64 MiB) for
@@ -24,7 +24,8 @@ from opencap.config.store import MAX_IMPORT_BYTES
 MAX_BODY = 1024 * 1024
 MAX_IMPORT_BODY = MAX_IMPORT_BYTES
 IMPORT_PATH = "/api/v1/project/import"
-OPEN_PATHS = frozenset({"/health", "/metrics", "/api/v1/auth-info", "/", "/ui"})
+OPEN_PATHS = frozenset({"/health", "/health/ready", "/health/live", "/metrics", "/api/v1/auth-info",
+                        "/api/v1/about", "/", "/ui"})
 OPEN_PREFIXES = ("/ui/",)
 
 

@@ -62,7 +62,7 @@ def admin_w(c: TestClient) -> dict:
 # --- roles -----------------------------------------------------------------------------
 
 ENDPOINTS = [
-    ("get", f"{V1}/whoami", None), ("get", f"{V1}/status", None),
+    ("get", f"{V1}/whoami", None), ("get", f"{V1}/status", None), ("get", f"{V1}/support", None),
     ("get", f"{V1}/project", None), ("get", f"{V1}/project/status", None), ("get", f"{V1}/project/pending", None),
     ("get", f"{V1}/project/schema", None), ("get", f"{V1}/project/validate", None),
     ("get", f"{V1}/project/revisions", None), ("get", f"{V1}/audit", None),

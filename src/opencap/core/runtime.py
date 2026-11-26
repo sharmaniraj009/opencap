@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
+import time
 from collections.abc import Callable
 from concurrent.futures import Executor
 from pathlib import Path
@@ -82,6 +83,9 @@ class Poller:
         self._opcua_error: str | None = None      # why the enabled server is not running (start failed)
         self._stop_event = asyncio.Event()
         self._reload_lock = asyncio.Lock()
+        self._started_at: float | None = None      # monotonic, end of start(): north servers are up
+        self._ready_ms: int | None = None          # initial scan duration; set once, never cleared
+        self._t0 = time.monotonic()
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -100,6 +104,8 @@ class Poller:
             log.error("opcua_server_start_failed", error=str(exc))
         if self._serve_api:
             await self._start_api()
+        self._started_at = time.monotonic()
+        self._check_ready()
         log.info("poller_started", version=FIRM_VERSION, channels=len(self.workers),
                  devices=sum(len(c.devices) for c in self._active_channels()))
 
@@ -197,6 +203,7 @@ class Poller:
         self._channel_cfg.pop(name, None)
 
     def _on_cycle(self, device_id: str) -> None:
+        self._check_ready()
         if self.publisher is not None:
             self.publisher.notify_cycle(device_id)
         if self.opcua is not None:
@@ -343,6 +350,30 @@ class Poller:
             out.append({"name": ch.name, "devices": devices})
         return out
 
+    def waiting_devices(self) -> list[str]:
+        """Enabled, polled devices that have not finished one cycle and are not demoted."""
+        out = []
+        for ch in self._active_channels():
+            worker = self.workers.get(ch.name)
+            for dev in ch.devices:
+                if worker is not None and worker.awaiting_first_cycle(dev.id):
+                    out.append(dev.id)
+        return out
+
+    def _check_ready(self) -> None:
+        """Latch the initial scan: north servers started and nothing waiting (D-075)."""
+        if self._ready_ms is None and self._started_at is not None and not self.waiting_devices():
+            self._ready_ms = round((time.monotonic() - self._t0) * 1000)
+
+    def readiness(self) -> dict[str, Any]:
+        """`/health/ready`: ready once the config is loaded, the north servers are started and
+        every enabled device has finished a cycle (or is offline after one, or demoted). Sticky."""
+        self._check_ready()
+        waiting = [] if self._ready_ms is not None else self.waiting_devices()
+        if self._started_at is None:
+            return {"ready": False, "waiting": waiting, "reason": "starting"}
+        return {"ready": self._ready_ms is not None, "waiting": waiting}
+
     def health(self) -> dict[str, Any]:
         states: dict[str, int] = {"ok": 0, "offline": 0, "demoted": 0}
         for ch in self.channels_summary():
@@ -356,6 +387,8 @@ class Poller:
             "saf_queue": self.saf.count() if self.saf else 0,
             "channels": len(self.workers),
             "devices": states,
+            "initial_scan_complete": self._ready_ms is not None,
+            "initial_scan_ms": self._ready_ms,
             **self._opcua_health(),
         }
 

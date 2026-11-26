@@ -124,6 +124,30 @@ def identity_cmd(device_id: str, config_dir: Path = CONFIG_OPT) -> None:
     typer.echo(json.dumps(asyncio.run(go()), indent=2, default=str))
 
 
+@app.command("info")
+def info_cmd(
+    config_dir: Path = CONFIG_OPT,
+    as_json: bool = typer.Option(False, "--json", help="Print JSON instead of text"),
+) -> None:
+    """Support summary, safe to paste into a public issue: versions, platform, drivers, north
+    interfaces and the config revision. Never an IP address, host name or secret."""
+    import json
+
+    from opencap.core.support import render_text, support_info
+
+    poller_cfg, revision = None, None
+    try:
+        from opencap.config.loader import load_config
+        from opencap.config.store import ConfigStore
+
+        poller_cfg = load_config(config_dir).poller
+        revision = ConfigStore(config_dir).revision()
+    except Exception:       # a broken or missing config still gets the build information
+        pass
+    info = support_info(poller_cfg, revision)
+    typer.echo(json.dumps(info, indent=2) if as_json else render_text(info))
+
+
 @app.command("run")
 def run_cmd(
     config_dir: Path = CONFIG_OPT,

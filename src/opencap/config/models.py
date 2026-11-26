@@ -18,7 +18,7 @@ DType = Literal[
     "float32", "float64", "string",
 ]
 DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client",
-                     "modbus_rtu", "ab_df1", "simulator"]
+                     "modbus_rtu", "ab_df1", "simulator", "omron_fins"]
 Quality = Literal["good", "bad_comm", "bad_config", "bad_decode", "stale"]
 
 DEFAULT_TOPIC_PREFIX = "opencap"   # poller.yaml mqtt.topic_prefix default

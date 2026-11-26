@@ -17,6 +17,42 @@ use crate::pyfmt::{py_repr_list, py_repr_str};
 /// Each device's diagnostics live under `<channel>.<device>._System` (OPC UA server, D-046), so
 /// no tag or tag group may use that name (compared without case). Python `RESERVED_GROUP`.
 pub const RESERVED_GROUP: &str = "_System";
+/// System-tag folders (docs/spec/system-tags.md 3.2): Python `RESERVED_CHANNEL_NAMES`,
+/// `RESERVED_DEVICE_NAMES`, `RESERVED_TAG_GROUPS`. Compared without case.
+pub const RESERVED_CHANNEL_NAMES: [&str; 1] = ["_System"];
+pub const RESERVED_DEVICE_NAMES: [&str; 2] = ["_System", "_Statistics"];
+pub const RESERVED_TAG_GROUPS: [&str; 2] = ["_System", "_Statistics"];
+
+/// The reserved word `name` equals without regard to case (Python `reserved_word`).
+pub fn reserved_word(name: &str, reserved: &[&'static str]) -> Option<&'static str> {
+    reserved.iter().copied().find(|w| w.eq_ignore_ascii_case(name))
+}
+
+/// Names with a segment starting with `_` (the warning of spec 3.2), in file order. Python
+/// `underscore_names`.
+pub fn underscore_names(channels: &[Channel]) -> Vec<String> {
+    let mut out = Vec::new();
+    for ch in channels {
+        if ch.name.starts_with('_') {
+            out.push(format!("channel name {} starts with '_'", py_repr_str(&ch.name)));
+        }
+        for dev in &ch.devices {
+            if dev.name.starts_with('_') {
+                out.push(format!("{}: device name {} starts with '_'", dev.id, py_repr_str(&dev.name)));
+            }
+            for tag in &dev.tags {
+                if tag.name.split('.').any(|seg| seg.starts_with('_')) {
+                    out.push(format!(
+                        "{}: tag name {} has a segment starting with '_'",
+                        dev.id,
+                        py_repr_str(&tag.name)
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -166,6 +202,14 @@ pub enum PublishMode {
     OnChange,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublishFormat {
+    #[default]
+    SubdeviceJson,
+    IotgwJson,
+}
+
 fn d_env() -> String {
     "prod".into()
 }
@@ -193,6 +237,9 @@ pub struct PublishCfg {
     pub heartbeat_ms: i64,
     #[serde(default)]
     pub deadband: f64,
+    /// Message body format (D-072). Accepted and kept; the MQTT plugin does not dispatch on it yet (#170).
+    #[serde(default)]
+    pub format: PublishFormat,
 }
 
 impl Default for PublishCfg {
@@ -205,13 +252,14 @@ impl Default for PublishCfg {
             interval_ms: d_interval(),
             heartbeat_ms: d_heartbeat(),
             deadband: 0.0,
+            format: PublishFormat::SubdeviceJson,
         }
     }
 }
 
 /// The publish settings' field names (Python `PublishCfg.model_fields`).
-pub const PUBLISH_FIELDS: [&str; 7] =
-    ["sub_device_id", "topic", "env", "mode", "interval_ms", "heartbeat_ms", "deadband"];
+pub const PUBLISH_FIELDS: [&str; 8] =
+    ["sub_device_id", "topic", "env", "mode", "interval_ms", "heartbeat_ms", "deadband", "format"];
 
 fn d_1000() -> i64 {
     1000
@@ -230,8 +278,8 @@ fn d_30000() -> i64 {
 }
 
 /// Drivers the Python reference engine knows (its `DriverName` literal, same order).
-pub const KNOWN_DRIVERS: [&str; 8] =
-    ["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client", "modbus_rtu", "ab_df1"];
+pub const KNOWN_DRIVERS: [&str; 9] =
+    ["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client", "modbus_rtu", "ab_df1", "simulator"];
 
 /// pydantic's message shape for the `DriverName` literal.
 pub fn driver_name_error(value: &str) -> String {
@@ -310,24 +358,37 @@ impl Device {
         if !dupes.is_empty() {
             return Err(format!("{}: duplicate tag names {}", self.id, py_repr_list(&dupes)));
         }
-        let mut reserved: Vec<String> = self
-            .tags
-            .iter()
-            .filter(|t| t.name.split('.').next().unwrap_or("").eq_ignore_ascii_case(RESERVED_GROUP))
-            .map(|t| t.name.clone())
-            .collect();
-        reserved.sort();
-        if reserved.is_empty() {
-            Ok(())
-        } else {
-            Err(format!(
-                "{}: tag names {} use the reserved group name {} (the per-device diagnostics folder of the OPC UA \
-                 server, D-046)",
+        if let Some(word) = reserved_word(&self.name, &RESERVED_DEVICE_NAMES) {
+            return Err(format!(
+                "{}: device name {} is the reserved word {} (system-tag folder, docs/spec/system-tags.md 3.2)",
                 self.id,
-                py_repr_list(&reserved),
-                py_repr_str(RESERVED_GROUP)
-            ))
+                py_repr_str(&self.name),
+                py_repr_str(word)
+            ));
         }
+        for word in RESERVED_TAG_GROUPS {
+            let mut reserved: Vec<String> = self
+                .tags
+                .iter()
+                .filter(|t| t.name.split('.').next().unwrap_or("").eq_ignore_ascii_case(word))
+                .map(|t| t.name.clone())
+                .collect();
+            reserved.sort();
+            if !reserved.is_empty() {
+                let why = if word == RESERVED_GROUP {
+                    "the per-device diagnostics folder of the OPC UA server, D-046"
+                } else {
+                    "system-tag folder, docs/spec/system-tags.md 3.2"
+                };
+                return Err(format!(
+                    "{}: tag names {} use the reserved group name {} ({why})",
+                    self.id,
+                    py_repr_list(&reserved),
+                    py_repr_str(word)
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// `max(tag.scan_ms or device.scan_ms, device.min_scan_ms)` (Python `or`: 0 means unset).
@@ -392,6 +453,13 @@ impl DevicesFile {
     pub fn validate(&self) -> Result<(), String> {
         let mut seen = std::collections::HashSet::new();
         for ch in &self.channels {
+            if let Some(word) = reserved_word(&ch.name, &RESERVED_CHANNEL_NAMES) {
+                return Err(format!(
+                    "channel name {} is the reserved word {} (system-tag folder, docs/spec/system-tags.md 3.2)",
+                    py_repr_str(&ch.name),
+                    py_repr_str(word)
+                ));
+            }
             for dev in &ch.devices {
                 dev.validate()?;
                 if !seen.insert(dev.id.as_str()) {

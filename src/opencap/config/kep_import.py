@@ -46,6 +46,10 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 
 from opencap.config.models import (
+    RESERVED_CHANNEL_NAMES,
+    RESERVED_DEVICE_NAMES,
+    RESERVED_TAG_GROUPS,
+    reserved_word,
     Channel,
     Device,
     DeviceDefaults,
@@ -99,6 +103,7 @@ REASON_MQTT = "MQTT Client driver: not a PLC"
 REASON_UCON = "U-CON user-configurable driver: not supported"
 REASON_DISABLED = "data collection disabled in KEPServer"
 REASON_NO_HOST = "no usable host in DEVICE_ID_STRING"
+REASON_RESERVED_NAME = "device name is reserved for system tags"
 
 EXCLUDED_DRIVERS = {
     KEP_SIMULATOR: REASON_SIMULATOR,
@@ -814,6 +819,14 @@ def _map_tags(dev: dict, dev_id: str, per_tag_scan: bool, problems: list[str]) -
     tags: list[Tag] = []
     seen: set[str] = set()
     for name, raw in _iter_tags(dev):
+        group = reserved_word(name.split(".", 1)[0], RESERVED_TAG_GROUPS)
+        if group:
+            problems.append(f"{dev_id}: tag {name!r} starts with the reserved word {group!r} "
+                            "(system-tag folder); tag skipped, rename it in KEPServer or here")
+            continue
+        if any(seg.startswith("_") for seg in name.split(".")):
+            problems.append(f"{dev_id}: tag {name!r} has a segment starting with '_'; kept, but such names are "
+                            "reserved for system tags and become errors in v2 files")
         if name in seen:
             problems.append(f"{dev_id}: duplicate tag name {name!r} (address {raw.get(K_TAG_ADDR)!r}); kept the first")
             continue
@@ -948,6 +961,14 @@ def import_kep(project_path: Path, defaults: DeviceDefaults | None = None) -> Im
             empty_channels.append(channel_name)
             problems.append(f"channel {channel_name!r} ({kep_driver}) has no devices; skipped")
             continue
+        word = reserved_word(channel_name, RESERVED_CHANNEL_NAMES)
+        if word:
+            problems.append(f"channel {channel_name!r} ({kep_driver}) uses the reserved word {word!r} "
+                            "(system-tag folder); its devices are skipped, rename the channel in KEPServer")
+            empty_channels.append(channel_name)
+            continue
+        if channel_name.startswith("_"):
+            problems.append(f"channel {channel_name!r}: names starting with '_' are reserved for system tags; kept")
         included_devices: list[Device] = []
         for dev in devices_raw:
             device_name = str(dev.get(K_NAME, ""))
@@ -961,6 +982,10 @@ def import_kep(project_path: Path, defaults: DeviceDefaults | None = None) -> Im
             try:
                 if "/" in channel_name or "/" in device_name:
                     dev_problems.append(f"{dev_id}: '/' in a channel or device name makes the device id ambiguous")
+                if reserved_word(device_name, RESERVED_DEVICE_NAMES):
+                    raise _Exclude(REASON_RESERVED_NAME)
+                if device_name.startswith("_"):
+                    dev_problems.append(f"{dev_id}: device names starting with '_' are reserved for system tags; kept")
                 if dev_id in seen_ids:
                     raise _Exclude("duplicate device id")
                 device = _build_device(ch, dev, channel_name, device_name, defaults, dev_problems)

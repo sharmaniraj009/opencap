@@ -42,7 +42,7 @@ def test_generation_is_deterministic():
 def test_every_operation_is_typed(spec):
     """No untyped answers: each operation has a 2xx response with a schema (or text for /metrics), and
     an error model for 401 where it needs a token."""
-    open_paths = {"/health", "/metrics", "/api/v1/auth-info"}
+    open_paths = {"/health", "/health/ready", "/health/live", "/metrics", "/api/v1/auth-info", "/api/v1/about"}
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
             if "x-websocket" in op:             # an upgrade: 101, then the messages of x-websocket
@@ -63,6 +63,53 @@ def test_every_operation_is_typed(spec):
             if path not in open_paths:
                 assert "401" in op["responses"], (method, path)
             assert op["operationId"], (method, path)
+
+
+def test_every_write_documents_its_body(spec):
+    """#89: each POST/PUT/PATCH that takes a body has a typed `requestBody` (not FastAPI's untyped
+    `Body`); the ones that take none (reload, read-once) have none."""
+    from opencap.api.schemas import NO_BODY_WRITES
+
+    writes = [(m, p, op) for p, ops in spec["paths"].items() for m, op in ops.items() if m in ("post", "put", "patch")]
+    assert len(writes) >= 18
+    for method, path, op in writes:
+        if (method, path) in NO_BODY_WRITES:
+            assert "requestBody" not in op, (method, path)
+            continue
+        body = op.get("requestBody")
+        assert body and body.get("required") is True, f"{method.upper()} {path} has no requestBody"
+        schema = body["content"]["application/json"]["schema"]
+        assert schema not in ({}, {"title": "Body"}), f"{method.upper()} {path}: untyped body"
+
+
+def _resolve(spec: dict, schema: dict) -> dict:
+    while "$ref" in schema:
+        schema = spec["components"]["schemas"][schema["$ref"].split("/")[-1]]
+    return schema
+
+
+def test_body_schemas_are_the_project_schema(spec, env):  # noqa: F811
+    """The `Config*` components are the definitions `GET /api/v1/project/schema` serves; the PATCH
+    variants keep every property, with no `required` and `null` allowed (merge patch)."""
+    c, _, _, _ = env
+    served = c.get(f"{V1}/project/schema", headers=VIEWER).json()
+    comps = spec["components"]["schemas"]
+    names = {"channel": "Channel", "device": "Device", "tag": "Tag", "map_entry": "DeviceMapEntry",
+             "map_defaults": "PublishCfg", "device_override": "DeviceOverride"}
+
+    def norm(schema, defs_prefix):          # point both documents' refs at the same names
+        return json.loads(json.dumps(schema).replace(defs_prefix, "#/REF/"))
+
+    for key, name in names.items():
+        mine = norm(comps[f"Config{name}"], "#/components/schemas/Config")
+        theirs = norm({k: v for k, v in served[key].items() if k != "$defs"}, "#/$defs/")
+        assert mine == theirs, name
+        for sub, sub_schema in served[key].get("$defs", {}).items():
+            assert norm(comps[f"Config{sub}"], "#/components/schemas/Config") == norm(sub_schema, "#/$defs/"), sub
+    for name in ("Device", "Tag", "DeviceMapEntry", "DeviceOverride"):
+        patch, full = comps[f"Config{name}Patch"], comps[f"Config{name}"]
+        assert "required" not in patch and set(patch["properties"]) == set(full["properties"]), name
+        assert all({"type": "null"} in v["anyOf"] for v in patch["properties"].values()), name
 
 
 def _template(spec: dict, method: str, url: str) -> tuple[str, dict]:
@@ -97,12 +144,20 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
     c, _, _, _ = env
     seen: set[str] = set()
 
+    bodies: set[str] = set()
+
     def go(method, url, body=None, headers=None, **kw):
         kwargs = {"headers": headers if headers is not None else ADMIN, **kw}
         if body is not None:
             kwargs["json"] = body
         r = c.request(method.upper(), url, **kwargs)
         seen.add(_validate(spec, method, url, r))
+        sent = body if body is not None else (json.loads(kw["content"]) if "content" in kw else None)
+        if sent is not None and r.status_code < 300:            # #89: what the server took is documented
+            tpl, op = _template(spec, method, url)
+            schema = op["requestBody"]["content"]["application/json"]["schema"]
+            jsonschema.validate(sent, {**schema, "components": spec["components"]})
+            bodies.add(f"{method} {tpl}")
         return r
 
     # the table of test_config_api.py: every config route, as viewer (reads) and as admin
@@ -114,6 +169,12 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
 
     # the rest: open and legacy routes, import, and the error answers
     go("get", "/health", headers={})
+    go("get", "/health/live", headers={})
+    assert go("get", "/health/ready", headers={}).status_code == 200
+    c.app.state.ctx.poller.waiting = {DEV}
+    assert go("get", "/health/ready", headers={}).status_code == 503
+    c.app.state.ctx.poller.waiting = set()
+    go("get", f"{V1}/about", headers={})
     go("get", f"{V1}/auth-info", headers={})
     r = c.get("/metrics")
     seen.add(_validate(spec, "get", "/metrics", r))
@@ -148,6 +209,11 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
     assert go("patch", DEV_PATH, {"retries": 1}, ADMIN).status_code == 428
     assert go("patch", DEV_PATH, {"retries": 1}, {**ADMIN, "If-Match": "0000000000000000"}).status_code == 412
     assert go("patch", DEV_PATH, {"port": "x"}, admin_w(c)).status_code == 422
+    # the documented schema refuses it too (the server's 422 keeps its own `loc`s, D-064)
+    _, op = _template(spec, "patch", DEV_PATH)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"port": "x"}, {**op["requestBody"]["content"]["application/json"]["schema"],
+                                            "components": spec["components"]})
     assert go("post", f"{V1}/channels", {"name": "SITE MODBUS"}, admin_w(c)).status_code == 409
 
     # the live feed: refused upgrades answer as documented, an accepted one speaks x-websocket
@@ -173,6 +239,9 @@ def test_every_route_answers_as_documented(env, spec):  # noqa: F811
         status_code, content = 101, b""
 
     seen.add(_validate(spec, "get", f"{V1}/ws", _Upgraded()))
+
+    with_body = {f"{m} {p}" for p, ops in spec["paths"].items() for m, op in ops.items() if "requestBody" in op}
+    assert with_body - bodies == set(), f"request bodies never sent by this test: {sorted(with_body - bodies)}"
 
     documented = {f"{m} {p}" for p, ops in spec["paths"].items() for m in ops}
     missing = documented - seen

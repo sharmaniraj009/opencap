@@ -13,6 +13,9 @@ REGISTRY = CollectorRegistry(auto_describe=True)
 POLL_REQUESTS = Counter(
     "poll_requests", "Wire requests to PLCs by result", ["device", "result"], registry=REGISTRY
 )
+POLL_FAILED_READS = Counter(
+    "poll_failed_reads", "Block reads that ended bad_comm after all retries", ["device"], registry=REGISTRY
+)
 POLL_CYCLE = Histogram(
     "poll_cycle_seconds", "Duration of one rate-group cycle of a device", ["device"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60), registry=REGISTRY,

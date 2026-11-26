@@ -1,7 +1,7 @@
 //! Mitsubishi MELSEC driver: MC protocol 3E frame, binary, over TCP or UDP, with Kepware
 //! "Mitsubishi Ethernet" (Q Series) address semantics. Port of the Python
 //! `src/opencap/drivers/melsec_mc.py` (D-053 to D-057) with a native client instead of
-//! pymcprotocol (D-077).
+//! pymcprotocol (D-080).
 //!
 //! The pure part (address parser, block planner, word decoder, frame builders and reply checks)
 //! needs no socket. The engine is READ-ONLY: `frame.rs` can build exactly two requests, batch

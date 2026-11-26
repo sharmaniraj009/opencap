@@ -1,4 +1,4 @@
-"""The Rust `melsec_mc` driver (native MC 3E binary client, D-077) against the MC 3E simulator:
+"""The Rust `melsec_mc` driver (native MC 3E binary client, D-080) against the MC 3E simulator:
 same config in, same text out as the Python driver, and it never sends a write.
 
 - `read` prints every decoded value with Python's `repr()`: identical output for TCP, UDP, iQ-R,

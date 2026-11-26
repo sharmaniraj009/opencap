@@ -9,7 +9,7 @@ The open equivalent of KEPServerEX's Configuration API, and the only API the web
     /api/v1/overrides, /overrides/devices/{id}, /overrides/channels/{c} overrides.yaml
     /api/v1/project (whole config), /project/status, /project/pending, /project/import,
     /project/validate (= opencap check), /project/revisions, /project/schema
-    /api/v1/audit, /api/v1/whoami
+    /api/v1/audit, /api/v1/whoami, /api/v1/support
     runtime: /api/v1/status, /api/v1/devices/{id}/status|values|plan|identity,
              POST /api/v1/devices/{id}/read-once, POST /api/v1/reload
 
@@ -33,6 +33,7 @@ from opencap.api import schemas as S
 from opencap.api.context import ApiContext
 from opencap.config.models import Channel, Device, DeviceMapEntry, DeviceOverride, PublishCfg, Tag
 from opencap.config.store import CURRENT_WRITER, MAX_IMPORT_BYTES, ConfigError, ConfigStore, Invalid, Result
+from opencap.core.support import support_info
 
 JSON_TYPES = ("application/json",)
 IDENTITY_TTL_S = 300
@@ -116,6 +117,14 @@ def build_router() -> APIRouter:
         w = ctx.store.writable() if ctx.store is not None else {"writable": False, "reason": "no config directory"}
         return {"name": p.name, "role": p.role, "open": ctx.auth.open,
                 "config_writable": w["writable"], "config_writable_reason": w["reason"]}
+
+    @r.get("/support", response_model=S.Support, response_model_exclude_unset=True, responses=S.ERR_READ)
+    def support_summary(request: Request) -> dict[str, Any]:
+        """Support information (viewer): safe to paste into a public issue, as `opencap info`."""
+        ctx = _ctx(request)
+        cfg = getattr(getattr(ctx.poller, "loaded", None), "poller", None)
+        revision = ctx.store.revision() if ctx.store is not None else None
+        return support_info(cfg, revision)
 
     @r.get("/status", response_model=S.Status, response_model_exclude_unset=True, responses=S.ERR_READ)
     def status(request: Request) -> dict[str, Any]:

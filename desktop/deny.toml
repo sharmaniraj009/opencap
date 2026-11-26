@@ -67,7 +67,10 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 [advisories]
 # Known vulnerabilities and unmaintained notices fail the gate (unlike engine/deny.toml, D-061:
 # here every unmaintained crate is someone else's, so each one is listed and tracked below).
+# `unmaintained = "all"` is spelled out: cargo-deny's default scope differs between versions
+# (0.22 checks only direct dependencies), and this gate must not depend on that.
 # Yanked releases warn.
+unmaintained = "all"
 yanked = "warn"
 
 [[advisories.ignore]]

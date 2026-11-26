@@ -1,0 +1,29 @@
+{
+  "document": "devices",
+  "expected_error": "reserved group name '_Statistics'",
+  "semantic": true,
+  "data": {
+    "channels": [
+      {
+        "name": "SITE",
+        "devices": [
+          {
+            "id": "SITE/PLC1",
+            "channel": "SITE",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "_statistics.Reads",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

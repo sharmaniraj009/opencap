@@ -21,8 +21,9 @@ GENERATED_BY = "scripts/gen_conformance.py"
 
 # Areas whose vector files this module reads, each a directory under tests/conformance/.
 # (`config/` is the older config fixture set with its own format: see config/compare.py.)
-AREAS = ("modbus/plan", "modbus/decode", "scaling", "payload",
-         "ab_logix/plan", "ab_logix/decode", "ab_pccc/plan", "ab_pccc/decode",
+AREAS = ("modbus/plan", "modbus/decode", "scaling", "payload", "payload/iotgw",
+         "ab_logix/plan", "ab_logix/decode", "ab_pccc/plan", "ab_pccc/decode", "system_tags",
+         "omron_fins/addresses",
          "melsec_mc/plan", "melsec_mc/decode", "melsec_mc/frame", "melsec_mc/reply")
 
 _ID_RE = re.compile(r"[a-z0-9][a-z0-9_.-]*")

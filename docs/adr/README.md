@@ -21,6 +21,8 @@ an ADR in a PR.
 | [0012](0012-redundancy-warm-standby.md) | Redundancy: active/warm-standby pair, standby never polls | Accepted (details in RFC 0003) |
 | [0013](0013-project-file-v2.md) | Project file v2: one project document plus node settings | Proposed |
 | [0014](0014-conformance-by-simulators-and-vectors.md) | Behaviour is proven by simulators and shared conformance vectors | Accepted |
+| [0015](0015-dnp3-native-rust-subset.md) | DNP3: native Rust master and outstation for the read subset; opendnp3 and dnp3py as test peers | Proposed |
+| [0016](0016-bacnet-native-rust-client.md) | BACnet/IP: native Rust read-only client; bacpypes3 simulator and a second independent peer | Proposed |
 
 ## Template
 

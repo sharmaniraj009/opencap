@@ -14,15 +14,21 @@ tests/conformance/
   modbus/decode/*.json Modbus register/bit decoding (D-006)
   scaling/*.json       tag scaling (linear, sqrt, clamps, negate)
   payload/*.json       SubDevice JSON payload bytes (D-017)
+  payload/iotgw/*.json KEPServerEX IoT Gateway JSON payload bytes (docs/spec/payload-iotgw-json.md)
   ab_logix/plan/*.json   Allen-Bradley Logix/Micro800 read groups and packing (D-008, D-025)
   ab_logix/decode/*.json Logix values coerced to the configured dtype
   ab_pccc/plan/*.json    PCCC (SLC/MicroLogix) address parsing and file blocks (D-008, D-027)
   ab_pccc/decode/*.json  PCCC words, bits, floats, strings and T/C sub-elements
+  system_tags/*.json   system and diagnostic tags: engine state -> tags, device event sequences (docs/spec/system-tags.md)
+  system_tags_catalogue.json  every system tag as data (level, name, dtype, update class, presence)
+
+  omron_fins/addresses/*.json  KEPServerEX Omron FINS address parsing (#13, #166; no Python driver, see below)
   melsec_mc/plan/*.json    MELSEC MC address parsing, block planning, params (D-054, D-055)
   melsec_mc/decode/*.json  MELSEC words to values
   melsec_mc/frame/*.json   MC 3E batch-read request bytes as pymcprotocol builds them (needs pymcprotocol)
   melsec_mc/reply/*.json   MC 3E reply checks, end codes and their config/comm classification
   config/              config model fixtures: an older, separate format, see config/compare.py
+  simulator/vectors.json  simulator driver address grammar and values (D-071); see simulator/README.md
 ```
 
 Generator: [`scripts/gen_conformance.py`](../../scripts/gen_conformance.py) (Allen-Bradley inputs
@@ -143,6 +149,14 @@ The SubDevice JSON message for one device, byte for byte.
   `"FirmVersion":"<firm_version>"`; an engine with another release number replaces that one
   field before comparing, as the payload golden test does.
 
+### `payload/iotgw`
+
+The KEPServerEX IoT Gateway "standard template" message for one device (`publish.format:
+iotgw_json`), byte for byte. Same `input` as `payload` minus `firm_version` and `is_secure`:
+`{"device", "values", "cfg", "now"}`; `now` is the message `timestamp` (the publish time) and the
+`t` of a tag with no source timestamp. `expected` is `{"bytes": "..."}`. There is no
+version field to replace. Format and rules: `docs/spec/payload-iotgw-json.md`.
+
 ### `ab_logix/plan`
 
 Planning of an `ab_logix` device (ControlLogix/CompactLogix and Micro800, symbolic tags).
@@ -193,6 +207,109 @@ Planning of an `ab_pccc` device (SLC 500, MicroLogix, PLC-5 data tables; `ab_df1
   taken from the whole word, T/C bits already extracted (any non-zero is true), or a
   `decode_error`.
 
+### `system_tags`
+
+System and diagnostic tags ([`docs/spec/system-tags.md`](../../docs/spec/system-tags.md) §13). Two kinds
+of `input`, told apart by `kind`; `expected` holds only the tags the vector is about (the full list
+would be some 200 tags per device). Values use the tagged encoding above, next to their `dtype`
+(`bool`, `uint32`, `uint64`, `float64`, `string`, `datetime`, `string_array`). `datetime` is an ISO-8601
+UTC string with milliseconds and `Z`, or `none`. `system_tags_catalogue.json` (one level up) lists
+every tag, and a test compares it with the Python engine's table and with the spec.
+
+- `snapshot`: `{"kind", "state", "paths": [...], "absent": [...]}` ->
+  `{"tags": {"<path>": {"dtype", "value"}}, "absent": [...]}`: the engine's tag for each listed path,
+  and those `absent` paths that really are absent (no tag at the path or below it).
+
+
+`state` is the engine state at one instant:
+
+```json
+{
+  "now": "2026-11-18T10:00:00.000Z",
+  "node": {"product_version": "0.1.0", "engine": "python", "instance": "opencap-1",
+           "project_name": "config", "project_title": "", "project_revision": "…",
+           "start_time": "…Z", "timezone": "Asia/Kolkata",
+           "sessions": [{"server": "opcua_server", "kind": "opcua_server", "name": "SCADA B"}],
+           "redundancy": null},
+  "north": [{"name": "mqtt", "kind": "mqtt", "enabled": true, "connected": true, "published": 10,
+             "last_error": null,
+             "outbox": {"messages": 0, "bytes": 0, "oldest": null, "max_bytes": 2147483648,
+                        "full": false, "disk_free_bytes": null, "disk_low": false,
+                        "available": true, "dropped": 0, "forward_mode": null}},
+            {"name": "opcua_server", "kind": "opcua_server", "enabled": true, "running": true,
+             "clients": 1, "last_error": null}],
+  "channels": [{"name": "Plant A", "enabled": true, "description": null,
+                "in_flight": 0, "max_in_flight": 1,
+                "devices": [{"name": "PLC1", "enabled": true, "driver": "modbus_tcp",
+                             "host": "192.0.2.10", "port": 502, "params": {},
+                             "scan_ms": 1000, "timeout_ms": 3000, "retries": 2,
+                             "demote_after": 3, "demote_for_ms": 30000, "description": null,
+                             "tags_enabled": 10, "tags_scanned": 10, "counts_bytes": false,
+                             "status": {"state": "ok", "consecutive_failures": 0,
+                                        "error_since": null, "last_good": "…Z", "errors": 0,
+                                        "last_error": null, "cycle_ms": 12.5,
+                                        "connected": true, "last_connect_failed": false},
+                             "counters": {"ok": 0, "timeout": 0, "conn_error": 0,
+                                          "bad_config": 0, "error": 0, "failed_reads": 0,
+                                          "overruns": 0, "rx_bytes": 0, "tx_bytes": 0}}]}]
+}
+```
+
+- Device settings are the *effective* values (overrides and `serial_ports` applied); a missing
+  device setting takes the `poller.yaml` default of `DeviceDefaults`; a missing serial param
+  takes the driver default (`baudrate` 19200, `bytesize` 8, `parity` `N`, `stopbits` 1;
+  `transport` `tcp` for `modbus_rtu`, `unmapped` for `ab_df1`).
+- `status` is the device's health plus the two fields of spec §9; it is ignored (and may be
+  `null`) for a disabled device or a device on a disabled channel.
+- `counters` are the process-lifetime counters behind `/metrics`; missing keys are 0.
+- An agent's `outbox` is present only for durable agents.
+
+
+- `device_sequence`: `{"kind", "device", "start", "steps": [{"at", "event", "error"?, "cycle_ms"?, "observe"?}]}`
+  -> `{"steps": {"<index>": {"<name>": {"dtype", "value"}}}}`: for each step that has `observe` (device
+  `_System` tag names, no path), the tags after that step's event.
+
+Events, applied in order at their `at` time (monotonic time = seconds since `start`):
+
+| Event | Effect |
+|---|---|
+| `connect_ok` | `connected` true, `last_connect_failed` false |
+| `connect_failed` | `connected` false, `last_connect_failed` true |
+| `cycle_good` | `DeviceHealth.record_good`; `error_since` cleared; `last_error` = the step's `error` (null when absent: a fully good cycle clears it) |
+| `cycle_failed` | `error_since` = `at` if no failure run is open; `DeviceHealth.record_failure`; `last_error` = `error`; a demotion (or re-demotion) drops the connection |
+| `cycle_neutral` | health unchanged; `last_error` = `error` when given |
+| `tick` | time passes |
+
+`cycle_ms`, when given, becomes `_CycleMs`. `observe` lists device `_System` names (no path),
+evaluated at the step's `at`, after the event.
+
+
+The inputs are generated from hand-written cases in `scripts/conformance_system_tags/*.json`, which
+also carry the values the spec says; `tests/conformance/system_tags/test_system_tag_vectors.py` checks
+the engine against those, so regenerating cannot bless a wrong reading of the spec.
+
+### `omron_fins/addresses`
+
+KEPServerEX Omron FINS address parsing for CS1, CJ1 and CJ2. The syntax and ranges come from
+PTC's manual and the area codes from W342; `docs/protocols/omron-fins.md` §5 summarises them.
+
+There is no Python FINS driver (Rust-first, ADR-0002), so the reference is the FINS simulator's
+own parser (`tests/helpers/fins_sim.py`). Each case in `scripts/gen_conformance_fins.py` also
+carries a hand-written expectation, and `tests/unit/test_fins_sim.py` checks that the generated
+files equal it.
+
+- `input`: `{"address", "dtype"?, "model"?}`.
+  - `dtype` is an opencap name, plus `bcd16`/`bcd32` for KEPServerEX BCD/LBCD. Without it, the
+    address's KEPServerEX default type applies.
+  - `model` is `CS1`, `CJ1` or `CJ2` (default `CJ1`).
+- `expected` for an accepted address:
+  `{"area_code": "0x82", "word", "bit", "kind", "dims", "str_len", "str_order", "bcd", "words"}`.
+  - `word` is the FINS word address on the wire: counter *n* is `0x8000 + n`, IR *n* is
+    `0x0100 + n` and DR *n* is `0x0200 + n`.
+  - `kind` is `word`, `bit`, `flag` or `string`.
+  - `words` is how many elements a read covers.
+- `expected` for a refused address: `{"error": "syntax" | "range" | "unsupported"}`, a category
+  rather than a message.
 ### `melsec_mc/plan`, `melsec_mc/decode`
 
 - plan `input`: `{"params", "tags"}`; `expected`: `{"blocks": [{device, start, count, head_number, last_number,

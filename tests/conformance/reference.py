@@ -18,6 +18,7 @@ from opencap.core.channel_worker import scale_value
 from opencap.drivers import ab_logix, ab_pccc, melsec_mc
 from opencap.drivers.modbus_tcp import ModbusBlock, ModbusTcpDriver
 from opencap.north import payload as payload_mod
+from opencap.north import payload_iotgw as payload_iotgw_mod
 from tests.conformance.vectors import decode_value, encode_value
 
 _HOST = "192.0.2.1"
@@ -95,6 +96,17 @@ def payload(inp: dict[str, Any]) -> dict[str, Any]:
     return {"bytes": payload_mod.encode(built).decode("utf-8")}
 
 
+def payload_iotgw(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {device, values, cfg, now} -> {bytes}: the UTF-8 text of
+    `encode(build_iotgw_payload(...))` (publish.format iotgw_json)."""
+    device = Device.model_validate(inp["device"])
+    values = {name: TagValue(decode_value(tv["value"]), tv["quality"], _ts(tv["source_ts"]))
+              for name, tv in inp["values"].items()}
+    cfg = PayloadCfg.model_validate(inp["cfg"])
+    built = payload_iotgw_mod.build_iotgw_payload(device, values, cfg, now=_ts(inp["now"]))
+    return {"bytes": payload_mod.encode(built).decode("utf-8")}
+
+
 def _one_block(plan: Any, kind: type) -> Any:
     if len(plan.blocks) != 1 or plan.invalid:
         raise ValueError(f"decode vector must plan to one block, got {len(plan.blocks)} block(s), "
@@ -166,6 +178,86 @@ def ab_pccc_decode(inp: dict[str, Any]) -> dict[str, Any]:
     return {"values": {name: encode_value(decoded[name]) for name in sorted(decoded)}}
 
 
+# --- system_tags ---------------------------------------------------------------------------------
+
+def _tagged(dtype_value: tuple[str, Any]) -> dict[str, Any]:
+    dtype, value = dtype_value
+    return {"dtype": dtype, "value": encode_value(value)}
+
+
+def system_tags(inp: dict[str, Any]) -> dict[str, Any]:
+    """Two kinds of input (docs/spec/system-tags.md §13).
+
+    `snapshot`: `{kind, state, paths, absent}` -> `{tags: {path: {dtype, value}}, absent: [paths]}`:
+    the listed tags of `opencap.core.system_tags.evaluate(state)`, and those of `absent` that really
+    are absent (a path also counts as present when a tag lives below it).
+
+    `device_sequence`: `{kind, device, start, steps: [{at, event, error?, cycle_ms?, observe?}]}` ->
+    `{steps: {"<index>": {name: {dtype, value}}}}`: feed the events into `DeviceHealth` plus the two
+    status fields of §9, and read the device's status tags after each step that has `observe`.
+    """
+    from opencap.core import system_tags as st
+    from opencap.core.health import DeviceHealth, iso_utc
+
+    if inp["kind"] == "snapshot":
+        got = st.evaluate(inp["state"])
+        absent = [p for p in inp.get("absent", []) if not any(g == p or g.startswith(p + ".") for g in got)]
+        return {"tags": {p: _tagged(got[p]) for p in inp["paths"]}, "absent": absent}
+
+    dev = inp["device"]
+    start = st.parse_ts(inp["start"])
+    assert start is not None
+    health = DeviceHealth(int(dev.get("demote_after", 3)), int(dev.get("demote_for_ms", 30_000)))
+    flags: dict[str, Any] = {"connected": False, "last_connect_failed": False, "last_error": None, "cycle_ms": 0.0}
+    steps: dict[str, Any] = {}
+    for index, step in enumerate(inp["steps"]):
+        at = st.parse_ts(step["at"])
+        assert at is not None
+        mono = (at - start).total_seconds()
+        event = step["event"]
+        if event == "connect_ok":
+            flags.update(connected=True, last_connect_failed=False)
+        elif event == "connect_failed":
+            flags.update(connected=False, last_connect_failed=True)
+        elif event == "cycle_good":
+            health.record_good(mono, at)
+            flags.update(last_error=step.get("error"), cycle_ms=step.get("cycle_ms", 0.0))
+        elif event == "cycle_failed":
+            ev = health.record_failure(mono, at)
+            flags.update(last_error=step["error"], cycle_ms=step.get("cycle_ms", 0.0))
+            if ev in ("demoted", "redemoted"):
+                flags["connected"] = False          # the worker drops the connection on demotion
+        elif event == "cycle_neutral":
+            flags["cycle_ms"] = step.get("cycle_ms", 0.0)
+            if step.get("error") is not None:
+                flags["last_error"] = step["error"]
+        elif event != "tick":
+            raise ValueError(f"step {index}: unknown event {event!r}")
+        if step.get("observe"):
+            status = {**flags, "state": health.state, "consecutive_failures": health.consecutive_failures,
+                      "error_since": iso_utc(health.error_since), "last_good": iso_utc(health.last_good),
+                      "errors": health.errors}
+            tags = st.device_status_tags(dev, status, at, disabled=False)
+            steps[str(index)] = {n: _tagged((st.DTYPES[("device", n)], tags[n])) for n in step["observe"]}
+    return {"steps": steps}
+
+
+def omron_fins_addresses(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {address, dtype?, model?} -> {area_code, word, bit, kind, dims, str_len, str_order, bcd,
+    words}, or {error: "syntax" | "range" | "unsupported"}. The reference is the FINS simulator's own
+    parser (there is no Python FINS driver, ADR-0002); scripts/gen_conformance_fins.py also carries a
+    hand-written expectation for every case, which tests/unit/test_fins_sim.py checks."""
+    from tests.helpers import fins_sim
+
+    dtype = inp.get("dtype")
+    try:
+        a = fins_sim.parse_address(inp["address"], dtype, model=inp.get("model", "CJ1"))
+    except fins_sim.AddressError as exc:
+        return {"error": exc.reason}
+    code, word = a.codes()
+    return {"area_code": f"0x{code:02X}", "word": word, "bit": a.bit, "kind": a.kind, "dims": list(a.dims),
+            "str_len": a.str_len, "str_order": a.str_order, "bcd": a.bcd,
+            "words": a.words(dtype if dtype not in ("bool", "string") else None)}
 def _mc_driver(inp: dict[str, Any]) -> tuple[melsec_mc.MelsecMcDriver, list[Tag]]:
     device, tags = _device("melsec_mc", 5000, inp)
     return melsec_mc.MelsecMcDriver(device), tags      # ValueError on bad params
@@ -262,10 +354,13 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "modbus/decode": modbus_decode,
     "scaling": scaling,
     "payload": payload,
+    "payload/iotgw": payload_iotgw,
     "ab_logix/plan": ab_logix_plan,
     "ab_logix/decode": ab_logix_decode,
     "ab_pccc/plan": ab_pccc_plan,
     "ab_pccc/decode": ab_pccc_decode,
+    "system_tags": system_tags,
+    "omron_fins/addresses": omron_fins_addresses,
     "melsec_mc/plan": melsec_mc_plan,
     "melsec_mc/decode": melsec_mc_decode,
     "melsec_mc/frame": melsec_mc_frame,

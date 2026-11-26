@@ -167,3 +167,51 @@ DLE stuffing, ACK/NAK/ENQ with retries, embedded response symbols, duplicate det
 (`opencap identity`). **Not supported:** half-duplex master/slave (the importer flags it), PLC-5 typed reads with
 system addresses, DH+/DH-485 routing beyond DST/SRC, the file-directory check `ab_pccc` does (a missing file is
 rejected by the PLC's STS 0x10 instead), unsolicited messages from the PLC (ACKed and dropped), and any write.
+
+## simulator  (computed values for demos, the UI, desktop tests and benchmarks; no network)
+No socket is opened and no protocol library is used; `host` and `port` are required by the device model but
+ignored (write `"host": "sim", "port": 0`). Values are computed from the address and the clock, so a run is
+deterministic for a given clock, `epoch` and seed. Read-only by construction: memory registers return their
+configured value and there is no write path. The importer does not map KEPServerEX's Simulator driver (its
+address syntax differs), and `overrides.yaml` cannot change a device's `driver` yet: a test-bench project sets
+`"driver": "simulator"` and simulator addresses in `devices.json`. Both engines follow the formulas below; the
+shared vectors are in `tests/conformance/simulator/` (ADR-0014). Decision D-071.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `epoch` | int \| str \| null | null | time zero of every waveform: ms since 1970-01-01T00:00:00Z, or ISO 8601 with a zone (`"2026-01-01T00:00:00Z"`); null = the Unix epoch |
+| `memory` | map | {} | initial value of memory registers, `{"K0": 12.5, "K1": "text", "K2": true}`; a register not listed is 0 (`""` for a string tag, false for bool) |
+| `fail_connect` | bool | false | `connect()` fails every time (`ConnectionLost`): the device shows `bad_comm` and backs off |
+| `fail_every_n_reads` | int ≥ 0 | 0 | every n-th `read()` call fails with `CommError` (0 = never); the worker retries `device.retries` times, so `1` gives `bad_comm` on every cycle |
+| `latency_ms` | int ≥ 0 | 0 | each read takes this long; at or above `device.timeout_ms` the read waits `timeout_ms` and fails with `CommError` |
+| `bad_decode_tags` | list of tag names | [] | these tags always come back `bad_decode` |
+
+`bad_config` comes from an address the parser rejects, `stale` from a device whose reads stop (e.g. `fail_connect`
+after values were read), so a demo project can show every quality.
+
+### Address grammar
+Function names and `K` are case-insensitive; spaces around arguments are ignored. Numbers are decimal (`-7`,
+`0.25`, `1e3`); an argument written without `.` or exponent is an *integer literal*. Optional arguments in brackets.
+
+| address | dtypes | value |
+|---|---|---|
+| `RAMP(period_ms, low, high[, step])` | numeric, bool | `steps = (high − low) div │step│ + 1` when low, high and step are all integer literals, else `floor((high − low) / │step│ + 1e-9) + 1`; `k = n mod steps`; value `low + step·k` (step > 0) or `high + step·k` (step < 0). step defaults to 1, must not be 0 |
+| `SINE(period_ms, low, high[, phase_deg])` | numeric, bool | `(low+high)/2 + (high−low)/2 · sin(2π · ((e mod period_ms) / period_ms) + phase_deg · π/180)`, clamped to [low, high]; phase defaults to 0 |
+| `RANDOM(period_ms, low, high[, seed])` | numeric, bool | `z = splitmix64(seed, n mod 2^64)`, `u = (z >> 11) / 2^53` ∈ [0, 1); integer and bool tags: `low + min(floor(u · (high − low + 1)), high − low)` (both ends reachable); float tags: `low + u · (high − low)`. seed 0..2^64−1, default 0 |
+| `SQUARE(period_ms, low, high)` | numeric, bool | `high` while `(e mod period_ms) · 2 < period_ms`, else `low` |
+| `CONST(value)` | any | a number, `true`/`false`, or a `"double-quoted string"` (escapes `\"` and `\\` only); must fit the tag's dtype |
+| `K<n>` | any | memory register n (0..65535): `params.memory["K<n>"]`, else 0 / `""` / false |
+| `TIME` | string | the read time in UTC, `YYYY-MM-DDTHH:MM:SS.mmmZ` |
+| `COUNTER` | numeric | 1, 2, 3, … one per good read of the tag by this driver instance (a config reload restarts it); integer tags wrap two's-complement style (int16 32767 → −32768) |
+
+Where `e` = (read time − `epoch`) in whole milliseconds (may be negative), `n = floor(e / period_ms)`, `div` and
+`floor` round toward −∞ and `mod` is never negative. `period_ms` is a whole number 1..31 622 400 000 (366 days).
+`splitmix64(seed, n)` is the n-th output (n = 0, 1, …) of Vigna's SplitMix64:
+`z = seed + (n+1)·0x9E3779B97F4A7C15; z = (z ^ z>>30)·0xBF58476D1CE4E5B9; z = (z ^ z>>27)·0x94D049BB133111EB;
+return z ^ z>>31`, all mod 2^64 (seed 1234567 gives 6457827717110365317, 3203168211198807973, …).
+
+Conversion to the tag's dtype: integer tags round half away from zero (Rust `f64::round`); `low`, `high` and `step`
+must be whole numbers within the dtype's range. float32 tags are rounded to the nearest float32. bool tags take
+`round(value) != 0`, and waveform `low`/`high` must be 0 or 1. Strings only from `CONST`, `K<n>` and `TIME`.
+Rejected addresses (unknown function, wrong argument count, `low > high`, a value that does not fit) become
+`bad_config` with the reason, as in every driver.

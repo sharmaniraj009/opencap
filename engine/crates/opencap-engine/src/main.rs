@@ -298,8 +298,12 @@ mod tests {
             v[k].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
         };
         let implemented = names("implemented");
-        let expected: Vec<String> = opencap_drivers::compiled_in().iter().map(|s| s.to_string()).collect();
-        assert_eq!(implemented, expected, "{v}");
+        // the JSON lists follow KNOWN_DRIVERS order, `compiled_in` the driver table's: compare as sets
+        let mut expected: Vec<String> = opencap_drivers::compiled_in().iter().map(|s| s.to_string()).collect();
+        expected.sort();
+        let mut got = implemented.clone();
+        got.sort();
+        assert_eq!(got, expected, "{v}");
         let mut all: Vec<String> =
             implemented.iter().chain(&names("not_compiled_in")).chain(&names("not_implemented")).cloned().collect();
         all.sort();

@@ -113,8 +113,11 @@ pub enum DriverError { Comm(String), ConnectionLost(String), BlockConfig(String)
 - Per-tag outcomes are expressed as the returned `TagValue`'s quality (`good`, `bad_decode`,
   and, where a protocol reports per-item errors such as Logix CIP status, `bad_config` or
   `bad_comm`), exactly like Python's `dict[str, TagValue]`.
-- **`browse()`** (automatic tag generation, Python #11) is added to the trait, with a default
-  that returns `NotImplemented`, by the first Rust port that needs it (#43).
+- **`browse()`** (automatic tag generation). Python (#11): `async browse(*, expand_arrays=False) ->
+  BrowseResult(tags, skipped)` on a connected driver, default `NotImplementedError`; read and list
+  services only; every returned tag must plan cleanly. `ab_logix` maps the tag list uploaded at
+  connect (no extra request). Rust: added to the trait with a default that returns `NotImplemented`,
+  by the first port that needs it (follow-up to #11, after #43).
 - **Crates:** `engine/crates/opencap-{core,drivers,north,api,engine}` (#64). Each driver moves
   to its own crate `engine/drivers/<name>` behind an `opencap-engine` Cargo feature (#67)
   before the ports pile up.

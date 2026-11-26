@@ -63,6 +63,7 @@ from opencap.config.loader import (
     load_config,
 )
 from opencap.config.models import (
+    underscore_names,
     Channel,
     Device,
     DeviceMap,
@@ -108,21 +109,34 @@ class Conflict(ConfigError):
     status = 409
 
 
+_READ_ONLY_ERRNOS = frozenset({errno.EROFS, errno.EACCES, errno.EPERM})
+
+
 class StorageError(ConfigError):
-    """The files could not be written (read-only mount, permissions, full disk). Nothing changed."""
+    """The files could not be written (read-only mount, permissions, full disk). Nothing changed.
+
+    `reason` is the stable code the log event `config.write_failed` carries (LOG-03): `read_only`,
+    `disk_full`, `partial` or `io`; `files` are the config files the change was about to write."""
 
     status = 503
+    reason = "io"
+    files: list[str]
 
-    def __init__(self, message: str, *, full: bool = False) -> None:
+    def __init__(self, message: str, *, full: bool = False, cause: OSError | None = None) -> None:
         super().__init__(message)
+        self.files = []
         if full:
             self.status = 507
+            self.reason = "disk_full"
+        elif cause is not None and cause.errno in _READ_ONLY_ERRNOS:
+            self.reason = "read_only"
 
 
 class PartialWrite(StorageError):
     """A multi-file change failed and could not be fully undone: `files` are in the new state."""
 
     status = 500
+    reason = "partial"
 
     def __init__(self, message: str, files: list[str]) -> None:
         super().__init__(message)
@@ -301,7 +315,7 @@ def commit_files(directory: Path, texts: dict[str, str]) -> dict[str, bytes | No
         if left:
             raise PartialWrite(f"{what}; could not restore {', '.join(left)}, which now hold the new "
                                "version (the previous one is in the .bak file)", left) from None
-        raise StorageError(f"{what}; nothing was changed", full=_is_full(exc)) from None
+        raise StorageError(f"{what}; nothing was changed", full=_is_full(exc), cause=exc) from None
     finally:
         for tmp in staged.values():
             if tmp.exists():
@@ -648,6 +662,15 @@ class ConfigStore:
                 detail: dict[str, Any] | None) -> Result:
         """Write `texts` as one change, then hand the result to `on_commit` (the audit log).
         Runs with the lock held. Rolls the files back if the audit entry cannot be written."""
+        try:
+            return self._commit_files(action, texts, build, detail)
+        except StorageError as exc:
+            if not exc.files:
+                exc.files = sorted(texts)          # for the `config.write_failed` event
+            raise
+
+    def _commit_files(self, action: str, texts: dict[str, str], build: Callable[[], Result],
+                      detail: dict[str, Any] | None) -> Result:
         if not texts:
             return build()
         try:
@@ -822,7 +845,7 @@ class ConfigStore:
             tmpdir = tempfile.TemporaryDirectory(prefix="opencap-stage-")
         except OSError as exc:
             raise StorageError(f"cannot create a staging directory to validate the change: {exc}",
-                               full=_is_full(exc)) from None
+                               full=_is_full(exc), cause=exc) from None
         with tmpdir as tmp:
             stage = Path(tmp)
             for name, text in texts.items():
@@ -830,7 +853,8 @@ class ConfigStore:
                     try:
                         (stage / name).write_text(text, encoding="utf-8")
                     except OSError as exc:
-                        raise StorageError(f"cannot stage {name} for validation: {exc}", full=_is_full(exc)) from None
+                        raise StorageError(f"cannot stage {name} for validation: {exc}", full=_is_full(exc),
+                                           cause=exc) from None
             try:
                 return load_config(stage)
             except ValidationError as exc:
@@ -881,6 +905,13 @@ class ConfigStore:
             base = state.devices if state.devices is not None else {"version": 1, "channels": [], "excluded": []}
             if txn.devices != base and DEVICES_FILE not in txn.raw_texts:
                 model = _validate(DevicesFile, txn.devices, (DEVICES_FILE,))
+                if model.version < 2:
+                    old = set(underscore_names(DevicesFile.model_validate(base).channels)) if state.devices else set()
+                    added = [t for t in underscore_names(model.channels) if t not in old]
+                    if added:    # PRJ-13: an error for new writes (a warning for what is already on disk)
+                        raise Invalid("names starting with '_' are reserved for system tags",
+                                      [_err((), f"{t}; names starting with '_' are reserved for system tags")
+                                       for t in added])
                 texts[DEVICES_FILE] = devices_json_text(model)
             for name, doc, model, template, renames in (
                 (MAP_FILE, txn.dmap, DeviceMap, MAP_TEMPLATE, txn.map_renames),

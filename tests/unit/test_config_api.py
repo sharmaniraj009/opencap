@@ -62,7 +62,7 @@ def admin_w(c: TestClient) -> dict:
 # --- roles -----------------------------------------------------------------------------
 
 ENDPOINTS = [
-    ("get", f"{V1}/whoami", None), ("get", f"{V1}/status", None),
+    ("get", f"{V1}/whoami", None), ("get", f"{V1}/status", None), ("get", f"{V1}/support", None),
     ("get", f"{V1}/project", None), ("get", f"{V1}/project/status", None), ("get", f"{V1}/project/pending", None),
     ("get", f"{V1}/project/schema", None), ("get", f"{V1}/project/validate", None),
     ("get", f"{V1}/project/revisions", None), ("get", f"{V1}/audit", None),
@@ -340,7 +340,9 @@ def test_validation_errors_are_422_with_locations(env):
     r = c.patch(DEV_PATH, json={"port": "x", "timeout_ms": -1.5, "nope": 1}, headers=admin_w(c))
     assert r.status_code == 422
     locs = {tuple(e["loc"]) for e in r.json()["detail"]}
+    # relative to the resource, as ConfigStore reports them: never FastAPI's ("body", ...) (#89, D-064)
     assert {("port",), ("timeout_ms",), ("nope",)} <= locs
+    assert all(loc[0] != "body" for loc in locs)
     r = c.post(f"{DEV_PATH}/tags", json={"name": "X", "address": "999999", "dtype": "float32"}, headers=admin_w(c))
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["address"]
     r = c.post(f"{DEV_PATH}/tags", json={"name": "X", "address": "400001", "dtype": "float99"}, headers=admin_w(c))

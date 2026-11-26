@@ -28,7 +28,7 @@ from tests.helpers.configdir import write_config
 from tests.helpers.engine import rust_binary
 from tests.helpers.modbus_sim import ModbusSim, free_port, make_sim_devices
 from tests.helpers.netcut import stable_port
-from tests.helpers.pty_bridge import PtyBridge, needs_pyserial
+from tests.helpers.pty_bridge import PtyBridge, needs_pty, needs_pyserial
 
 BIN = rust_binary()
 needs_rust = pytest.mark.skipif(BIN is None or not BIN.exists(), reason="Rust engine not built (cd engine && cargo build)")
@@ -143,6 +143,7 @@ async def test_check_and_read_match_python_over_rtu_on_tcp(tmp_path, line):
 
 @needs_rust
 @needs_pyserial
+@needs_pty
 async def test_read_and_identity_over_a_tty(tmp_path, line):
     sim, _, _ = line
     bridge = await PtyBridge.start("127.0.0.1", sim.port)
@@ -233,6 +234,7 @@ def _matches(engine, dev_id: str, image) -> bool:
 @pytest.mark.acceptance
 @pytest.mark.drivers("modbus_rtu")
 @needs_pyserial
+@needs_pty
 async def test_rtu_lines_through_the_engine(tmp_path, engine_factory):
     base = make_sim_devices(3, 25, seed=91)
     gateway = await ModbusSim.start(base[0], framer="rtu", port=stable_port())

@@ -202,7 +202,9 @@ Notes:
 - By default WinSW runs the service as LocalSystem. To run it as `NT AUTHORITY\LocalService`,
   uncomment `<serviceaccount>` in the XML and grant that account modify rights on
   `C:\ProgramData\opencap\data` and `\logs`.
-- Windows support has not been tested on real hardware yet. Please report what you find.
+- CI runs the test suite and this WinSW setup (install, start, `/health`, stop with a clean
+  exit 0, uninstall) on windows-latest; see `docs/decisions.md` D-082. It has not been tried on
+  plant hardware yet. Please report what you find.
 
 ## Commissioning a Siemens S7 or Mitsubishi PLC
 

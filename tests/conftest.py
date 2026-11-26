@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import gc
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -84,6 +86,17 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
         with open(summary, "a", encoding="utf-8") as f:
             f.write(port_gap_markdown(gap))
+
+
+@pytest.fixture(scope="session")
+def event_loop_policy():
+    """Async tests on Windows run on the selector loop, as `opencap run` does (D-031): aiomqtt
+    (paho) needs `add_reader`/`add_writer`, which the default proactor loop lacks. The selector
+    loop cannot start asyncio subprocesses on Windows, so tests start child processes with
+    `subprocess` in a worker thread (`run_process` in tests/helpers/engine.py), on any loop."""
+    if sys.platform == "win32":
+        return asyncio.WindowsSelectorEventLoopPolicy()
+    return asyncio.get_event_loop_policy()
 
 
 @pytest.fixture

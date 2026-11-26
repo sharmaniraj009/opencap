@@ -65,6 +65,8 @@ def udp_exchange(sim: FinsSim, frame: bytes, *, timeout: float = 2.0) -> bytes |
             return s.recv(4096)
         except TimeoutError:
             return None
+        except ConnectionResetError:     # Windows: ICMP port unreachable (nothing listens) shows up here
+            return None
 
 
 def tcp_msg(command: int, payload: bytes = b"", error: int = 0) -> bytes:

@@ -8,6 +8,7 @@ environment, Basic256Sha256 Sign and SignAndEncrypt, and the whole ChannelWorker
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -395,7 +396,9 @@ async def test_basic256sha256(tmp_path, driver_for, mode, policy):
                           certificate=str(cert), private_key=str(key), timeout_ms=3000)
         drv = driver_for(dev)
         await drv.connect()                                   # the client pair is generated on first use
-        assert cert.exists() and key.exists() and (key.stat().st_mode & 0o077) == 0
+        assert cert.exists() and key.exists()
+        if os.name == "posix":                                   # Windows protects it by ACL, not mode bits
+            assert (key.stat().st_mode & 0o077) == 0
         assert (await read_all(drv, dev))["PV"].value == 7.5
         await drv.close()
 

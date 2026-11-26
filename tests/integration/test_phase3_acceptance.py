@@ -35,7 +35,6 @@ from opencap.config.models import Device, Tag  # noqa: E402
 from opencap.logsetup import configure_logging  # noqa: E402
 from tests.helpers.broker import TestBroker  # noqa: E402
 from tests.helpers.configdir import write_config  # noqa: E402
-from tests.helpers.modbus_sim import free_port  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.integration.test_ab_pccc_sim import DIRECTORY_READ, SYSTEM_FILES, TAGS, TYPED_READ, expected  # noqa: E402
 
@@ -102,7 +101,7 @@ async def test_phase3_acceptance(tmp_path, engine_factory):
         asked = _record_files_asked(sims[0])
         async with asyncio.timeout(240), TestBroker() as broker, broker.collector("opencap/#") as col:
             await col.wait_ready()
-            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=free_port(),
+            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=stable_port(),
                                       poller={"stats_interval_s": 3, "log_level": "INFO"},
                                       publish={"interval_ms": INTERVAL_MS})
             engine = engine_factory(config_dir)     # the Python Poller, or the Rust engine (--engine=rust)

@@ -10,6 +10,7 @@ import json
 from contextlib import asynccontextmanager
 
 import pytest
+import sys
 import uvicorn
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
@@ -161,7 +162,9 @@ async def test_the_pollers_own_api_serves_the_feed(tmp_path, monkeypatch):
                 async with connect(url, subprotocols=["opencap.v1"], max_size=None) as ws:
                     await ws.send("x" * (live.MAX_MESSAGE + 1))
                     await asyncio.wait_for(ws.wait_closed(), 5)
-                    assert ws.close_code == 1009                     # message too big (uvicorn)
+                    # message too big (uvicorn). Windows resets a socket closed with unread data, so
+                    # the client can see the connection drop (1006) before the close frame
+                    assert ws.close_code in ((1009, 1006) if sys.platform == "win32" else (1009,))
             finally:
                 await poller.stop()
         finally:

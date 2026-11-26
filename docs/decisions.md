@@ -425,7 +425,32 @@ reads the SPDX `license = "Apache-2.0"` expression and `license-files` (PEP 639)
   restarts on failure and rolls logs by size. That stop path was checked on Linux with
   `add_signal_handler` disabled, as on Windows: `poller_stopped` and every channel closed.
 - **Not tested on real Windows yet.** Both fixes are covered by unit tests on Linux; the
-  WinSW setup follows WinSW's documentation.
+  WinSW setup follows WinSW's documentation. *(Superseded by D-082: CI tests it on Windows.)*
+
+### D-082 Windows CI: what running on windows-latest found (#35)
+CI now runs the fast suite (and the acceptance suite nightly) on windows-latest with Python
+3.12, plus a WinSW service smoke test (`deploy/windows/service_smoke.py`). D-031's fixes hold:
+the shipped `opencap-service.xml` installs, starts, answers `/health` with MQTT connected, and on
+`stop` WinSW's Ctrl+C gives `poller_stopped` and exit code 0 in about half a second.
+- **Expected:** the tests would run unchanged. **Found:** they ran on asyncio's default Windows
+  loop (proactor), where aiomqtt cannot work, so every MQTT test hung to its timeout.
+  `tests/conftest.py` now selects the selector loop on Windows, as `opencap run` does. That loop
+  cannot start asyncio subprocesses on Windows, so test helpers start child processes with
+  `subprocess` in a worker thread (`run_process` in `tests/helpers/engine.py`).
+- **Platform differences, not product bugs**, handled in the tests: no POSIX mode bits, SIGKILL
+  or SIGHUP; a refused TCP connect is reported only after 1-2 s of SYN retries; a UDP datagram
+  to a closed port comes back as `ConnectionResetError`; a socket closed with unread data is
+  reset (WebSocket 1006 before 1009); `socket.socketpair()` is a loopback TCP connect; text-mode
+  writes turn `\r\n` into `\r\r\n`. Tests that need a POSIX pty skip with a reason.
+- **Python 3.12 on Windows:** `time.monotonic` ticks every ~15.6 ms and asyncio may run a timer
+  that early. Timing tests allow the clock's resolution. One product fix came out of it: the
+  system-tag tick (spec §2.1) fired up to ~22 ms before its UTC second, so `_System._DateTime`
+  read `19.978` for second 20 and second 19 was ticked twice; the task now waits out a wake that
+  is less than 250 ms early (a clock stepped back is not waited out). Cycle-time metrics are
+  quantised to that tick (a fast cycle reads 0 ms): #199 measures durations with `perf_counter`.
+- **WinSW 2.12 quirks:** `stop` can return before the service enters "stop pending", and
+  `status` prints `Started` for anything but Stopped, so the smoke test polls `status`. Logs are
+  named after the executable (`opencap-service.out.log`), not the service id.
 
 ## Rust engine
 

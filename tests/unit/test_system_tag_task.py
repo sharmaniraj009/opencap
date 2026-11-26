@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from opencap.core.runtime import Poller
+from opencap.core import system_tags
 from opencap.core.system_tags import TICK_TAGS, SystemTagTask, split_path
 from tests.helpers.configdir import write_config
 from tests.helpers.modbus_sim import make_sim_devices
@@ -133,6 +134,25 @@ def test_the_tick_is_aligned_to_the_utc_second():
         assert 0.0 < delay <= 1.0
 
 
+@pytest.mark.parametrize("readings, sleeps", [
+    ([19.978, 20.001], 1),          # fired 22 ms early (seen on Windows): wait out the rest, once
+    ([19.990, 19.998, 20.0], 2),    # still early after the first wait (coarse clock): wait again
+    ([20.004], 0),                  # on time or late: tick now
+    ([16.0], 0),                    # clock stepped back 4 s (NTP): not waited out
+])
+async def test_an_early_timer_wake_is_waited_out(monkeypatch, readings, sleeps):
+    clock = iter(readings)
+    slept: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(system_tags.asyncio, "sleep", sleep)
+    await system_tags._wait_out_early_wake(20.0, clock=lambda: next(clock))
+    assert len(slept) == sleeps
+    assert all(0.0 < d < system_tags.EARLY_WAKE_MAX_S + 0.1 for d in slept)
+
+
 async def test_the_task_ticks_once_per_second_on_the_real_clock(tmp_path, no_gc):
     poller = make_poller(tmp_path)
     task = SystemTagTask(poller)
@@ -148,7 +168,9 @@ async def test_the_task_ticks_once_per_second_on_the_real_clock(tmp_path, no_gc)
             await asyncio.sleep(0.02)
         assert len(seen) == 3, seen
         stamps = [datetime.fromisoformat(s.replace("Z", "+00:00")) for s in seen]
-        assert all(0 <= s.microsecond < 150_000 for s in stamps), seen        # aligned to the second (50 ms + CI slack)
+        # aligned to the second (50 ms + CI slack), and never before it: asyncio may fire the timer
+        # one clock resolution early (~15.6 ms on Windows with Python 3.12), which the task waits out
+        assert all(s.microsecond < 150_000 for s in stamps), seen
         assert [(b - a).total_seconds() for a, b in zip(stamps, stamps[1:], strict=False)] == pytest.approx(
             [1.0, 1.0], abs=0.15)
     finally:

@@ -13,7 +13,6 @@ Skipped when the Rust binary has not been built (`cd engine && cargo build`).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import sys
@@ -24,7 +23,7 @@ pytest.importorskip("pymcprotocol")        # the Python side of the comparison
 
 from opencap.config.models import Device, Tag  # noqa: E402
 from tests.helpers.configdir import write_config  # noqa: E402
-from tests.helpers.engine import rust_binary  # noqa: E402
+from tests.helpers.engine import run_process, rust_binary  # noqa: E402
 from tests.helpers.mc_sim import McSim  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.integration.test_melsec_sim import TAGS  # noqa: E402
@@ -39,9 +38,7 @@ READS = {(0x0401, 0x0000), (0x0401, 0x0002), (0x0101, 0x0000)}
 
 
 async def _run(*args: str) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-    out, _ = await asyncio.wait_for(proc.communicate(), 90)
-    return proc.returncode, out.decode()
+    return await run_process(list(args), None, 90)       # works on the Windows selector loop too (D-082)
 
 
 def _values(text: str) -> list[str]:

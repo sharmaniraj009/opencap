@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -69,11 +70,14 @@ async def test_50_clients_x_5000_tags_without_poll_overruns(tmp_path):
 
                     helpers = [asyncio.create_task(ticker()), asyncio.create_task(lag_probe())]
                     try:
-                        proc = await asyncio.create_subprocess_exec(
-                            sys.executable, "-m", "tests.helpers.ws_load_client", f"ws://127.0.0.1:{port}/api/v1/ws",
-                            ENV["T_VIEW"], str(CLIENTS), str(SECONDS), *ids,
-                            cwd=ROOT, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                        out, err = await asyncio.wait_for(proc.communicate(), SECONDS + 60)
+                        # subprocess in a thread, not an asyncio subprocess: works on the Windows
+                        # selector loop the tests use (tests/conftest.py, event_loop_policy)
+                        proc = await asyncio.to_thread(
+                            subprocess.run,
+                            [sys.executable, "-m", "tests.helpers.ws_load_client", f"ws://127.0.0.1:{port}/api/v1/ws",
+                             ENV["T_VIEW"], str(CLIENTS), str(SECONDS), *ids],
+                            cwd=ROOT, capture_output=True, timeout=SECONDS + 60)
+                        out, err = proc.stdout, proc.stderr
                     finally:
                         for h in helpers:
                             h.cancel()

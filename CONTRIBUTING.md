@@ -119,6 +119,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   | CI: tests (Python 3.12, 3.13), wheel and container image | always | always | |
   | CI: `acceptance-pr` (Python 3.12, 8 s outage) | when the PR touches `src/opencap/`, `tests/helpers/`, `tests/integration/`, `tests/conftest.py` or `pyproject.toml` | | |
   | CI: acceptance (Python 3.12, 3.13) | | | nightly, and on manual dispatch |
+  | CI: Windows (Python 3.12): fast suite, WinSW service smoke test | always | always | acceptance suite + service smoke test |
   | Rust engine: fmt, clippy, test, deny, conformance, Windows | when it touches `engine/`, `src/`, `tests/`, `config/` or `pyproject.toml` | same paths | manual dispatch |
   | Licences: Python and Rust gates | always | always | |
   | desktop: build and bundle | when it touches `desktop/` | same paths | manual dispatch |

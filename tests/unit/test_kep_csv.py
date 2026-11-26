@@ -213,7 +213,7 @@ def test_too_many_fields_is_an_error():
 
 def test_read_raises_with_every_failing_row_and_keeps_warnings(tmp_path: Path):
     p = tmp_path / "t.csv"
-    p.write_text("\r\n".join([HEADER, "A,400001,Char", "B,400002,Quad", "C,,Word", "D,400004,Word"]), encoding="utf-8")
+    p.write_text("\r\n".join([HEADER, "A,400001,Char", "B,400002,Quad", "C,,Word", "D,400004,Word"]), encoding="utf-8", newline="")
     with pytest.raises(KepCsvError) as exc:
         read_kep_csv(p, "modbus_tcp")
     assert [e.line for e in exc.value.errors] == [3, 4]
@@ -308,7 +308,7 @@ def test_cli_import_writes_json_tag_list(tmp_path: Path):
 
 def test_cli_import_reports_failing_rows_and_exits_nonzero(tmp_path: Path):
     bad = tmp_path / "bad.csv"
-    bad.write_text("\r\n".join([HEADER, "A,400001,Word", "B,400002,Quad", "C,,Word"]), encoding="utf-8")
+    bad.write_text("\r\n".join([HEADER, "A,400001,Word", "B,400002,Quad", "C,,Word"]), encoding="utf-8", newline="")
     out = tmp_path / "tags.json"
     res = runner.invoke(app, ["tags", "import", str(bad), "--driver", "modbus_tcp", "--out", str(out)])
     assert res.exit_code == 1
@@ -318,7 +318,7 @@ def test_cli_import_reports_failing_rows_and_exits_nonzero(tmp_path: Path):
 
 def test_cli_import_default_type(tmp_path: Path):
     src = tmp_path / "d.csv"
-    src.write_text(HEADER + "\r\nA,400001,Default\r\n", encoding="utf-8")
+    src.write_text(HEADER + "\r\nA,400001,Default\r\n", encoding="utf-8", newline="")
     out = tmp_path / "t.json"
     args = ["tags", "import", str(src), "--driver", "modbus_tcp", "--out", str(out)]
     assert runner.invoke(app, args).exit_code == 1

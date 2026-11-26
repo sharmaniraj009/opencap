@@ -494,7 +494,8 @@
               "opcua_client",
               "modbus_rtu",
               "ab_df1",
-              "simulator"
+              "simulator",
+              "omron_fins"
             ],
             "title": "Driver",
             "type": "string"
@@ -601,7 +602,8 @@
               "opcua_client",
               "modbus_rtu",
               "ab_df1",
-              "simulator"
+              "simulator",
+              "omron_fins"
             ],
             "title": "Driver",
             "type": "string"
@@ -1186,7 +1188,8 @@
                   "opcua_client",
                   "modbus_rtu",
                   "ab_df1",
-                  "simulator"
+                  "simulator",
+                  "omron_fins"
                 ],
                 "title": "Driver",
                 "type": "string"
@@ -1379,7 +1382,8 @@
               "opcua_client",
               "modbus_rtu",
               "ab_df1",
-              "simulator"
+              "simulator",
+              "omron_fins"
             ],
             "title": "Driver",
             "type": "string"

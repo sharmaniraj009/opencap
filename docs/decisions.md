@@ -1933,6 +1933,47 @@ Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo,
 - **Rust:** its loader reads v1 only. Follow-up #186: load `project.json` + `node.yaml` with the same finalize
   steps, and the shared config fixtures for the `project` and `node` documents.
 
+### D-091 Omron FINS driver, Rust-first (#54)
+- **Layout.** `engine/drivers/omron_fins` (`opencap-driver-omron-fins`, feature `driver-omron-fins`, a default). There
+  is no Python FINS driver (ADR-0002 §4): `omron_fins` is added to `DriverName` and `KNOWN_DRIVERS`, and the Python
+  engine reports it "not implemented yet". Written from docs/protocols/omron-fins.md and accepted against
+  `tests/helpers/fins_sim.py`; the address parser passes every `omron_fins/addresses` vector (111).
+- **Read-only.** `wire::Command` can only be 0101, 0104 or 0501; every frame is checked again before it is sent, and a
+  test feeds every write/control command code of W342 5-1-1 to the guard. The simulator's `write_attempts` stays 0.
+- **Planning.** Bits are read as part of their word (word code), so `D100` and `D100.03` are one read; flags (TS, CS,
+  TK) are 1-byte elements with the flag code; IR is a 4-byte element. Per area code, items merge when the hole is at most
+  `max_gap` (8) elements and the read stays within `min(request_size, 1998)` bytes; timers (below 0x8000) and counters
+  (0x8000+) share code 0x89 but never one read. When at least two ranges are single elements, they share a MULTIPLE
+  MEMORY AREA READ (0104, up to 167 items): in the integration test, 33 tags cost 5 requests.
+- **0104 fallback.** A 0104 refused with 0401/0402 switches the device to 0101 for good (logged once; the block's
+  `wire_requests()` then counts one per range). A 0104 refused with any other configuration end code (the simulator
+  answers the whole command with the failing item's code, protocol notes §2.2) is re-read range by range in the same
+  call, so only the ranges the CPU rejects become `bad_config` (and are not read again); the others keep their values.
+- **End codes** as the protocol notes §4 (`code & 0x7F3F`; a relay error word after MRES bit 7 is skipped). A reply
+  is matched by SID and command code; any other frame (a late reply, another client) is dropped while waiting, so a
+  timeout is a CommError and the socket is kept (no `close_on_timeout`: SIDs make late replies harmless). CPU error
+  bits (SRES 7/6) with a normal end code are logged once (`omron_fins.cpu_error`); the data is used.
+- **Transports.** UDP binds an ephemeral port by default (`local_port: 9600` for units in static or IP-table mode),
+  connects the socket to the unit and needs no handshake: the first read shows whether the CPU answers; DA1 defaults to
+  the last octet of the host (KEPServerEX), SA1 to the last octet of the local address. TCP connects and runs the node
+  address handshake (node 0 = allocate, or `src_node`); DA1/SA1 are then the nodes the unit reports; FINS/TCP error
+  notifications and handshake errors are named (W421 7-4).
+- **No BCD dtypes in the config.** KEPServerEX BCD/LBCD become `uint16`/`uint32` with the `D` suffix (Short/Long with
+  `D` = signed BCD, MSB as the sign, PTC's `D0D @ Short = -50`). Timer and counter present values decode as BCD when
+  `tc_bcd` (default true, the CS/CJ default; the parser refuses `D` on T/C). The parser still accepts the `bcd16`/
+  `bcd32` dtype names the vectors use. **Importer:** "Omron FINS Ethernet" devices now map to `omron_fins` (UDP, the
+  model family from the KEPServerEX model text, node/request-size properties by key suffix). No FINS export is
+  available here, so the property keys are **not verified** and every device is flagged; BCD/LBCD tags are still
+  imported disabled, as for every driver (a follow-up can rewrite them to the `D` suffix).
+- **Identity** is CPU UNIT DATA READ with data `00`: model and version (plus transport, nodes, model family); a refused
+  0501 gives an empty identity and reads go on.
+- **Tests.** `tests/integration/test_rust_engine_fins.py` (UDP and TCP): every address form against `sim.value()`, the
+  0104 pool, `check -v`, identity, mute, one area refused (only its tags `bad_config`, also inside the 0104), wrong CPU
+  mode, replies with another SID, a wrong destination node, split TCP replies, a CPU without 0104; the engine-level case
+  (acceptance, Rust only, skipped on the Python engine) power-cycles the simulator and checks demotion and resume.
+- **Still to check on hardware:** KEPServerEX's word order for 32-bit values (`first_word_low`), the reply port in
+  static/table mode, and whether a real CPU answers a multi-read item error like the simulator.
+
 ### D-095 System tags cost what changed, not O(devices²) (#238)
 - **Counters:** `opencap.metrics` keeps plain per-device totals beside the Prometheus counters.
   Code counts through `count_request`, `count_failed_read`, `count_overrun`, `count_published`

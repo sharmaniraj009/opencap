@@ -244,6 +244,16 @@ async def test_silent_plc_is_comm_error_within_the_ack_budget(sim, driver):
     assert all(tv.quality == "good" for tv in (await driver.read(block)).values())
 
 
+async def _accepted(sim, n: int) -> None:
+    """The sim counts a connection when its server accepts it, which can run after the client's
+    connect() has returned (seen on Windows): wait briefly, then require exactly `n`."""
+    for _ in range(200):
+        if sim.connections >= n:
+            break
+        await asyncio.sleep(0.01)
+    assert sim.connections == n
+
+
 async def test_close_on_timeout_drops_the_line(sim):
     drv = AbDf1Driver(_device(sim.port, close_on_timeout=True))
     await drv.connect()
@@ -253,7 +263,7 @@ async def test_close_on_timeout_drops_the_line(sim):
             await drv.read(drv.plan(drv.device.tags).blocks[0])
         assert not drv.connected
         await drv.connect()
-        assert sim.connections == 2
+        await _accepted(sim, 2)
     finally:
         await drv.close()
 
@@ -381,11 +391,7 @@ async def test_two_stations_share_one_line(sim):
     try:
         await a.connect()
         await b.connect()
-        for _ in range(200):                                       # the sim counts on accept, which may
-            if sim.connections:                                    # run after connect() has returned
-                break
-            await asyncio.sleep(0.01)
-        assert sim.connections == 1                                # one TCP connection for the line
+        await _accepted(sim, 1)                                    # one TCP connection for the line
         _assert_values(sim, PATTERN_TAGS, await _read_all(a))
         _assert_values(sim, tags2, await _read_all(b), station=2)
         assert sim.value("F34:3", station=2) != sim.value("F34:3", station=1)

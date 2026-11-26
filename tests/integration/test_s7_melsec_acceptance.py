@@ -44,6 +44,7 @@ from opencap.core.runtime import Poller  # noqa: E402
 from opencap.logsetup import configure_logging  # noqa: E402
 from tests.helpers.broker import TestBroker  # noqa: E402
 from tests.helpers.configdir import write_config  # noqa: E402
+from tests.helpers.engine import run_process  # noqa: E402
 from tests.helpers.mc_sim import McSim, make_mc_tags  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.helpers.s7_sim import S7Sim, load, make_s7_tags  # noqa: E402
@@ -108,10 +109,7 @@ def _matches(got: Any, want: Any) -> bool:
 
 
 async def _opencap(*args: str, cwd) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(sys.executable, "-m", "opencap", *args, cwd=cwd,
-                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-    out, _ = await asyncio.wait_for(proc.communicate(), 60)
-    return proc.returncode, out.decode()
+    return await run_process([sys.executable, "-m", "opencap", *args], cwd=cwd, timeout=60)
 
 
 def _device(site: str, driver: str, sim: Any, tags: list[Tag], params: dict[str, Any]) -> Device:

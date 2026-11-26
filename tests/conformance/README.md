@@ -19,6 +19,7 @@ tests/conformance/
   ab_pccc/plan/*.json    PCCC (SLC/MicroLogix) address parsing and file blocks (D-008, D-027)
   ab_pccc/decode/*.json  PCCC words, bits, floats, strings and T/C sub-elements
   config/              config model fixtures: an older, separate format, see config/compare.py
+  simulator/vectors.json  simulator driver address grammar and values (D-071); see simulator/README.md
 ```
 
 Generator: [`scripts/gen_conformance.py`](../../scripts/gen_conformance.py) (Allen-Bradley inputs

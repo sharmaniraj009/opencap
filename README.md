@@ -432,6 +432,30 @@ Device fields: `enabled`, `host`, `port`, `scan_ms`, `min_scan_ms`, `timeout_ms`
 `address`, `dtype`, `scan_ms`, `scale`. Top-level `serial_ports` maps KEPServerEX COM ports
 of serial devices to a gateway, RFC 2217 server or local port (see "Serial PLCs" above).
 
+### Project v2: `project.json` + `node.yaml`
+
+The files above are layout **v1**: KEPServerEX stays the source and opencap re-imports. Layout
+**v2** ([ADR-0013](docs/adr/0013-project-file-v2.md)) is one editable project document plus the
+node's own settings:
+
+- `project.json`: channels, devices and tags with every override, device-map entry and mapped
+  serial port already applied (schema `schema/project.schema.json`, `"version": 2`, `revision`).
+- `node.yaml`: exactly the fields of `poller.yaml`, which it replaces.
+
+A directory with `project.json` loads as v2; v1 files beside it are ignored with a warning.
+Default topics, unmapped serial lines and the SubDeviceId and duplicate warnings still apply at load
+time, so a topic left unset follows `mqtt.topic_prefix` in `node.yaml`.
+
+```bash
+opencap config migrate --dry-run     # check: the v2 files must load to the same devices
+opencap config migrate               # write project.json + node.yaml, move v1 files to config/v1-backup/
+opencap import-kep project.json --format v2   # import straight into a new v2 directory
+```
+
+Re-importing into a v2 project (a three-way merge) is not supported yet. The config API edits
+v1 only for now: on a v2 project its configuration routes answer 409, while status, values and
+reload keep working. The Rust engine reads v1 only for now (#186). D-089.
+
 ## MQTT topics and payload
 
 | Topic | Retained | Content |

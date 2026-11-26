@@ -1897,3 +1897,38 @@ Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo,
   over half of the CPU and is now a shallow copy (the server writes a new DataValue per change).
   A full GC over an address space this size pauses the loop for seconds (hence `no_gc` in the
   test); the Rust server (#50) is the target for larger plants.
+
+### D-089 Project v2, part 1: what moves into `project.json`, and when the layering runs (#37)
+- **Split:** #37 ships in two PRs. Part 1 is the v2 layout, the loader, `opencap config migrate` and
+  `import-kep --format v2`. Part 2 is the `ProjectStore` protocol, the v2 store (revision counter,
+  `.revisions/`) and the v1 compatibility routes.
+- **`project.json`** is a `DevicesFile` with `"version": 2` and `revision`. It holds the devices as v1 layering
+  leaves them: `overrides.yaml` device, params and tag fields, channel `enabled`, publish settings from devices.json,
+  map `defaults`, overrides and map entries, and mapped `serial_ports`. It is written in `devices.json`'s format (one
+  tag per line, nulls left out). **Not** baked in: a default topic (it would stop following `mqtt.topic_prefix`) and
+  the "unmapped serial line → disabled" rule. Both are finalize steps that the v2 loader applies on every load, as v1
+  does. An unmapped line therefore stays `transport: unmapped`, `enabled: true` in the file and is disabled with a
+  warning when loaded.
+- **`node.yaml`** is `poller.yaml` copied byte for byte, comments included. `NodeConfig` has exactly
+  `PollerConfig`'s fields: ADR-0013 puts north agents in the project, but they are MQTT and OPC UA settings in
+  `poller.yaml` until ADR-0005's north plug-in model exists. Without `node.yaml` the v2 loader reads `poller.yaml`
+  and warns.
+- **Naming rules:** a name segment starting with `_` and the other PRJ-13 naming problems are warnings in v1 and
+  **errors** in a project v2 (system-tags spec 3.2), so a v1 project that breaks them cannot be migrated until the
+  names are fixed (migrate refuses, nothing written). `name` and `title` in `project.json` feed the system tags
+  `_ProjectName` (default: the directory name, as in v1) and `_ProjectTitle`.
+- **Lost on purpose:** `devices_map.yaml`'s `stub: true` flag has no v2 field. `config migrate` reports the stub
+  list once, among the v1 warnings, and the SubDeviceIds go in as given.
+- **Safety:** `config migrate` loads the would-be v2 files from a scratch directory first. Every `Device`, channel
+  (name, enabled), the excluded list and the node settings must equal the v1 load, or nothing is written. It writes
+  `node.yaml`, then `project.json` (atomic). A crash before `project.json` leaves a directory that still loads as v1;
+  running migrate again finishes the job. The v1 files are then **moved** to `config/v1-backup/` (or `-2`, `-3`...),
+  never deleted, so they stop producing "ignored" warnings.
+- **`import-kep --format v2`** runs today's import, with the same stub-append and overrides-template rules, and then
+  migrates. Both formats refuse a directory that already has a `project.json`: a re-import into v2 is the three-way
+  merge follow-up.
+- **Config API on v2, until part 2:** every `ConfigStore` route answers 409, because the v1 files it would edit are
+  gone or ignored. `load_disk()` (the reload-pending tracker) loads v2 through the loader, so status, values and
+  reload keep working. The revision is then a hash of `project.json` and `node.yaml`.
+- **Rust:** its loader reads v1 only. Follow-up #186: load `project.json` + `node.yaml` with the same finalize
+  steps, and the shared config fixtures for the `project` and `node` documents.

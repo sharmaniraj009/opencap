@@ -532,3 +532,25 @@ class PollerConfig(_Model):
     defaults: DeviceDefaults = Field(default_factory=DeviceDefaults)
     check: CheckCfg = Field(default_factory=CheckCfg)
     opcua_server: OpcUaServerCfg = Field(default_factory=OpcUaServerCfg)
+
+
+# --- project v2 (ADR-0013, #37) ----------------------------------------------
+
+class ProjectV2(DevicesFile):
+    """Schema of config/project.json, the v2 project: the single editable document.
+
+    Channels, devices and tags with everything that v1 layers on at load time already applied
+    (overrides, `devices_map.yaml` publish settings, mapped serial ports), so the loader reads
+    it as is. `revision` counts saved versions (the v2 store, #37 part 2, bumps it).
+    """
+
+    version: Literal[2] = 2
+    revision: int = Field(default=0, ge=0)
+    name: str | None = None         # system tag _ProjectName (None = the config directory's name)
+    title: str = ""                 # system tag _ProjectTitle
+
+
+class NodeConfig(PollerConfig):
+    """Schema of config/node.yaml (project v2): what differs per node. Today exactly the fields
+    of `poller.yaml`, which it replaces; north agents move into the project when ADR-0005's
+    north plug-in model lands, and the redundancy role (ADR-0012) is added here."""

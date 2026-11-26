@@ -172,7 +172,11 @@ async def test_inter_frame_gap(rtu_sim):
         started = time.monotonic()
         for _ in range(3):
             await drv.read(block)
-        assert time.monotonic() - started >= 3 * 0.12 - 0.01
+        # Each of the 3 gap waits can end up to one clock resolution early, plus one for the
+        # measurement: ~15.6 ms each with Python 3.12 on Windows (344 ms seen), ~1 ns on Linux.
+        # #219 makes the driver wait the gap out; it removes this allowance.
+        res = time.get_clock_info("monotonic").resolution
+        assert time.monotonic() - started >= 3 * 0.12 - 0.01 - 4 * res
     finally:
         await drv.close()
 

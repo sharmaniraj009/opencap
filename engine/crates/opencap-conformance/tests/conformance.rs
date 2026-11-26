@@ -155,3 +155,83 @@ fn payload() {
         Ok(json!({"bytes": text}))
     });
 }
+
+// --- Allen-Bradley Logix / Micro800 (#43) ---------------------------------------------------------
+
+mod ab_logix {
+    use super::*;
+    use opencap_core::value::Value;
+    use opencap_driver_ab_logix::{decode_block, AbLogixDriver, LogixBlock};
+
+    fn driver(input: &Json) -> Result<Result<(AbLogixDriver, Vec<Tag>), String>, String> {
+        let tags = tags_of(input)?;
+        let mut dev = Device::new("SITE/PLC", "SITE", "PLC", "ab_logix", "192.0.2.1", 44818, vec![]);
+        dev.params = params_of(input);
+        Ok(AbLogixDriver::new(&dev).map(|d| (d, tags)))
+    }
+
+    fn block_of(plan: &Plan, i: usize) -> &LogixBlock {
+        plan.blocks[i].as_any().downcast_ref::<LogixBlock>().expect("a Logix block")
+    }
+
+    #[test]
+    fn plan() {
+        run_area("ab_logix/plan", |input| {
+            let (d, tags) = match driver(input)? {
+                Ok(x) => x,
+                Err(reason) => return Ok(json!({"error": reason})),
+            };
+            let plan = d.plan_tags(&tags);
+            let blocks: Vec<Json> = (0..plan.blocks.len())
+                .map(|i| {
+                    let b = block_of(&plan, i);
+                    json!({
+                        "reads": b.reads.iter().map(|r| json!({"name": r.name, "data_size": r.data_size, "path_size": r.path_size})).collect::<Vec<_>>(),
+                        "items": b.items.iter().map(|it| json!({"tag": it.tag, "index": it.index, "bit": it.bit})).collect::<Vec<_>>(),
+                        "tags": b.tags,
+                        "micro800": b.micro800,
+                        "connection_size": b.connection_size,
+                        "wire_requests": b.estimate_wire_requests(),
+                    })
+                })
+                .collect();
+            Ok(json!({"blocks": blocks, "invalid": plan.invalid}))
+        });
+    }
+
+    #[test]
+    fn decode() {
+        run_area("ab_logix/decode", |input| {
+            let (d, tags) = driver(input)?.map_err(|e| format!("params refused: {e}"))?;
+            let plan = d.plan_tags(&tags);
+            if plan.blocks.len() != 1 || !plan.invalid.is_empty() {
+                return Err(format!("decode vector must plan to one block, got {}", plan.blocks.len()));
+            }
+            // `values` is `none` (no reply) or a list whose elements may be `none`
+            let values: Option<Vec<Option<Value>>> = match input["values"]["t"].as_str() {
+                Some("none") => None,
+                Some("list") => Some(
+                    input["values"]["v"]
+                        .as_array()
+                        .ok_or("bad list")?
+                        .iter()
+                        .map(decode_value)
+                        .collect::<Result<_, _>>()?,
+                ),
+                _ => return Err("values must be a list or none".into()),
+            };
+            let decoded = decode_block(block_of(&plan, 0), values.as_deref());
+            let out: Map<String, Json> = decoded
+                .iter()
+                .map(|(n, r)| {
+                    let enc = match r {
+                        Ok(v) => encode_value(Some(v)),
+                        Err(e) => encode_decode_error(&e.0),
+                    };
+                    (n.clone(), enc)
+                })
+                .collect();
+            Ok(json!({"values": out}))
+        });
+    }
+}

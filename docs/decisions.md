@@ -1516,3 +1516,38 @@ reader would expect:
   and `_Redundancy` agent-name errors (poller.yaml agents; separate follow-up).
 - **Why:** no I/O name may collide with a system-tag folder (PRJ-13, LOG-07), and a project that already
   has such names must still load, be edited and import.
+
+### D-076 ab_logix in the Rust engine: a native CIP client, read services only (#43)
+- **Library choice: none.** Compared on the issue's criteria: *Multiple Service Packet control* (the
+  Micro800 probe needs to send one MSP on demand and read the per-member and whole-packet
+  status): `rseip` and libplctag decide batching themselves; a native client sends exactly what the
+  probe asks. *Tag-list upload and caching by identity*: libplctag keeps its own per-handle tag
+  state and rseip has no upload; native code uploads once and keys the list by (product name,
+  product code, serial, revision) as Python does (D-025). *Connection size / Large Forward Open*:
+  native code sets both. *Read-only guarantee*: the native crate has builders for read services
+  only (Read Tag, Read Tag Fragmented, Multiple Service Packet of reads, Get Attribute List, Get
+  Instance Attribute List, Get Attributes All) and refuses `WRITE_SERVICES` in the packet builder
+  and at the send; with libplctag the write API is in the same binary. *Cross-compiling* (aarch64,
+  Windows): pure Rust, no C toolchain. Licence: no new dependency (`rand`, `regex`, `indexmap`,
+  `tokio` already in the tree), so `deny.toml` is unchanged; libplctag (MPL-2.0 or LGPL) is not
+  linked.
+- **Scope of the client:** TCP + RegisterSession, ListIdentity (replaces Get Attributes All on
+  the identity object: same fields, one request), Large Forward Open then standard (500 B) on
+  refusal, connected messaging (SendUnitData, sequence counts), program name (Logix), the Symbol
+  Object instance list (controller scope and every `Program:` scope, External Access from
+  revision 18) and the UDT templates behind it (member existence, the Logix STRING layout).
+  Names are always addressed symbolically, so a reused tag list can never point at the wrong tag.
+- **Behaviour parity with D-008/D-025:** missing tag (also a missing UDT member, External Access
+  None) -> `bad_config`, never sent; case-insensitive fallback logged once; probe auto/on/off with
+  the same outcomes and the 2-misses give-up; a whole batched read failing on a Micro800 switches
+  batching off (auto only); greedy packing by reply size against the negotiated connection size,
+  an entry larger than the packet is read alone (fragmented); de-duplication; error mapping;
+  connect budget `max(60 s, 20 x timeout)` for the first upload, `5 x timeout + 1 s` after.
+  The conformance vectors (`ab_logix/plan`, `ab_logix/decode`) pass, and so does the Phase 2
+  acceptance with `--engine=rust` against `tests/helpers/cip_sim.py`.
+- **Known differences from the pycomm3 driver:** a whole-structure read is `bad_decode` unless it
+  is a Logix STRING (`dtype: string`); address a member. `keyswitch` is not in `identity`.
+  Fragmented reads of one element are exercised against the simulator only with small connection
+  sizes. Untested on real controllers, like the Python driver (D-025): check `opencap identity`.
+- **Side fix found by the parity test:** `py_float_repr` now breaks exact ties to even like
+  CPython (a float32 widened to f64, e.g. 819.40802001953125, printed one digit apart).

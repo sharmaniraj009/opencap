@@ -56,8 +56,8 @@ policy-level summary, reconciled with it after #64.
 | Sparkplug B payload | `sparkplug_b.proto` from the Eclipse Sparkplug specification + prost; or the `srad` crate | EPL-2.0 (the .proto); srad *verify* | no | Evaluate in #51: srad first if its licence and maturity pass, else .proto + prost (keep the .proto unmodified with its notice) |
 | OPC UA client + server | async-opcua (successor of locka99/opcua) | MPL-2.0 | no | Evaluate against the memory/throughput gate (04 §4.1) |
 | OPC UA (alternative) | open62541 via FFI | MPL-2.0 | no | Evaluate as fallback |
-| EtherNet/IP, Logix, PCCC | native CIP client (RFC 0001 default) vs rseip / rust-ethernet-ip | — ; MIT (*verify*) | no | Decide in #43 (Micro800 batching probe, tag-list cache, read-only guarantee decide it) |
-| EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Evaluate (MPL-2.0 permits static linking) |
+| EtherNet/IP, Logix, PCCC | native CIP client (RFC 0001 default) vs rseip / rust-ethernet-ip | — ; MIT (*verify*) | no | **Decided in #43: native CIP client, no new dependency** (D-076) |
+| EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Not used (D-076): C library, write API in the same binary, cross-compiling cost |
 | Siemens S7comm | — (rust-snap7 is MulanPSL-2.0: Avoid) | — | — | Build: native read subset (COTP, S7 setup, read var); snap7 server as Test-only peer |
 | Mitsubishi MC 3E/4E | — | — | — | Build: native (simple framing) |
 | Omron FINS | — | — | — | Build: native (#54); conformance harness `tests/helpers/fins_sim.py` + `docs/protocols/omron-fins.md` (#13) |

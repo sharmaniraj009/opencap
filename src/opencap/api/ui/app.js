@@ -68,6 +68,12 @@
     return new WebSocket(origin.replace(/^http/, "ws") + LIVE_PATH, protocols);
   }
 
+  var STAGED_KEY = "opencap.import";      // a staged import's id, to reopen the review (#33)
+  function readStaged() { try { return sessionStorage.getItem(STAGED_KEY) || ""; } catch (e) { return ""; } }
+  function writeStaged(id) {
+    try { if (id) { sessionStorage.setItem(STAGED_KEY, id); } else { sessionStorage.removeItem(STAGED_KEY); } } catch (e) { /* private mode */ }
+  }
+
   function enc(s) { return encodeURIComponent(String(s)); }
   function encId(id) { return String(id).split("/").map(encodeURIComponent).join("/"); }   // "<channel>/<device>"
 
@@ -1023,29 +1029,81 @@
       });
     });
 
-    // ------------------------------------------------------------ import
+    // ------------------------------------------------------------ import wizard (upload -> review -> apply, #33)
     Alpine.data("importView", function () {
       return Object.assign({}, helpers, {
-        file: null, fileName: "", report: null, errors: [], busy: false, applied: false,
-        pick: function (ev) { this.file = ev.target.files[0] || null; this.fileName = this.file ? this.file.name : ""; this.report = null; this.errors = []; this.applied = false; },
-        send: function (dryRun) {
+        file: null, fileName: "", report: null, result: null, errors: [], busy: false, step: 1,
+        stubsOk: false, reloadAfter: true, discarded: false,
+        // a staged import survives leaving the page: its id is kept in this tab and reopened here
+        init: function () {
+          var self = this, id = readStaged();
+          if (!id) return;
+          call("GET", "/api/v1/project/import/" + enc(id)).then(function (r) {
+            self.report = r; self.fileName = r.import_summary ? r.import_summary.source.file : "";
+            self.step = 2; self.stubsOk = !self.stubs().length;
+          }).catch(function () { writeStaged(""); });
+        },
+        pick: function (ev) {
+          this.file = ev.target.files[0] || null; this.fileName = this.file ? this.file.name : "";
+          this.errors = []; this.discarded = false;
+        },
+        upload: function () {
           var self = this;
           if (!this.file) { this.errors = [tr("import.choose_file")]; return; }
-          this.busy = true; this.errors = [];
-          var url = "/api/v1/project/import?filename=" + enc(this.fileName) + (dryRun ? "" : "&dry_run=false");
-          call("POST", url, { raw: this.file, rev: dryRun ? undefined : this.report.revision }).then(function (r) {
-            self.report = r; self.applied = !!r.applied;
-            if (r.applied) changed();
+          this.busy = true; this.errors = []; this.discarded = false;
+          call("POST", "/api/v1/project/import?stage=true&filename=" + enc(this.fileName), { raw: this.file }).then(function (r) {
+            self.report = r; self.result = null; self.step = 2; self.stubsOk = !self.stubs().length;
+            writeStaged(r.import_id);
           }).catch(function (e) { self.errors = splitErrors(e, []).general; }).then(function () { self.busy = false; });
         },
-        preview: function () { this.send(true); },
-        apply: function () { if (window.confirm(tr("import.confirm_apply"))) this.send(false); },
+        apply: function () {
+          var self = this;
+          if (!this.canApply()) return;
+          this.busy = true; this.errors = [];
+          var url = "/api/v1/project/import/" + enc(this.report.import_id) + "/apply" + (this.reloadAfter ? "?apply=true" : "");
+          call("POST", url, { rev: this.report.revision }).then(function (r) {
+            self.result = r; self.step = 3; writeStaged(""); changed();
+          }).catch(function (e) {
+            if (e.status === 412) self.errors = [tr("import.err_changed")];
+            else if (e.status === 404) self.errors = [tr("import.err_expired")];
+            else self.errors = splitErrors(e, []).general;
+          }).then(function () { self.busy = false; });
+        },
+        discard: function () {
+          var self = this, id = this.report && this.report.import_id;
+          this.busy = true;
+          call("DELETE", "/api/v1/project/import/" + enc(id)).catch(function () { /* expired already */ }).then(function () {
+            self.reset(); self.discarded = true; self.busy = false;
+          });
+        },
+        again: function () { this.reset(); },
+        reset: function () {
+          writeStaged("");
+          this.report = null; this.result = null; this.errors = []; this.step = 1; this.stubsOk = false;
+          this.file = null; this.fileName = "";
+          var input = document.querySelector("#import-form input[type=file]");
+          if (input) input.value = "";
+        },
+        stepClass: function (n) { return this.step > n ? "done" : ""; },
+        kindText: function () { return tr(this.report && this.report.kind === "kepserver" ? "import.kind_kepserver" : "import.kind_export"); },
+        expiresText: function () { var t = this.report && this.report.expires_at; return t ? new Date(t).toLocaleTimeString() : ""; },
+        // importer summary (KEPServerEX)
+        summary: function () { return (this.report && this.report.import_summary) || null; },
+        countText: function (part) { var s = this.summary()[part]; return tr("import.devices_tags", { devices: s.devices, tags: s.tags }); },
+        saText: function () { var s = this.summary().same_address; return s.alias_groups + " / " + s.suspect_groups; },
+        driverRows: function () {
+          var by = this.summary().included.by_driver || {};
+          return Object.keys(by).sort().map(function (k) { return { name: k, devices: by[k].devices, tags: by[k].tags }; });
+        },
+        excludedRows: function () { return (this.report && this.report.excluded_devices) || []; },
+        sameAddress: function () { return (this.report && this.report.same_address) || []; },
+        kindOf: function (r) { return r.classification + (r.included ? "" : tr("import.not_imported_suffix")); },
+        // changes to the configuration
         dj: function () { return (this.report && this.report.devices_json) || null; },
         sum: function (part, key) { var d = this.dj(); return d ? d.summary[part][key] : 0; },
         changeCounts: function (part) { return "+" + this.sum(part, "added") + " −" + this.sum(part, "removed") + " ~" + this.sum(part, "changed"); },
-        filesText: function () { var f = (this.report && this.report.files) || []; return f.length ? f.join(", ") : tr("import.no_change"); },
-        canApply: function () { return !!this.report && !this.applied && !!(this.report.files || []).length; },
-        nothing: function () { return !!this.report && !this.applied && !(this.report.files || []).length; },
+        files: function () { var r = this.result || this.report; return (r && r.files) || []; },
+        filesText: function () { var f = this.files(); return f.length ? f.join(", ") : tr("import.no_change"); },
         fieldChanges: function (d) { var self = this; return d.fields.map(function (c) { return c.path + ": " + self.short(c.old, 60) + " → " + self.short(c.new, 60); }); },
         tagChanges: function (d) {
           var self = this;
@@ -1054,12 +1112,25 @@
           });
         },
         firstNames: function (list) { return list.slice(0, 20).join(", ") + (list.length > 20 ? " … (+" + (list.length - 20) + ")" : ""); },
-        stubsText: function () { var n = this.stubs().length; return tr(n === 1 ? "import.stubs_one" : "import.stubs_many", { n: n }); },
         stubs: function () { return (this.report && this.report.devices_map && this.report.devices_map.stubs_added) || []; },
         textDiffs: function () { var t = (this.report && this.report.text) || {}; return Object.keys(t).map(function (k) { return { name: k, d: t[k] }; }); },
         textState: function (x) { return tr(x.d.unchanged ? "import.file_unchanged" : (x.d.created ? "import.file_new" : "import.file_changed")); },
         problems: function () { return (this.report && this.report.problems) || []; },
-        warnings: function () { return (this.report && this.report.warnings) || []; },
+        // credentials are never copied: the importer names the environment variables to set (D-010)
+        envNotes: function () { return this.problems().filter(function (p) { return /set [A-Z0-9_]+( and [A-Z0-9_]+)? in the environment/.test(p); }); },
+        warnings: function () { var r = this.result || this.report; return (r && r.warnings) || []; },
+        // apply
+        canApply: function () { return !!this.report && this.step === 2 && !this.busy && this.canEdit() && !!this.files().length && this.stubsOk; },
+        applyHint: function () {
+          if (!this.files().length) return tr("import.hint_nothing");
+          if (!this.stubsOk) return tr("import.hint_stubs");
+          return tr("import.writes", { files: this.filesText() });
+        },
+        resultText: function () {
+          var r = this.result, vars = { file: this.fileName, files: this.filesText(), error: r && r.reload_error };
+          if (!r) return "";
+          return tr(r.reload ? "import.imported_reloaded" : (r.reload_error ? "import.imported_reload_error" : "import.imported"), vars);
+        },
       });
     });
 

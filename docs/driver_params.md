@@ -36,7 +36,7 @@ KEPServer keys are shown without the driver prefix where obvious.
 | `slot` | int \| null | null | last element of `path` (backplane slot), e.g. 0 |
 | `max_batch` | int | 40 | — (tags per `plc.read(*tags)` call) |
 | `batching` | "auto" \| "on" \| "off" | "auto" | — (Micro800 Multiple Service Packet: auto = probe on connect) |
-| `connection_size` | int \| null | null | `controllogix_ethernet.DEVICE_CONNECTION_SIZE_BYTES` (used for the wire estimate now; applied to pycomm3 in Phase 2) |
+| `connection_size` | int \| null | null | `controllogix_ethernet.DEVICE_CONNECTION_SIZE_BYTES` (wire estimate; also the Forward Open size: above 511 B a Large Forward Open is tried first) |
 
 ## ab_pccc  (SLC / MicroLogix / PLC-5 data-table addresses via pycomm3 `SLCDriver`)
 | key | type | default | KEPServer source |

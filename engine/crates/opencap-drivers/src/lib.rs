@@ -47,6 +47,14 @@ pub static DRIVERS: &[DriverEntry] = &[
         #[cfg(not(feature = "driver-modbus-rtu"))]
         create: None,
     },
+    DriverEntry {
+        name: "ab_logix",
+        feature: "driver-ab-logix",
+        #[cfg(feature = "driver-ab-logix")]
+        create: Some(|d| Ok(Box::new(opencap_driver_ab_logix::AbLogixDriver::new(d)?))),
+        #[cfg(not(feature = "driver-ab-logix"))]
+        create: None,
+    },
 ];
 
 /// Driver names this build can poll, in table order.

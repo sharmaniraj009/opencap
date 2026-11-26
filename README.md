@@ -69,6 +69,7 @@ ports and RFC 2217; serial-over-TCP gateways need nothing extra). `all` installs
 # 4. Read one device once and print its values (no MQTT)
 .venv/bin/opencap read "Plant A/PLC1"            # --tag FLOW_1 for one tag
 .venv/bin/opencap identity "Plant A/PLC1"        # vendor, model, firmware if the PLC reports them
+.venv/bin/opencap browse "Plant A/PLC1" --out plc1_tags.json   # tags from the PLC's own tag list
 
 # 5. Run: poll, publish to MQTT, serve the admin API
 export OPENCAP_MQTT_PASSWORD=...    # only if mqtt.username is set

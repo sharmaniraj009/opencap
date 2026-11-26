@@ -89,6 +89,17 @@ class Plan:
         return sum(b.wire_requests() for b in self.blocks)
 
 
+@dataclass
+class BrowseResult:
+    """Result of `Driver.browse()`: generated tags, plus what the device has but no tag was made for.
+
+    `skipped` maps the device's own name for the item (tag, member, element range) to the reason.
+    """
+
+    tags: list[Tag] = field(default_factory=list)
+    skipped: dict[str, str] = field(default_factory=dict)
+
+
 class Driver(ABC):
     name: ClassVar[str]
     is_async: ClassVar[bool] = True
@@ -140,6 +151,17 @@ class Driver(ABC):
 
     async def identity(self) -> dict[str, Any]:
         return {}
+
+    async def browse(self, *, expand_arrays: bool = False) -> BrowseResult:
+        """Automatic tag generation (#11): the device's own tag list as opencap tags.
+
+        Called on a connected driver. Read-only like everything else: it may use read and list
+        services only (a tag-list upload, a browse request), never a write or set service. The
+        tags it returns must plan cleanly (`plan()` gives no `invalid` for them). With
+        `expand_arrays`, an array becomes one tag per element; otherwise a driver that cannot
+        read a whole array skips it with a reason.
+        """
+        raise NotImplementedError("browse not supported")
 
     async def write(self, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError("opencap is read-only: writes to PLCs are not supported")

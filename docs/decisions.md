@@ -1363,7 +1363,9 @@ ADR-0005 / 03 §3.2 would expect:
   licensed Python FINS client validates the simulator over UDP and TCP.
 - **Done:** we followed PTC's *Omron FINS Ethernet Driver* manual (v1.083) for the syntax. It writes
   a banked EM word as `E<bank>:<word>` with a **decimal** bank (`E00:00100`, `E12:32767`; CJ2 up
-  to `E24:`), and the current bank as `E<word>`. `E0_100` is Omron's own notation (W342 5-2-2).
+  to `E24:`), and the current bank as `E<word>`. The source is the "Expansion Data Memory" rows:
+  CS1 p. 59, CJ1 p. 64 (`E00:00000-E12:32767`), CJ2 p. 68 (`E00:00000-E24:32767`), with the current bank
+  `E00000-E32767` on the same pages (re-checked for #166). `E0_100` is Omron's own notation (W342 5-2-2).
   The vectors list `E0_100` and `EM100` as invalid, so an importer cannot accept them silently.
   The same manual sets the rest of the vector set: data types (no 64-bit types and no Double),
   default types (BCD for timers and counters, DWord for IR), `H`/`L`/`D`/`E` strings, the `D`
@@ -1517,7 +1519,98 @@ reader would expect:
 - **Why:** no I/O name may collide with a system-tag folder (PRJ-13, LOG-07), and a project that already
   has such names must still load, be edited and import.
 
-### D-077 Driver catalogue, params schemas, collection queries (#129)
+### D-076 ab_logix in the Rust engine: a native CIP client, read services only (#43)
+- **Library choice: none.** Compared on the issue's criteria: *Multiple Service Packet control* (the
+  Micro800 probe needs to send one MSP on demand and read the per-member and whole-packet
+  status): `rseip` and libplctag decide batching themselves; a native client sends exactly what the
+  probe asks. *Tag-list upload and caching by identity*: libplctag keeps its own per-handle tag
+  state and rseip has no upload; native code uploads once and keys the list by (product name,
+  product code, serial, revision) as Python does (D-025). *Connection size / Large Forward Open*:
+  native code sets both. *Read-only guarantee*: the native crate has builders for read services
+  only (Read Tag, Read Tag Fragmented, Multiple Service Packet of reads, Get Attribute List, Get
+  Instance Attribute List, Get Attributes All) and refuses `WRITE_SERVICES` in the packet builder
+  and at the send; with libplctag the write API is in the same binary. *Cross-compiling* (aarch64,
+  Windows): pure Rust, no C toolchain. Licence: no new dependency (`rand`, `regex`, `indexmap`,
+  `tokio` already in the tree), so `deny.toml` is unchanged; libplctag (MPL-2.0 or LGPL) is not
+  linked.
+- **Scope of the client:** TCP + RegisterSession, ListIdentity (replaces Get Attributes All on
+  the identity object: same fields, one request), Large Forward Open then standard (500 B) on
+  refusal, connected messaging (SendUnitData, sequence counts), program name (Logix), the Symbol
+  Object instance list (controller scope and every `Program:` scope, External Access from
+  revision 18) and the UDT templates behind it (member existence, the Logix STRING layout).
+  Names are always addressed symbolically, so a reused tag list can never point at the wrong tag.
+- **Behaviour parity with D-008/D-025:** missing tag (also a missing UDT member, External Access
+  None) -> `bad_config`, never sent; case-insensitive fallback logged once; probe auto/on/off with
+  the same outcomes and the 2-misses give-up; a whole batched read failing on a Micro800 switches
+  batching off (auto only); greedy packing by reply size against the negotiated connection size,
+  an entry larger than the packet is read alone (fragmented); de-duplication; error mapping;
+  connect budget `max(60 s, 20 x timeout)` for the first upload, `5 x timeout + 1 s` after.
+  The conformance vectors (`ab_logix/plan`, `ab_logix/decode`) pass, and so does the Phase 2
+  acceptance with `--engine=rust` against `tests/helpers/cip_sim.py`.
+- **Known differences from the pycomm3 driver:** a whole-structure read is `bad_decode` unless it
+  is a Logix STRING (`dtype: string`); address a member. `keyswitch` is not in `identity`.
+  Fragmented reads of one element are exercised against the simulator only with small connection
+  sizes. Untested on real controllers, like the Python driver (D-025): check `opencap identity`.
+- **Side fix found by the parity test:** `py_float_repr` now breaks exact ties to even like
+  CPython (a float32 widened to f64, e.g. 819.40802001953125, printed one digit apart).
+
+### D-077 Automatic tag generation: `Driver.browse()` and `opencap browse` for ab_logix (#11)
+- **Contract:** `async Driver.browse(*, expand_arrays=False) -> BrowseResult(tags, skipped)` on a connected
+  driver, not the `-> list[Tag]` of the issue: the CLI must report what was skipped and why, and a second
+  return channel is clearer than a side attribute. The default raises `NotImplementedError("browse not
+  supported")`. Read and list services only (ADR-0008); every generated tag must plan cleanly
+  (`opencap browse` exits 3 if one does not, a bug).
+- **ab_logix** maps the tag list pycomm3 uploaded at connect (D-025), so browse sends **no request of its
+  own**: the simulator test checks the request count does not move and that only Get Attributes, Read Tag
+  (fragmented), Multiple Service Packet and the tag-list upload were ever served.
+- **Mapping:** BOOL, SINT/USINT (widened to int16/uint16, lossless), INT, UINT, DINT, UDINT, LINT, ULINT,
+  REAL, LREAL, Logix STRING structures (any length) and Micro800 SHORT_STRING. A UDT becomes one tag per
+  atomic member, one level (`PUMP_1.TOTAL`; the dot makes the UDT a tag group); names keep the controller's
+  spelling and are sorted without case. The description is the controller type (`REAL`, `SimUdt.TOTAL: REAL`):
+  pycomm3 does not upload tag descriptions.
+- **Arrays:** the driver reads single elements only (`{n}` block reads are refused and a list cannot be
+  coerced to a dtype), so an array is **skipped with a reason** unless `--expand-arrays`, which makes one tag
+  per element (`TREND_1[0]`, `M[0,1]`, row-major), at most 4096 per array. Logix BOOL arrays (DWORD-packed)
+  are skipped.
+- **Skipped with a reason:** program-scoped tags (the issue asks for controller scope; Micro800 cannot read
+  them), External Access None, arrays of UDTs, nested UDTs and STRING members (not simulated, D-024),
+  bit-string and other non-atomic types (BYTE, WORD, DWORD, LWORD, TIMER, MESSAGE...).
+- **Output:** a JSON tag list (`Device.tags` shape) to `--out tags.json` or stdout; `--out tags.csv` uses the
+  KEPServerEX CSV writer (#10) when it is in the build, else it fails with that reason. Merging into a device
+  is the config API's job (plan DEV-12), not this command's.
+- **Rust:** not ported; follow-up issue (trait method, ab_logix mapping on its own CIP client, same skip rules).
+
+### D-079 Config and API events, refusal records, API start and bind failure (#135)
+
+- **Events** (Python engine): `config.write_failed` (ERROR: `who`, `via`, `action`, `files`, `reason` = `read_only` |
+  `disk_full` | `partial` | `io`, `status`, and for `partial` the `.bak` files to copy back as `restore`),
+  `config.change_rejected` (INFO: `who`, `via`, `action`, `target`, `status`, `count`, first error's `loc` and `msg`),
+  `api.request_refused` (WARNING for 401 and 403, INFO otherwise: `method`, `path`, `status`, `who`, `client`, `via`,
+  `suppressed`), `api.started` (INFO: `bind`, `port`, `open_mode`, `tokens`) and `api.bind_failed` (ERROR: `bind`,
+  `port`, `reason` = `in_use` | `permission_denied` | `address_unavailable` | `bad_address` | `config` | `io`).
+- **One event per refusal.** A refused config write (any 4xx of a POST/PUT/PATCH/DELETE through the config API,
+  including 412, 422 and 428) is `config.change_rejected` only; `api.request_refused` covers everything else with
+  401, 403, 412, 413, 422 or 428 (bad token, role, body size, malformed query). Nothing is written to the audit log
+  (D-043). Field values, bodies, query strings and token values are never logged; `who` is the token name or `unknown`.
+- **Flood control.** `api.request_refused` is written at most once per second per client address and status; the next
+  line carries `suppressed`. This is a local limiter; replace it with the shared flood control of #133 when that lands.
+- **Open question 7 (plan 15): the client address is acceptable** in these lines. The API listens on loopback or a VPN
+  address, the address is the peer's (behind a reverse proxy it is the proxy's), and it is what an operator needs to
+  find a failing client. It is not logged for accepted requests.
+- **API start.** The API socket is bound by opencap before uvicorn takes it, so a taken port, a bad address or open
+  mode on a non-loopback bind is reported as `api.bind_failed` and `opencap run` exits with status 1 after stopping what
+  had started. Python had no start line before; Rust logs `api_started` (`bind`, `port`).
+- **Legacy name.** Rust keeps `api_started` for now: existing INFO names are frozen until LOG-R1's rename question is
+  decided (#134). Python emits only the dotted `api.started`, so until then the engines differ in this one name.
+- **Correlation (LOG-R15).** `config_reloaded` carries `revision`, and `who` and `via` when the reload came from the API;
+  `poller_started` carries `version`, `engine`, `instance` and `revision`. Audit entries already carry `revision`.
+- **Rust engine** (not in this change, no Rust build was run): `config.change_rejected`/`config.write_failed` come with
+  the Rust config API (API-35, #140); until then it needs `api.request_refused` for its 401, 403 and 413 answers with the
+  same fields and the one-per-second limit, `api.bind_failed` (reason codes above) with a non-zero exit when the port
+  is taken, `revision` on `config_reloaded`, and `engine`, `instance`, `revision` on `poller_started`.
+- **Secrets test.** `tests/unit/test_api_events.py` and `tests/integration/test_api_events_runtime.py` run the API with
+  known token and broker-password values and fail if any captured event or audit line contains them.
+### D-081 Driver catalogue, params schemas, collection queries (#129)
 
 - **Schemas live next to each driver** as `Driver.params_schema` (JSON Schema draft 2020-12, built with
   `drivers/_schema.py`), with `transport`, `dtypes`, `address_examples` and `supports_browse`; `supports_identity` is

@@ -23,9 +23,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from opencap import metrics
 from opencap.api import schemas as S
@@ -33,6 +36,7 @@ from opencap.api.audit import AuditLog
 from opencap.api.auth import Auth, AuthError, Principal
 from opencap.api.config_api import Unavailable, build_router
 from opencap.api.context import ApiContext
+from opencap.api.events import REFUSED_STATUSES, client_address, log_config_error, principal_fields
 from opencap.api.guard import ApiGuard
 from opencap.api.live import CONFLATE_S, PROTOCOL, LiveHub, live_endpoint
 from opencap.config.models import ApiCfg
@@ -101,7 +105,7 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
     app.state.live = LiveHub(poller)
     # Authenticate before any body is read, and cap body sizes (guard.py). Added before CORS, so
     # the CORS middleware sits outside it and answers preflight requests.
-    app.add_middleware(ApiGuard, auth=auth)
+    app.add_middleware(ApiGuard, auth=auth, refusals=ctx.refusals)
     if cfg.cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=cfg.cors_origins, allow_credentials=False,
                            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -109,13 +113,32 @@ def create_app(poller: "Poller", cfg: ApiCfg, *, config_dir: Path | None = None,
                            expose_headers=["ETag"])
     auth_dep = [Depends(require_token)]
 
+    def refused(request: Request, status: int, who: str | None = None) -> None:
+        """`api.request_refused` for an answer a handler (not the guard) produced (API-14)."""
+        fields = principal_fields(request)
+        ctx.refusals.refused(method=request.method, path=request.url.path, status=status,
+                             who=who or fields["who"], client=client_address(request), via=fields["via"])
+
     @app.exception_handler(AuthError)
     async def _auth_error(request: Request, exc: AuthError) -> JSONResponse:
+        refused(request, exc.status, exc.who)
         headers = {"WWW-Authenticate": "Bearer"} if exc.status == 401 else None
         return JSONResponse({"detail": exc.message}, status_code=exc.status, headers=headers)
 
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(request: Request, exc: RequestValidationError) -> Response:
+        refused(request, 422)
+        return await request_validation_exception_handler(request, exc)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
+        if exc.status_code in REFUSED_STATUSES:
+            refused(request, exc.status_code)
+        return await http_exception_handler(request, exc)
+
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:
+        log_config_error(request, exc)
         body: dict[str, Any] = {"detail": exc.errors if exc.errors else exc.message}
         if exc.errors:
             body["message"] = exc.message

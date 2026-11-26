@@ -157,7 +157,7 @@ def run_cmd(
     import asyncio
 
     from opencap.config.loader import load_config
-    from opencap.core.runtime import Poller, event_loop_factory
+    from opencap.core.runtime import ApiStartError, Poller, event_loop_factory
     from opencap.logsetup import configure_logging
 
     loaded = load_config(config_dir)
@@ -170,6 +170,8 @@ def run_cmd(
     try:
         asyncio.run(Poller(config_dir, loaded=loaded, only_channels=site or None).run_forever(),
                     loop_factory=event_loop_factory())
+    except ApiStartError:
+        raise typer.Exit(1) from None      # api.bind_failed is logged: no process without its API (LOG-29)
     except KeyboardInterrupt:
         # Ctrl+C where the loop has no signal handlers (Windows, e.g. a WinSW service stop):
         # asyncio cancelled run_forever(), which has already stopped the poller cleanly.
@@ -220,6 +222,37 @@ def tags_import_cmd(
     out.write_text(json.dumps([t.model_dump(mode="json", exclude_defaults=True) for t in tags], indent=2) + "\n",
                    encoding="utf-8")
     typer.echo(f"wrote {len(tags)} tags to {out}")
+
+
+@app.command("browse")
+def browse_cmd(
+    device_id: str = typer.Argument(..., help="'<channel>/<device>', e.g. 'Plant A/PLC1'"),
+    out: Path | None = typer.Option(None, "--out", dir_okay=False, help="tags.json or tags.csv (default: JSON on stdout)"),
+    expand_arrays: bool = typer.Option(False, "--expand-arrays", help="One tag per array element"),
+    config_dir: Path = CONFIG_OPT,
+) -> None:
+    """Generate tags from the device's own tag list (read-only; ab_logix). Writes a list to review."""
+    import asyncio
+
+    from opencap.core.browse import BrowseError, browse_device, tags_json, write_tags
+    from opencap.logsetup import configure_logging
+
+    configure_logging("WARNING")
+    _, _, device = _find_device(config_dir, device_id)
+    try:
+        report = asyncio.run(browse_device(device, expand_arrays=expand_arrays))
+        if out is not None:
+            write_tags(report.tags, out)
+    except BrowseError as exc:
+        typer.echo(f"browse failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+    if out is None:
+        typer.echo(tags_json(report.tags), nl=False)
+    for line in report.summary_lines():
+        typer.echo(line, err=True)
+    if out is not None:
+        typer.echo(f"wrote {len(report.tags)} tags to {out}", err=True)
+    raise typer.Exit(3 if report.invalid else 0)
 
 
 def main() -> None:

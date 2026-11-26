@@ -597,7 +597,7 @@ poll mechanism (p. 219–220).
 | API-11 | Force update flag | Out of scope | Out of scope | — | — |
 | API-12 | Event log retrieval | Defer | Planned (#136) | #136 | M5 |
 | API-13 | Transaction log of configuration changes (audit) | Adapt | Done | #63 | M1 |
-| API-14 | Records of refused requests | Adapt | Planned (#135) | #135 | M5 |
+| API-14 | Records of refused requests | Adapt | Done (Python, #135) | #135 | M5 |
 | API-15 | Content retrieval: response shapes and definitions | Adapt | Done | #63 | M1 |
 | API-16 | Driver catalogue | Adapt | Done (Python, #129) | #129 | M3 |
 | API-17 | Filtering and sorting collections | Adapt | Done (Python, #129) | #129 | M3 |

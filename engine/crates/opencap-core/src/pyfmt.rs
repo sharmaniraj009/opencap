@@ -24,8 +24,11 @@ pub fn py_float_repr(x: f64) -> String {
     }
     let sci = format!("{:e}", x.abs());
     let (mant, exp) = sci.split_once('e').expect("{:e} always has an exponent");
-    let exp: i32 = exp.parse().expect("exponent is an integer");
-    let digits: String = mant.chars().filter(|c| *c != '.').collect();
+    let mut exp: i32 = exp.parse().expect("exponent is an integer");
+    let mut digits: String = mant.chars().filter(|c| *c != '.').collect();
+    if let Some((d, e)) = tie_to_even(x.abs(), &digits, exp) {
+        (digits, exp) = (d, e);
+    }
     let n = digits.len() as i32;
     let decpt = exp + 1; // value = 0.DIGITS x 10^decpt
     let body = if decpt <= -4 || decpt > 16 {
@@ -47,6 +50,40 @@ pub fn py_float_repr(x: f64) -> String {
     } else {
         body
     }
+}
+
+/// Rust and CPython agree on the shortest digits except when the exact binary value lies
+/// exactly halfway between two candidates of that length (common for float32 values widened
+/// to a double, e.g. 819.40802001953125): Rust takes the upper one, CPython the even one.
+/// Returns the even candidate (digits, exponent) when that is the case.
+fn tie_to_even(x: f64, digits: &str, exp: i32) -> Option<(String, i32)> {
+    let n = digits.len();
+    let last = digits.as_bytes()[n - 1] - b'0';
+    if last % 2 == 0 {
+        return None;
+    }
+    // exact expansion: n significant digits, then "5" and only zeros means a tie
+    let exact = format!("{:.*e}", n + 40, x);
+    let (m, e) = exact.split_once('e')?;
+    let all: String = m.chars().filter(|c| *c != '.').collect();
+    if e.parse::<i32>().ok()? != exp || all.len() < n + 2 {
+        return None;
+    }
+    let (head, tail) = all.split_at(n);
+    if !tail.starts_with('5') || !tail[1..].bytes().all(|b| b == b'0') {
+        return None;
+    }
+    // head is the truncation: the candidates are head and head + 1 (one ulp of the last digit);
+    // Rust chose the upper one when `digits` > head
+    if digits <= head {
+        return None;
+    }
+    let even = head.to_string();
+    if even.as_bytes()[n - 1] % 2 != 0 {
+        return None;
+    }
+    let candidate: f64 = format!("{}.{}e{}", &even[..1], &even[1..], exp).parse().ok()?;
+    (candidate == x).then_some((even, exp))
 }
 
 /// `round(x, ndigits)` for a Python float: correctly rounded from the exact binary value,
@@ -194,6 +231,14 @@ pub fn py_percent0(x: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_ties_round_to_even_like_cpython() {
+        assert_eq!(py_float_repr(f64::from(f32::from_bits(0x444cda1d))), "819.4080200195312");
+        assert_eq!(py_float_repr(0.1), "0.1");
+        assert_eq!(py_float_repr(5e-324), "5e-324");
+        assert_eq!(py_float_repr(1.5), "1.5");
+    }
 
     #[test]
     fn float_repr_matches_cpython() {

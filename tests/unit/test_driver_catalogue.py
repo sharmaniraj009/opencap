@@ -153,4 +153,5 @@ def test_identity_and_browse_flags_follow_the_class():
 
     assert get_driver_class("modbus_tcp").supports_identity() is True
     assert Driver.supports_identity() is False
-    assert all(d["supports_browse"] is False for d in catalogue.listing()["drivers"])   # none browses yet
+    browsing = {d["name"] for d in catalogue.listing()["drivers"] if d["supports_browse"]}
+    assert browsing == {"ab_logix"}                  # the only driver with a browse() (#11)

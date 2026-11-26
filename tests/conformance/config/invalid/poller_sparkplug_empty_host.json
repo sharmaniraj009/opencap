@@ -1,0 +1,10 @@
+{
+  "document": "poller",
+  "expected_error": "sparkplug: primary_host_id must not be empty",
+  "semantic": true,
+  "data": {
+    "sparkplug": {
+      "primary_host_id": ""
+    }
+  }
+}

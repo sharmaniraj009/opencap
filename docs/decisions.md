@@ -2035,3 +2035,59 @@ Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo,
   tags.
 - **Rust (#56):** it has no system tags yet. When it gets them it should do the same: atomic
   per-device counters, and per-device event updates rather than a node-wide recomputation.
+
+## Sparkplug B (#51)
+
+### D-090 Sparkplug B codec: proto + prost, not srad; what the specification leaves open
+Spec: `docs/spec/payload-sparkplug.md`. Code: `engine/north/sparkplug`. Vectors: `tests/conformance/sparkplug/`.
+- **srad not used.** `oss-reuse.md` asked #51 to evaluate the `srad` crates first. They are MIT OR Apache-2.0 but
+  pre-1.0, with breaking releases from 0.4 to 0.7 in eight months and about 5k downloads in total. `srad-types` also
+  ships prost code generated from the EPL-2.0 `sparkplug_b.proto`, comments included, under MIT/Apache without an
+  EPL notice. srad is also a framework that owns the MQTT session, which would bypass the outbox (ADR-0011) and the
+  NorthPlugin contract. Instead the proto is vendored unmodified (Tahu v1.0.19, `proto/third_party/`, listed in
+  `NOTICE`) and compiled at build time by prost-build and protox. protox is a pure-Rust compiler, so no system
+  `protoc` is needed and no generated code is committed.
+- **Negative Int8/Int16/Int32:** stored as value mod 2^width in `int_value`. The spec gives `uint32` and no rule.
+  Tahu Java sign-extends to 32 bits, while Tahu Python adds 2^width. The Java decoder casts (`(short) getIntValue()`),
+  so it reads either form; the Rust decoder accepts both.
+- **UInt32 in `int_value`,** the spec's field type. Tahu Java writes `long_value`, and its decoder and ours accept both.
+- **Scaled tags are Double**, because the value is always a float. Arrays use the spec's packed little-endian bytes.
+  BooleanArray puts the first value in the MSB (the spec's example) with zero padding bits.
+- **Quality (ADR-0006):** a `Quality` Int32 property (192, 0x18, 0x04, 0x00, 0x44). `bad_config` and `bad_decode`
+  are `is_null` even with a last value; `bad_comm` and `stale` keep it. #30's shared module will replace
+  `quality.rs`.
+- **Names and aliases.** A tag's dots become `/` in the metric name, because dots are the group path, as in
+  KEPServerEX. Aliases are unique per edge node and handed out from 1 in birth order: `bdSeq`,
+  `Node Control/Rebirth`, then each device's tags in config order. `bdSeq` carries an alias in NBIRTH, because every
+  birth metric needs one (tck-id-payloads-alias-birth-requirement); it has none in NDEATH.
+- **Properties `engUnit`/`engLow`/`engHigh`**: these are the names Ignition's MQTT Engine maps; *verify* at L2.
+- **Commands:** only `Node Control/Rebirth` = true in an NCMD is executed, by name or by its alias. Everything else
+  in an NCMD, and every DCMD metric, is rejected with a reason (ADR-0008).
+- **STATE:** only the 3.0 JSON form. Plain-text `ONLINE`/`OFFLINE` from Sparkplug 2.x hosts is not supported.
+- **Vectors from an independent reference.** No Python engine implements Sparkplug, so the vectors come from a
+  second implementation of the spec page: `tests/helpers/sparkplug_ref.py`, on Google's protobuf runtime (Python
+  `protobuf`, BSD-3-Clause, `dev` extra, test-only). It loads the schema from `sparkplug_b.desc`, which protox
+  compiles without source info so line endings and comments don't matter, and which a Rust test keeps identical to
+  the build. prost and Google's runtime produce identical bytes for every case. Two mutations confirm the replay
+  test catches regressions: Tahu Java's sign extension for Int16, and LSB-first BooleanArray bits.
+- **Licence gate:** `scripts/check_licenses.py` learned the `3-Clause BSD License` spelling of protobuf's metadata.
+- **Quality from the shared table.** `quality.rs` follows `tests/conformance/quality/map.json`, and `tests/vectors.rs`
+  checks it. A stale tag that was never read has Quality 0x00, not 0x44. The Python reference calls
+  `opencap.core.quality.to_sparkplug`.
+- **The edge node (spec §8).**
+  - It has its own MQTT connection, because Sparkplug needs its own Will (NDEATH with a new bdSeq on every CONNECT)
+    and its own subscriptions. The broker settings come from `mqtt`, through the new shared
+    `opencap_north::mqtt::client_options`.
+  - A STATE `online: false` ends the session (NDEATH, disconnect, a new CONNECT after 2 s), as the spec requires for
+    a primary host that lost this server.
+  - Data held while the session has no births goes to the node's own outbox as historical DDATA. It is replayed
+    after the next births, with new seq numbers. That includes data read before the host was first online, because
+    it is history the host has not seen.
+  - The outbox rows are deleted once handed to the client, because DDATA is QoS 0 by the spec.
+  - The runtime restarts the node when the `sparkplug` or `mqtt` settings or the device set change, so the births
+    always list every metric.
+- **Known limits.**
+  - `StoreAndForward::put` sets the global `saf_queue` gauge, so it now also counts the Sparkplug outbox. Per-agent
+    labels belong to #142.
+  - The TCK has no headless runner; the tck-ids the integration test covers are listed in spec §8.5.
+

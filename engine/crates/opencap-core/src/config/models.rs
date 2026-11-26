@@ -1212,6 +1212,95 @@ fn d_log_level() -> String {
 fn d_stats() -> f64 {
     300.0
 }
+// --- sparkplug (#51) ---------------------------------------------------------------------------
+
+/// Sparkplug ids are non-empty UTF-8 without `+`, `/`, `#` (spec 4.1.1) or NUL (Python
+/// `_sparkplug_id_error`).
+pub fn sparkplug_id_error(what: &str, ident: &str) -> Option<String> {
+    if ident.is_empty() {
+        return Some(format!("sparkplug: {what} must not be empty"));
+    }
+    ident.chars().find(|c| matches!(c, '+' | '/' | '#' | '\0')).map(|c| {
+        format!(
+            "sparkplug: {what} {} contains the reserved character {}",
+            py_repr_str(ident),
+            py_repr_str(&c.to_string())
+        )
+    })
+}
+
+fn d_group_id() -> String {
+    "opencap".into()
+}
+fn d_sp_outbox() -> String {
+    "data/sparkplug-outbox.sqlite".into()
+}
+fn d_sp_outbox_max() -> i64 {
+    64 * 1024 * 1024
+}
+
+/// `poller.yaml` `sparkplug` (Python `SparkplugCfg`): the Sparkplug B 3.0 edge node (#51),
+/// served by `engine/north/sparkplug` on its own connection to the `mqtt` broker.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SparkplugCfg {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "d_group_id")]
+    pub group_id: String,
+    #[serde(default)]
+    pub edge_node_id: Option<String>,
+    #[serde(default)]
+    pub primary_host_id: Option<String>,
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub devices: IndexMap<String, String>,
+    #[serde(default = "d_sp_outbox")]
+    pub outbox: String,
+    #[serde(default = "d_sp_outbox_max")]
+    pub outbox_max_bytes: i64,
+}
+
+impl Default for SparkplugCfg {
+    fn default() -> Self {
+        d_obj()
+    }
+}
+
+impl SparkplugCfg {
+    pub fn validate(&self) -> Result<(), String> {
+        let ids = [
+            ("group_id", Some(&self.group_id)),
+            ("edge_node_id", self.edge_node_id.as_ref()),
+            ("primary_host_id", self.primary_host_id.as_ref()),
+        ];
+        for (what, ident) in ids {
+            if let Some(err) = ident.and_then(|i| sparkplug_id_error(what, i)) {
+                return Err(err);
+            }
+        }
+        for (dev, ident) in &self.devices {
+            if let Some(err) = sparkplug_id_error(&format!("device id for {}", py_repr_str(dev)), ident) {
+                return Err(err);
+            }
+        }
+        let unique: std::collections::HashSet<&String> = self.devices.values().collect();
+        if unique.len() != self.devices.len() {
+            return Err("sparkplug: two devices map to the same Sparkplug device id".into());
+        }
+        if self.outbox_max_bytes < 1 {
+            return Err("sparkplug: outbox_max_bytes must be >= 1".into());
+        }
+        Ok(())
+    }
+
+    /// The Sparkplug device id of an opencap device: `devices`, else `<channel>.<device>`.
+    pub fn device_id(&self, device: &Device) -> String {
+        self.devices.get(&device.id).cloned().unwrap_or_else(|| format!("{}.{}", device.channel, device.name))
+    }
+}
+
 fn d_obj<T: for<'de> Deserialize<'de>>() -> T {
     serde_json::from_value(Json::Object(Map::new())).expect("all fields have defaults")
 }
@@ -1241,6 +1330,9 @@ pub struct PollerConfig {
     pub opcua_server: OpcUaServerCfg,
     #[serde(default = "d_obj")]
     pub plugins: PluginsCfg,
+    /// #51: served by `engine/north/sparkplug`.
+    #[serde(default = "d_obj")]
+    pub sparkplug: SparkplugCfg,
 }
 
 impl Default for PollerConfig {

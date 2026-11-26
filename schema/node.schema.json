@@ -509,6 +509,77 @@
       },
       "title": "SafCfg",
       "type": "object"
+    },
+    "SparkplugCfg": {
+      "additionalProperties": false,
+      "description": "Sparkplug B 3.0 edge node (#51, docs/spec/payload-sparkplug.md). Served by the Rust engine;\nthe Python engine loads and validates it, and warns. Uses the broker of `mqtt` on its own\nconnection (its own client id and Will).",
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "devices": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Devices",
+          "type": "object"
+        },
+        "edge_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Edge Node Id"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "group_id": {
+          "default": "opencap",
+          "title": "Group Id",
+          "type": "string"
+        },
+        "outbox": {
+          "default": "data/sparkplug-outbox.sqlite",
+          "title": "Outbox",
+          "type": "string"
+        },
+        "outbox_max_bytes": {
+          "default": 67108864,
+          "title": "Outbox Max Bytes",
+          "type": "integer"
+        },
+        "primary_host_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Host Id"
+        }
+      },
+      "title": "SparkplugCfg",
+      "type": "object"
     }
   },
   "$id": "https://github.com/sharmaniraj009/opencap/schema/node.schema.json",
@@ -549,6 +620,9 @@
     },
     "saf": {
       "$ref": "#/$defs/SafCfg"
+    },
+    "sparkplug": {
+      "$ref": "#/$defs/SparkplugCfg"
     },
     "stats_interval_s": {
       "default": 300.0,

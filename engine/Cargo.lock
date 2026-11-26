@@ -1158,6 +1158,7 @@ dependencies = [
  "opencap-core",
  "opencap-drivers",
  "opencap-north",
+ "opencap-north-sparkplug",
  "opencap-plugin",
  "serde_json",
  "tokio",
@@ -1184,6 +1185,26 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "opencap-north-sparkplug"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "chrono",
+ "opencap-core",
+ "opencap-north",
+ "prometheus",
+ "prost",
+ "prost-build",
+ "protox",
+ "rumqttc",
+ "serde_json",
+ "thiserror",
+ "tokio",
  "tracing",
 ]
 

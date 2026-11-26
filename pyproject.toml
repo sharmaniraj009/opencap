@@ -29,7 +29,7 @@ north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "websockets>=13", "pro
 plugin = ["grpcio>=1.85.4", "protobuf>=7.35.1,<8"]   # driver host for the Rust engine (#49); floors = the committed stubs' gencode
 all = ["opencap[modbus,ab,s7,melsec,opcua,north,serial,plugin]"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "amqtt>=0.11", "jsonschema>=4.18",
-       "fins-driver>=0.3.1,<0.4", "grpcio-tools>=1.85.4"]  # amqtt: in-process test broker; fins-driver (MIT): independent FINS client for fins_sim; grpcio-tools: plugin stub drift test
+       "fins-driver>=0.3.1,<0.4", "grpcio-tools>=1.85.4", "protobuf>=5"]  # amqtt: in-process test broker; fins-driver (MIT): independent FINS client for fins_sim; grpcio-tools: plugin stub drift test; protobuf (BSD-3): Sparkplug vectors (the plugin extra pins >=7.35.1)
 
 [project.scripts]
 opencap = "opencap.__main__:main"

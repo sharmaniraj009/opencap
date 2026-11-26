@@ -10,6 +10,7 @@ members = [
     "crates/opencap-conformance",     # shared conformance-vector harness (#40, ADR-0014)
     "crates/opencap-plugin",
     "drivers/*",                      # one crate per driver (#67): see README "How to add a driver crate"
+    "north/*",                        # one crate per north protocol (Sparkplug B: #51)
 ]
 
 [workspace.package]

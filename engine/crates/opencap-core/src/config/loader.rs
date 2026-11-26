@@ -244,6 +244,40 @@ fn apply_device_override(
     ov.publish.clone()
 }
 
+/// Cross-file rules of `sparkplug` (#51, Python `_sparkplug_checks`). Errors only while enabled.
+fn sparkplug_checks(poller: &PollerConfig, channels: &[Channel]) -> Result<Vec<String>, String> {
+    use crate::pyfmt::py_repr_str as r;
+    let cfg = &poller.sparkplug;
+    let ids: std::collections::HashSet<&str> =
+        channels.iter().flat_map(|c| &c.devices).map(|d| d.id.as_str()).collect();
+    let warnings = cfg
+        .devices
+        .keys()
+        .filter(|dev| !ids.contains(dev.as_str()))
+        .map(|dev| format!("{POLLER_FILE}: sparkplug.devices: unknown device id {}; entry ignored", r(dev)))
+        .collect();
+    if !cfg.enabled {
+        return Ok(warnings);
+    }
+    let mut seen: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for d in channels.iter().flat_map(|c| &c.devices).filter(|d| d.enabled) {
+        let sp = cfg.device_id(d);
+        if let Some(err) = crate::config::models::sparkplug_id_error(&format!("device id of {}", r(&d.id)), &sp) {
+            return Err(format!("{POLLER_FILE}: {err}; map it in sparkplug.devices"));
+        }
+        if let Some(other) = seen.get(&sp) {
+            return Err(format!(
+                "{POLLER_FILE}: sparkplug: {} and {} both get the Sparkplug device id {}; map one in sparkplug.devices",
+                r(other),
+                r(&d.id),
+                r(&sp)
+            ));
+        }
+        seen.insert(sp, d.id.as_str());
+    }
+    Ok(warnings)
+}
+
 pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
     let config_dir = PathBuf::from(config_dir);
     let mut warnings: Vec<String> = Vec::new();
@@ -255,6 +289,7 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
     poller.payload.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     poller.opcua_server.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     poller.plugins.python.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
+    poller.sparkplug.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     let devices_file = load_devices(&config_dir.join(DEVICES_FILE))?;
     let ov_path = config_dir.join(OVERRIDES_FILE);
     let overrides_raw = read_yaml(&ov_path)?;
@@ -401,6 +436,8 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
             warnings.push(format!("{DEVICES_FILE}: {text}"));
         }
     }
+
+    warnings.extend(sparkplug_checks(&poller, &channels).map_err(invalid)?);
 
     let validated = DevicesFile {
         version: devices_file.version,

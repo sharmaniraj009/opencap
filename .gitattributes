@@ -1,0 +1,4 @@
+# Vendored third-party files stay byte-identical to upstream on every checkout, Windows included
+# (no CRLF conversion): their SHA-256 is pinned in proto/third_party/README.md and checked by
+# tests/unit/test_sparkplug_conformance.py.
+proto/third_party/** -text

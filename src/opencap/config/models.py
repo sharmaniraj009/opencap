@@ -537,6 +537,46 @@ class OpcUaServerCfg(_Model):
         return rest.rsplit(":", 1)[0] if rest.count(":") == 1 else rest
 
 
+def _sparkplug_id_error(what: str, ident: str) -> str | None:
+    """Sparkplug ids are non-empty UTF-8 without `+`, `/`, `#` (spec 4.1.1) or NUL."""
+    if not ident:
+        return f"sparkplug: {what} must not be empty"
+    bad = next((c for c in ident if c in "+/#\0"), None)
+    if bad is not None:
+        return f"sparkplug: {what} {ident!r} contains the reserved character {bad!r}"
+    return None
+
+
+class SparkplugCfg(_Model):
+    """Sparkplug B 3.0 edge node (#51, docs/spec/payload-sparkplug.md). Served by the Rust engine;
+    the Python engine loads and validates it, and warns. Uses the broker of `mqtt` on its own
+    connection (its own client id and Will)."""
+
+    enabled: bool = False
+    group_id: str = "opencap"
+    edge_node_id: str | None = None        # default: `instance`
+    primary_host_id: str | None = None     # births only while this host's STATE says online
+    client_id: str | None = None           # default: "<mqtt.client_id>-sparkplug"
+    devices: dict[str, str] = Field(default_factory=dict)   # opencap device id -> Sparkplug device id
+    outbox: str = "data/sparkplug-outbox.sqlite"   # DATA held while the primary host is offline (ADR-0011)
+    outbox_max_bytes: int = 64 * 1024 * 1024
+
+    @model_validator(mode="after")
+    def _check(self) -> "SparkplugCfg":
+        for what, ident in (("group_id", self.group_id), ("edge_node_id", self.edge_node_id),
+                            ("primary_host_id", self.primary_host_id)):
+            if ident is not None and (err := _sparkplug_id_error(what, ident)):
+                raise ValueError(err)
+        for dev, ident in self.devices.items():
+            if err := _sparkplug_id_error(f"device id for {dev!r}", ident):
+                raise ValueError(err)
+        if len(set(self.devices.values())) != len(self.devices):
+            raise ValueError("sparkplug: two devices map to the same Sparkplug device id")
+        if self.outbox_max_bytes < 1:
+            raise ValueError("sparkplug: outbox_max_bytes must be >= 1")
+        return self
+
+
 def _is_loopback_host(host: str) -> bool:
     """`localhost` or a loopback IP (all of 127/8, ::1), as `server._is_loopback` decides for the API."""
     import ipaddress
@@ -561,6 +601,7 @@ class PollerConfig(_Model):
     check: CheckCfg = Field(default_factory=CheckCfg)
     opcua_server: OpcUaServerCfg = Field(default_factory=OpcUaServerCfg)
     plugins: PluginsCfg = Field(default_factory=PluginsCfg)
+    sparkplug: SparkplugCfg = Field(default_factory=SparkplugCfg)   # #51: served by the Rust engine
 
 
 # --- project v2 (ADR-0013, #37) ----------------------------------------------

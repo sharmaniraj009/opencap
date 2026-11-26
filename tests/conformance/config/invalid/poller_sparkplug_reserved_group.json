@@ -1,0 +1,10 @@
+{
+  "document": "poller",
+  "expected_error": "sparkplug: group_id 'Plant/A' contains the reserved character '/'",
+  "semantic": true,
+  "data": {
+    "sparkplug": {
+      "group_id": "Plant/A"
+    }
+  }
+}

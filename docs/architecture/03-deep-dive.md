@@ -226,7 +226,7 @@ to demand reads (`allow_demand_reads` arrives with the OPC UA server, #46).
 - The OpenAPI document is generated, committed and drift-tested so both engines can be
   tested against it.
 - **Python engine, as implemented** (`src/opencap/api/config_api.py`, decisions D-039 to D-044):
-  the resources above except `/north` and `/plugins`, plus `/map…` and `/overrides…` for the v1
+  the resources above except `/north` and `/plugins` (with staged imports `/project/import/{id}[/apply]`, #33, D-087), plus `/map…` and `/overrides…` for the v1
   file layout, `/project/status|pending|schema`, `/whoami`, `/status`, the open `/auth-info`, and
   `/devices/{id}/status|values|plan|identity`, `POST /devices/{id}/read-once`, `POST /reload`.
   List reads return `{items…, revision}` with an `ETag` too. Writes without `If-Match` get `428`. A write changes the files only; `POST /api/v1/reload`

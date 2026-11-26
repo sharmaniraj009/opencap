@@ -1872,3 +1872,23 @@ produced once the outbox drains, then every frozen message must reach the subscr
   reload keep working. The revision is then a hash of `project.json` and `node.yaml`.
 - **Rust:** its loader reads v1 only. Follow-up #186: load `project.json` + `node.yaml` with the same finalize
   steps, and the shared config fixtures for the `project` and `node` documents.
+
+### D-090 Wire byte counters: a `counts_bytes` opt-in and the TPKT/MBAP frame as the unit (#130)
+- **Expected:** KEPServerEX's `_RxBytes` / `_TxBytes` statistics exist for every device.
+- **Done:** `Driver.counts_bytes` (default False) plus a `ByteCounter` on the base; the core reads and
+  resets it after every `read()` (also a failed or cancelled one) and adds to `poll_tx_bytes_total` and
+  `poll_rx_bytes_total`. A driver that does not count produces no series, so the system tags (#120)
+  can tell "not counted" from "zero". Only `modbus_tcp` and `s7` count; `modbus_rtu` inherits the Modbus
+  class and sets `counts_bytes = False` because its clients are built without the hook.
+- **What a byte is:** application bytes with the protocol header, TCP/IP headers excluded. Modbus TCP:
+  MBAP + PDU (a 3-register FC03 read is 12 out, 15 in). S7: the whole TPKT frame, TPKT + COTP DT + S7 PDU
+  (a 4-byte read var is 31 out, 29 in); TPKT and COTP are part of the S7 transport, like MBAP is part of
+  Modbus TCP. KEPServerEX does not say what it counts, so this is our choice; the tests compute the
+  expected sizes from the frame layouts, not from the driver.
+- **How, without monkeypatching:** pymodbus' public `trace_packet` constructor argument (called for each
+  frame sent and each chunk received); for snap7, an `ISOTCPConnection` subclass built by the existing
+  `OcS7Client._connect`, which counts inside `send_data` and `receive_data` only, so the ISO handshake,
+  setup communication and the disconnect request are not counted.
+- **Edges:** a request that times out counts the bytes sent and any part of the reply that arrived (S7:
+  only whole TPKT reads, so a half-received frame at timeout is not counted); an FC43 identity request
+  is counted with the next poll request; the Rust drivers do not count yet (each port can add it).

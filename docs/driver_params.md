@@ -9,6 +9,21 @@ defaults below when a key is absent. Hand edits go in `overrides.yaml` → `para
 
 KEPServer keys are shown without the driver prefix where obvious.
 
+## Wire byte counters (`counts_bytes`)
+Drivers that set `Driver.counts_bytes` count the bytes they send and receive, and the core adds them after every
+request to `poll_tx_bytes_total{device}` and `poll_rx_bytes_total{device}` (the source of the `_TxBytes` /
+`_RxBytes` statistics, `docs/spec/system-tags.md` §7.2). The count is application bytes including the protocol
+header; TCP/IP headers, connection set-up and disconnect are not counted. A request that fails or times out still
+counts the bytes it sent, and the part of the reply that arrived. The other drivers stay `counts_bytes = False`
+and report nothing (no series, no tag): their libraries cannot be hooked without monkeypatching, or the byte
+accounting has not been done yet.
+
+| driver | counts | what is counted |
+|---|---|---|
+| `modbus_tcp` | yes | every Modbus TCP frame: MBAP header (7) + PDU. A one-block FC03 read of n registers is 12 bytes out and 9 + 2n in. Taken from pymodbus' `trace_packet` hook |
+| `s7` | yes | every TPKT frame of a data request or reply: TPKT (4) + COTP DT (3) + S7 PDU. A one-item read var of n bytes is 31 bytes out and 25 + n in. The ISO connect, setup communication and COTP disconnect are not counted. Taken from an `ISOTCPConnection` subclass |
+| `modbus_rtu`, `ab_logix`, `ab_pccc`, `ab_df1`, `melsec_mc`, `opcua_client`, `simulator` | no | `counts_bytes = False` |
+
 ## modbus_tcp
 | key | type | default | KEPServer source |
 |---|---|---|---|

@@ -74,6 +74,8 @@ from opencap.metrics import (
     POLL_FAILED_READS,
     POLL_OVERRUN,
     POLL_REQUESTS,
+    POLL_RX_BYTES,
+    POLL_TX_BYTES,
 )
 
 _log = structlog.get_logger("opencap.core.channel_worker")
@@ -350,6 +352,15 @@ class _DeviceRunner:
         self.log.debug("device.request", block=block.describe(), result=result, attempt=attempt + 1,
                        ms=round((_perf() - t0) * 1000, 1), error=error)
 
+    def _count_bytes(self, drv: Driver | None) -> None:
+        if drv is None or not type(drv).counts_bytes:
+            return
+        tx, rx = drv.take_byte_counts()
+        if tx:
+            POLL_TX_BYTES.labels(self.id).inc(tx)
+        if rx:
+            POLL_RX_BYTES.labels(self.id).inc(rx)
+
     async def read_block(self, block: Block, *, force_connect: bool) -> _BlockResult:
         attempts = max(self.device.retries, 0) + 1
         attempt = 0
@@ -373,8 +384,11 @@ class _DeviceRunner:
             assert self.driver is not None
             t0 = _perf()
             try:
-                async with self.w.wire:
-                    values = await asyncio.wait_for(self.driver.read(block), self.read_budget_s(block))
+                try:
+                    async with self.w.wire:
+                        values = await asyncio.wait_for(self.driver.read(block), self.read_budget_s(block))
+                finally:
+                    self._count_bytes(self.driver)    # a failed request still sent its bytes (#130)
             except asyncio.CancelledError:
                 raise
             except BlockConfigError as exc:

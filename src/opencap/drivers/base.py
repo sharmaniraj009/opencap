@@ -10,6 +10,7 @@ The server is READ-ONLY: `write()` raises and must never be implemented.
 from __future__ import annotations
 
 import asyncio
+import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import Executor
 from dataclasses import dataclass, field
@@ -100,6 +101,37 @@ class BrowseResult:
     skipped: dict[str, str] = field(default_factory=dict)
 
 
+class ByteCounter:
+    """Bytes a driver put on and took off the wire since the last `take()` (#130).
+
+    Application payload including the protocol header, TCP/IP headers excluded; what that is for
+    each driver is in docs/driver_params.md. Sync drivers add from the channel executor thread
+    while the core calls `take()` on the event loop, hence the lock.
+    """
+
+    __slots__ = ("_lock", "_tx", "_rx")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._tx = 0
+        self._rx = 0
+
+    def add_tx(self, n: int) -> None:
+        with self._lock:
+            self._tx += n
+
+    def add_rx(self, n: int) -> None:
+        with self._lock:
+            self._rx += n
+
+    def take(self) -> tuple[int, int]:
+        """(tx, rx) since the last call; resets both."""
+        with self._lock:
+            out = (self._tx, self._rx)
+            self._tx = self._rx = 0
+        return out
+
+
 class Driver(ABC):
     name: ClassVar[str]
     is_async: ClassVar[bool] = True
@@ -107,6 +139,11 @@ class Driver(ABC):
     # SourceTimestamp: when it last changed) rather than when the reply arrived. The worker then
     # judges staleness by when `read()` last returned the tag good (docs/decisions.md D-045).
     stale_by_read_time: ClassVar[bool] = False
+    # True when the driver counts the bytes it sends and receives into `self.byte_counter` (#130).
+    # The core reads them after every request for `poll_tx_bytes_total` / `poll_rx_bytes_total`
+    # and the `_TxBytes` / `_RxBytes` statistics. A driver whose library cannot be hooked without
+    # monkeypatching it stays False (CONTRIBUTING).
+    counts_bytes: ClassVar[bool] = False
     # What the driver catalogue (API-16, GET /api/v1/drivers) says about the driver. Declared
     # next to each driver's params code, never hand-copied into docs or the API layer.
     transport: ClassVar[str] = "tcp"                       # how it reaches the device
@@ -118,6 +155,11 @@ class Driver(ABC):
     def __init__(self, device: Device, executor: Executor | None = None) -> None:
         self.device = device
         self._executor = executor   # single-thread executor owned by the ChannelWorker (sync drivers)
+        self.byte_counter = ByteCounter()
+
+    def take_byte_counts(self) -> tuple[int, int]:
+        """(tx, rx) wire bytes since the last call. (0, 0) for a driver with `counts_bytes` False."""
+        return self.byte_counter.take() if self.counts_bytes else (0, 0)
 
     @abstractmethod
     def plan(self, tags: list[Tag]) -> Plan:

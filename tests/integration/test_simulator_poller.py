@@ -144,7 +144,8 @@ async def _check_publishing(col, topics) -> None:
         assert 1 <= data["Random"] <= 6 and -1.5 <= data["Noise"] <= 1.5 and -50 <= data["Sine"] <= 50
         assert data["Ramp"] % 5 == 0 and 0 <= data["Ramp"] <= 1000
         assert data["Clock"].endswith("Z") and data["Count"] >= 2
-        counts = [m.json()["Data"]["Count"] for m in col.topic(t)]
+        # a first message can predate the first read and carry no tags; the counter only counts reads
+        counts = [m.json()["Data"]["Count"] for m in col.topic(t) if "Count" in m.json().get("Data", {})]
         assert counts == sorted(counts), counts                      # one COUNTER per device, increasing
 
 

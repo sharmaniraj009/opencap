@@ -191,15 +191,23 @@ Addresses and data types:
 `poller.yaml` → `opcua_server` (off by default) serves the cache read-only with KEPServerEX's
 NodeIds, `ns=2;s=<channel>.<device>[.<group>].<tag>` (tag groups are folders), plus
 `<channel>.<device>._System._Error`, `_State`, `_LastGood`, ... per device. An existing SCADA
-client changes only its endpoint URL. Every write, method call and node change is refused
-(D-046). Secure by default:
+client changes only its endpoint URL. Every write is answered `Bad_NotWritable`; method calls
+and node changes are refused (D-046, D-087). Scaled tags carry `EURange` and `EngineeringUnits`,
+arrays their `ArrayDimensions`. Secure by default:
 
-- anonymous clients are refused unless `anonymous: true`; set one user with
-  `username_env` / `password_env` (environment variable names, never values);
+- anonymous clients are refused unless `anonymous: true`; set users with
+  `username_env` / `password_env` and `users: [{username_env, password_env}]` (environment
+  variable names, never values), or X.509 user certificates (`x509_users: true`);
 - security policy `None` (plaintext) is refused on an endpoint that is not loopback, unless
   `allow_insecure_remote: true`. For remote SCADA, offer only
-  `Basic256Sha256_SignAndEncrypt` (and the `Aes*` policies) with a `certificate` and
-  `private_key`;
+  `Basic256Sha256_SignAndEncrypt` (and the `Aes*` policies) with a `pki_dir`: the server
+  certificate is generated in `own/`, client certificates are trusted by copying them into
+  `trusted/` (CA certificates there, intermediates in `issuers/`), and a refused client's
+  certificate is saved in `rejected/` to be moved to `trusted/`; no restart needed;
+- behind NAT or a container port mapping, `advertised_endpoint` is the URL clients are given;
+- `max_sessions`, `max_subscriptions_per_session`, `max_monitored_items`, the minimum
+  publishing/sampling intervals and `max_references_per_browse` protect the server
+  (`config/poller.yaml` lists the defaults);
 - if the server cannot start, polling and MQTT carry on, and `/health` reports
   `opcua_server.running: false` with the error.
 

@@ -409,7 +409,8 @@
               "melsec_mc",
               "opcua_client",
               "modbus_rtu",
-              "ab_df1"
+              "ab_df1",
+              "simulator"
             ],
             "title": "Driver",
             "type": "string"
@@ -515,7 +516,8 @@
               "melsec_mc",
               "opcua_client",
               "modbus_rtu",
-              "ab_df1"
+              "ab_df1",
+              "simulator"
             ],
             "title": "Driver",
             "type": "string"
@@ -1099,7 +1101,8 @@
                   "melsec_mc",
                   "opcua_client",
                   "modbus_rtu",
-                  "ab_df1"
+                  "ab_df1",
+                  "simulator"
                 ],
                 "title": "Driver",
                 "type": "string"
@@ -1291,7 +1294,8 @@
               "melsec_mc",
               "opcua_client",
               "modbus_rtu",
-              "ab_df1"
+              "ab_df1",
+              "simulator"
             ],
             "title": "Driver",
             "type": "string"

@@ -1694,8 +1694,9 @@ them) across the restart: the case persistence exists for. The check is D-018's:
 produced once the outbox drains, then every frozen message must reach the subscriber, in order.
 - **Observed** (Mosquitto 2.0.18 binary, 20 runs with the Python engine, 1 with the Rust
   engine): lost 0 every run. The outbox held about 20 messages per outage; the broker held
-  60–80 per away restart. Duplicates: 0 or 7 per run (7 = one each on 7 of the 10 devices), the
-  QoS 1 redelivery of a message whose PUBACK the broker had not processed before the stop.
+  60–80 per away restart. Duplicates: 0 to 37 per run, mostly 0 or 7 (one on each of 7 devices):
+  QoS 1 redelivery of messages whose PUBACK the broker had not processed before the stop or the
+  subscriber's disconnect. They are allowed and counted, never compared away.
 - **The test can fail:** with `persistence false` (a negative control) every run lost 16
   messages per device and no `mosquitto.db` was written; the test reports both.
 - **Test-client finding:** with aiomqtt as the subscriber, about 1 run in 15 lost one message.
@@ -1707,8 +1708,9 @@ produced once the outbox drains, then every frozen message must reach the subscr
   `tests/helpers/broker.py` iterates the same way: #220.
 - **Mosquitto as root** drops to its `mosquitto` user, which cannot write under pytest's 0700
   `tmp_path` ("unable to remove mosquitto.db.new"): the helper adds `user root` when it runs the
-  binary as root. The Docker image (`eclipse-mosquitto:2.0.22`, pinned by digest) writes into a
-  bind-mounted, world-writable data directory.
+  binary as root. The Docker image (`eclipse-mosquitto:2.0.22`, pinned by digest) runs as the
+  test's own user (`--user uid:gid`): as root, its entrypoint chowns the bind-mounted data
+  directory to uid 1883, and the test could no longer manage its own temp directory (first CI run).
 - **CI:** the Linux acceptance jobs (`acceptance-pr`, nightly `acceptance`, the Rust engine's
   acceptance) run it through Docker and set `OPENCAP_REQUIRE_MOSQUITTO`, so a missing broker
   fails the job instead of skipping the test. Windows skips it with a reason (no binary, and the

@@ -126,8 +126,6 @@ class Mosquitto:
     def _write_config(self) -> Path:
         self.data.mkdir(parents=True, exist_ok=True)
         self.conf_dir.mkdir(parents=True, exist_ok=True)
-        # Mosquitto drops root to its own user (`mosquitto`, uid 1883 in the image): let it write.
-        os.chmod(self.data, 0o777)
         docker = self.mode == "docker"
         lines = [
             f"listener {1883 if docker else self.port} {'0.0.0.0' if docker else self.host}",
@@ -158,7 +156,11 @@ class Mosquitto:
             self._proc = subprocess.Popen(["mosquitto", "-c", str(conf)], stdout=self._log_file,
                                           stderr=subprocess.STDOUT)
         elif self.starts == 0:
+            # As this user, not root: the image's entrypoint would otherwise chown the mounted
+            # data directory to its `mosquitto` user (uid 1883), and the test could no longer
+            # manage or clean up its own temp directory (seen on the first CI run).
             await self._docker("run", "-d", "--name", self.container,
+                               "--user", f"{os.getuid()}:{os.getgid()}",
                                "-p", f"{self.host}:{self.port}:1883",
                                "-v", f"{self.data}:/mosquitto/data",
                                "-v", f"{self.conf_dir}:/mosquitto/config:ro", IMAGE)

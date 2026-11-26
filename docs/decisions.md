@@ -1705,7 +1705,7 @@ produced once the outbox drains, then every frozen message must reach the subscr
   drops in the same instant, that message is discarded after paho has PUBACKed it. Reproduced
   deterministically outside the test. The subscriber now uses paho directly and records each
   message in `on_message`, which runs before the PUBACK. The aiomqtt `Collector` in
-  `tests/helpers/broker.py` iterates the same way: #220.
+  `tests/helpers/broker.py` iterated the same way; #220 moved it to paho's `on_message` too.
 - **Mosquitto as root** drops to its `mosquitto` user, which cannot write under pytest's 0700
   `tmp_path` ("unable to remove mosquitto.db.new"): the helper adds `user root` when it runs the
   binary as root. The Docker image (`eclipse-mosquitto:2.0.22`, pinned by digest) runs as the

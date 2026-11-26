@@ -37,6 +37,7 @@ import gen_conformance_system_tags  # noqa: E402
 import gen_conformance_fins  # noqa: E402
 import gen_conformance_mc  # noqa: E402
 import gen_conformance_s7  # noqa: E402
+import gen_conformance_df1  # noqa: E402
 
 from opencap import FIRM_VERSION  # noqa: E402
 from opencap.config.models import Device, PayloadCfg, PublishCfg, Scale, Tag  # noqa: E402
@@ -1186,6 +1187,7 @@ SPECS["quality"] = [
      quality_worst()),
 ]
 SPECS.update(gen_conformance_s7.SPECS)      # Siemens S7 (#44)
+SPECS.update(gen_conformance_df1.SPECS)     # Allen-Bradley DF1 link, requests and replies (#68)
 
 
 def build() -> dict[Path, str]:

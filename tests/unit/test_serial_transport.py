@@ -403,3 +403,58 @@ async def test_shared_link_failed_open_leaves_nothing_behind():
     with pytest.raises(ConnectionLost):
         await pool.acquire(("df1", "k"), "A", opener, closer)
     assert pool.users(("df1", "k")) == set()
+
+
+async def _drain_master(master: int, n: int, timeout: float = 5.0) -> bytes:
+    """Read `n` bytes from the pty master (the peer reading again)."""
+    return await _read_master(master, n, timeout)
+
+
+@needs_pyserial
+async def test_serial_write_never_blocks_the_loop_on_a_full_output_buffer(pty_pair, no_gc):
+    """#68: the old write slept on the event loop (up to 1 s) while the tty's buffer was full."""
+    master, path = pty_pair
+    t = SerialTransport(path, SerialSettings())
+    try:
+        await t.open(timeout=2)
+        big = bytes(range(256)) * 1024                            # 256 KiB: far more than a pty buffers
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        t.write(big)
+        t.write(b"TAIL")                                          # queued behind, in order
+        assert loop.time() - t0 < 0.05                            # returned at once
+        assert t.pending_out > 0                                  # the reader is stopped: bytes queued
+        ticks = 0
+
+        async def ticker() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        task = asyncio.create_task(ticker())
+        await asyncio.sleep(0.2)
+        assert ticks >= 10 and t.is_open                          # the loop kept running
+        got = await _drain_master(master, len(big) + 4)           # the peer reads again
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        assert got == big + b"TAIL" and t.pending_out == 0 and t.is_open
+    finally:
+        await t.close()
+
+
+@needs_pyserial
+async def test_serial_write_stall_loses_the_line(pty_pair):
+    master, path = pty_pair
+    t = SerialTransport(path, SerialSettings())
+    t.write_stall_s = 0.2
+    try:
+        await t.open(timeout=2)
+        t.write(bytes(256 * 1024))                                # nobody ever reads the master
+        with pytest.raises(TransportClosed, match="output buffer stays full"):
+            await t.read(2.0)
+        assert t.pending_out == 0
+        with pytest.raises(TransportClosed):
+            t.write(b"more")
+    finally:
+        await t.close()

@@ -13,7 +13,8 @@ the TCP socket, as a serial-over-TCP gateway in transparent mode would (put `Pty
 for a real tty). An RTU sim stays silent for a unit id it does not serve, like a serial bus.
 `add_unit(device)` adds another unit (multi-drop line) with its own register image.
 
-Fault injection on a running sim: `mute` (accept requests, never answer), `exception_code`
+Fault injection on a running sim: `mute` (accept requests, never answer), `muted_units` (a set of unit
+ids that stay silent, like a dead slave on a multi-drop line, while the others answer), `exception_code`
 (answer every read with that Modbus exception), `short_reply` (drop N registers/bits from
 every reply), `identity = None` (reject FC43/14 with exception 01).
 
@@ -522,6 +523,7 @@ class ModbusSim:
         self.images: dict[int, SimImage] = {self.unit_id: self.image}
         self.identity: dict[str, str] | None = dict(DEFAULT_IDENTITY)
         self.mute = False                       # accept requests but never answer
+        self.muted_units: set[int] = set()      # RTU: these unit ids stay silent, the others answer
         self.exception_code: int | None = None  # answer every read with this Modbus exception
         self.short_reply = 0                    # drop this many registers/bits from each reply
         self.request_count = 0                  # read requests served (any outcome)
@@ -600,7 +602,7 @@ class ModbusSim:
     def _serve(self, device_id: int, func_code: int, address: int, count: int):
         self.request_count += 1
         image = self.images.get(device_id)
-        if image is None:
+        if image is None or device_id in self.muted_units:
             raise NoSuchIdException(f"unit {device_id}")     # pymodbus answers 0B (TCP) / stays silent (RTU)
         if self.exception_code is not None:
             return ExcCodes(self.exception_code)

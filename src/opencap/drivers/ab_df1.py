@@ -399,7 +399,7 @@ class Df1Params:
     station: int = 1                 # destination station (KEPServer device id)
     src_station: int = 0             # our station number on the link
     error_check: str = "crc"
-    ack_timeout_ms: int = 1000
+    ack_timeout_ms: int | None = None    # None = auto: room for every ENQ retry (effective_ack_timeout_ms)
     nak_retries: int = 3
     enq_retries: int = 3
     read_fnc: int = FNC_TYPED_READ_3
@@ -422,13 +422,37 @@ class Df1Params:
             station=_int(p, "station", 1, 0, MAX_STATION),
             src_station=_int(p, "src_station", 0, 0, MAX_STATION),
             error_check=check,
-            ack_timeout_ms=_int(p, "ack_timeout_ms", 1000, 1, 60_000),
+            ack_timeout_ms=None if p.get("ack_timeout_ms") is None else _int(p, "ack_timeout_ms", 1000, 1, 60_000),
             nak_retries=_int(p, "nak_retries", 3, 0, 20),
             enq_retries=_int(p, "enq_retries", 3, 0, 20),
             read_fnc=fnc,
             duplicate_detect=_bool(p, "duplicate_detect", True),
             close_on_timeout=_bool(p, "close_on_timeout", False),
         )
+
+    def effective_ack_timeout_ms(self, timeout_ms: int) -> int:
+        """`ack_timeout_ms` if set, else `timeout_ms / (enq_retries + 1)` capped at 1000 ms: one wait for
+        the ACK plus one per ENQ must fit in the attempt, or the ENQ retries can never happen (#68)."""
+        if self.ack_timeout_ms is not None:
+            return self.ack_timeout_ms
+        return max(1, min(DEFAULT_ACK_TIMEOUT_MS, max(timeout_ms, 1) // (self.enq_retries + 1)))
+
+
+DEFAULT_ACK_TIMEOUT_MS = 1000
+
+
+def timing_warning(device: Device) -> str | None:
+    """Load-time check (#68): an explicit `ack_timeout_ms` that leaves no room for the ENQ retries."""
+    p = Df1Params.from_mapping(device.params)
+    if p.ack_timeout_ms is None or p.enq_retries == 0:
+        return None
+    timeout = max(device.timeout_ms, 1)
+    if p.ack_timeout_ms * (p.enq_retries + 1) <= timeout:
+        return None
+    fit = max(0, min(p.enq_retries, timeout // p.ack_timeout_ms - 1))
+    return (f"{device.id}: ack_timeout_ms={p.ack_timeout_ms} with timeout_ms={device.timeout_ms}: only {fit} of "
+            f"enq_retries={p.enq_retries} ENQ(s) fit in one attempt, so a lost frame fails early; use "
+            f"ack_timeout_ms <= {timeout // (p.enq_retries + 1)} or leave it unset (auto)")
 
 
 # --- the link ---------------------------------------------------------------------------------------------
@@ -451,6 +475,7 @@ class LinkStats:
     unmatched: int = 0               # good frames that were not the reply we waited for
     source_mismatch: int = 0         # replies from another station number than the one addressed
     bad_frames: int = 0
+    stale_dropped: int = 0           # ACK/NAK left over from an earlier transaction, not counted (#68)
     commands: Counter = field(default_factory=Counter)    # (CMD, FNC) sent
 
     def as_dict(self) -> dict[str, Any]:
@@ -496,6 +521,21 @@ class Df1Link:
     async def close(self) -> None:
         await self.transport.close()
 
+    def _drop_stale(self) -> None:
+        """Before a new frame: a DLE ACK or NAK the line delivered after the previous transaction
+        ended belongs to an older frame and must not count for this one (#68), so it is dropped.
+        Late frames and ENQs stay queued: the loop ACKs a frame (as a DF1 receiver must, else the
+        PLC retransmits it) and drops it as unmatched or duplicate, and answers an ENQ."""
+        pending = self.transport.take()
+        if pending:
+            self._backlog.extend(self.decoder.feed(pending))
+        kept = deque(ev for ev in self._backlog if ev.kind not in ("ack", "nak"))
+        dropped = len(self._backlog) - len(kept)
+        self._backlog = kept
+        if dropped:
+            self.stats.stale_dropped += dropped
+            _log.debug("df1 stale ACK/NAK dropped", link=self.transport.describe(), count=dropped)
+
     async def transact(self, request: Df1Message, *, timeout_s: float, ack_timeout_s: float,
                        nak_retries: int, enq_retries: int) -> Df1Message:
         """Send `request`, see it ACKed, and return the matching reply. Raises LinkFailure
@@ -504,6 +544,7 @@ class Df1Link:
             raise NotImplementedError("opencap is read-only: only PCCC read commands are sent")
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout_s
+        self._drop_stale()
         frame = encode_frame(request.encode(), self.check)
         expect = (request.cmd | REPLY_BIT, request.tns)
         self.stats.commands[(request.cmd, request.data[0])] += 1
@@ -700,7 +741,8 @@ class AbDf1Driver(Driver):
             started = time.monotonic()
             try:
                 reply = await link.transact(
-                    request, timeout_s=self.timeout_s, ack_timeout_s=p.ack_timeout_ms / 1000,
+                    request, timeout_s=self.timeout_s,
+                    ack_timeout_s=p.effective_ack_timeout_ms(self.device.timeout_ms) / 1000,
                     nak_retries=p.nak_retries, enq_retries=p.enq_retries)
             except TransportClosed as exc:
                 await self._drop()

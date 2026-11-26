@@ -34,7 +34,6 @@ import asyncio
 import contextlib
 import os
 import re
-import time
 import weakref
 from collections.abc import Awaitable, Callable, Hashable, Mapping
 from dataclasses import dataclass, field
@@ -56,6 +55,7 @@ BYTESIZES = (5, 6, 7, 8)
 STOPBITS = (1, 1.5, 2)
 POLL_INTERVAL_S = 0.002          # read polling where the OS cannot wake us (Windows, RFC 2217)
 READ_CHUNK = 4096
+WRITE_STALL_S = 1.0              # a local port whose output buffer stays full this long is lost
 
 
 def serial_properties(transports: tuple[str, ...]) -> dict[str, dict[str, Any]]:
@@ -260,6 +260,40 @@ def endpoint_for(device: Device, *, allowed: tuple[str, ...] = ("tcp", "serial",
     return Endpoint(kind, host, int(device.port), settings)
 
 
+def check_shared_lines(devices: list[Device], allowed: Mapping[str, tuple[str, ...]]) -> None:
+    """Load-time check (#68): devices reached through one port or gateway must agree on how the line
+    is run, because one line has one setting. Raises ValueError naming the devices and the setting.
+    `allowed` maps each serial driver to its transports (loader.SERIAL_DRIVERS). Unmapped or invalid
+    endpoints are skipped: they are reported elsewhere."""
+    lines: dict[tuple, list[tuple[Device, Endpoint]]] = {}
+    for device in devices:
+        try:
+            endpoint = endpoint_for(device, allowed=allowed[device.driver])
+        except ValueError:                    # TransportUnmapped is a ValueError too
+            continue
+        lines.setdefault(endpoint.key, []).append((device, endpoint))
+    for members in lines.values():
+        if len(members) < 2:
+            continue
+
+        def setting(device: Device, endpoint: Endpoint) -> dict[str, Any]:
+            out: dict[str, Any] = {"driver": device.driver, "line settings": endpoint.settings.describe()}
+            if device.driver == "ab_df1":
+                out["error_check"] = str(device.params.get("error_check") or "crc").strip().lower()
+            return out
+
+        first_dev, first_ep = members[0]
+        want = setting(first_dev, first_ep)
+        for device, endpoint in members[1:]:
+            got = setting(device, endpoint)
+            diff = [k for k in want if got.get(k) != want[k]]
+            if diff:
+                what = diff[0]
+                raise ValueError(
+                    f"{first_dev.id} and {device.id} share the line {endpoint.describe()} but differ in {what} "
+                    f"({want[what]} vs {got[what]}); devices on one line must use the same {what}")
+
+
 def make_transport(endpoint: Endpoint) -> ByteTransport:
     if endpoint.kind == "tcp":
         return TcpTransport(endpoint.host, endpoint.port)
@@ -343,6 +377,12 @@ class ByteTransport:
         self._buf.clear()
         return data
 
+    def take(self) -> bytes:
+        """Everything received but not read yet, without waiting (b"" when nothing is buffered)."""
+        data = bytes(self._buf)
+        self._buf.clear()
+        return data
+
     def discard(self) -> int:
         """Drop everything received but not read yet; returns the byte count."""
         n = len(self._buf)
@@ -411,13 +451,20 @@ class SerialTransport(ByteTransport):
     """A local serial port through pyserial (`pip install opencap[serial]`).
 
     POSIX: the file descriptor is watched by the event loop. Elsewhere (or if the loop cannot
-    watch it) the port is polled every few milliseconds."""
+    watch it) the port is polled every few milliseconds.
+
+    Writes never block the loop: what the tty does not take at once is queued and written by the
+    loop's writer callback when the port is writable again. If the queue does not empty within
+    `write_stall_s` (a stopped peer, flow control held), the line is lost (#68)."""
 
     def __init__(self, path: str, settings: SerialSettings) -> None:
         self.path, self.settings = path, settings
         self._serial: Any = None
         self._fd: int | None = None
         self._poll_task: asyncio.Task | None = None
+        self._pending = bytearray()          # written but not yet taken by the tty (fd path only)
+        self._stall: asyncio.TimerHandle | None = None
+        self.write_stall_s = WRITE_STALL_S
         super().__init__()
 
     def describe(self) -> str:
@@ -492,6 +539,7 @@ class SerialTransport(ByteTransport):
                 await asyncio.sleep(POLL_INTERVAL_S)
 
     def _detach(self) -> None:
+        self._stop_writer()
         if self._fd is not None:
             with contextlib.suppress(Exception):
                 asyncio.get_running_loop().remove_reader(self._fd)
@@ -499,21 +547,63 @@ class SerialTransport(ByteTransport):
 
     def _write(self, data: bytes) -> None:
         try:
-            if self._fd is not None:
-                view = memoryview(data)
-                deadline = time.monotonic() + 1.0
-                while view:                  # a tty takes a frame at once; loop only on a full buffer
-                    try:
-                        view = view[os.write(self._fd, view):]
-                    except BlockingIOError:
-                        if time.monotonic() > deadline:
-                            raise OSError("output buffer stays full") from None
-                        time.sleep(0.001)
-            else:
+            if self._fd is None:
                 self._serial.write(data)
+                return
+            if self._pending:                # keep the byte order behind what is still queued
+                self._pending += data
+                return
+            n = self._write_some(data)
+            if n < len(data):                # a tty takes a frame at once; queue only on a full buffer
+                self._pending += data[n:]
+                loop = asyncio.get_running_loop()
+                loop.add_writer(self._fd, self._flush)
+                self._stall = loop.call_later(self.write_stall_s, self._stalled)
         except Exception as exc:
+            self._stop_writer()
             self._lost(f"write failed: {exc}")
             raise self._closed from exc     # type: ignore[misc]
+
+    def _write_some(self, data: bytes | bytearray) -> int:
+        try:
+            return os.write(self._fd, data)  # type: ignore[arg-type]
+        except BlockingIOError:
+            return 0
+
+    def _flush(self) -> None:
+        """Loop writer callback: hand the tty what it takes now."""
+        if self._fd is None:
+            self._stop_writer()
+            return
+        try:
+            n = self._write_some(self._pending)
+        except OSError as exc:
+            self._stop_writer()
+            self._lost(f"write failed: {exc}")
+            return
+        del self._pending[:n]
+        if not self._pending:
+            self._stop_writer()
+
+    def _stalled(self) -> None:
+        self._stall = None
+        if self._pending:
+            self._stop_writer()
+            self._lost(f"write failed: output buffer stays full for {self.write_stall_s:g} s")
+
+    def _stop_writer(self) -> None:
+        if self._stall is not None:
+            self._stall.cancel()
+            self._stall = None
+        if self._fd is not None:
+            with contextlib.suppress(Exception):
+                asyncio.get_running_loop().remove_writer(self._fd)
+        self._pending.clear()
+
+    @property
+    def pending_out(self) -> int:
+        """Bytes queued for the tty and not yet written."""
+        return len(self._pending)
 
     async def close(self) -> None:
         ser, self._serial = self._serial, None

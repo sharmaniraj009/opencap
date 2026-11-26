@@ -313,7 +313,8 @@ def test_short_reply_decodes_what_is_there():
 def test_params_defaults_and_errors():
     p = Df1Params.from_mapping({})
     assert (p.station, p.src_station, p.error_check, p.ack_timeout_ms, p.nak_retries, p.enq_retries) == \
-        (1, 0, "crc", 1000, 3, 3)
+        (1, 0, "crc", None, 3, 3)                   # ack_timeout_ms None = auto (#68)
+    assert p.effective_ack_timeout_ms(1000) == 250
     assert p.read_fnc == FNC_TYPED_READ_3 and p.duplicate_detect and not p.close_on_timeout
     q = Df1Params.from_mapping({"station": "7", "error_check": "BCC", "read_fnc": "a1", "close_on_timeout": "yes"})
     assert (q.station, q.error_check, q.read_fnc, q.close_on_timeout) == (7, "bcc", FNC_TYPED_READ_2, True)

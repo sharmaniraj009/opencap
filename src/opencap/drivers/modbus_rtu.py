@@ -16,6 +16,11 @@ Serial-line specifics
 - RTU has no transaction id: a reply that arrives after its request timed out could be taken
   for the answer to the next request with the same function code. `close_on_timeout` (default
   true, as for Modbus TCP) closes the line after a timeout, which throws such late bytes away.
+  On a multi-drop line (several units share it) a timeout does **not** close the line unless
+  `close_on_timeout` is set explicitly: one silent unit must not reconnect the line under the
+  healthy ones. pymodbus (3.16) already clears its receive buffer before each request, skips a
+  reply whose unit id or function code is not the request's, and waits out a cancelled
+  request's late reply before it reuses that unit and function code (D-036, #68).
 - Inter-frame gap: before each request the driver waits until `inter_frame_ms` have passed
   since the last request/reply on the line (default 3.5 character times at `baudrate`, at least
   1.75 ms, the Modbus serial line spec). pymodbus does not enforce it.
@@ -116,6 +121,7 @@ class ModbusRtuDriver(ModbusTcpDriver):
         if not isinstance(echo, bool):
             raise ValueError(f"modbus_rtu param local_echo={echo!r}: expected true or false")
         self.local_echo = echo
+        self.close_explicit = device.params.get("close_on_timeout") is not None
         self._lease: Lease | None = None
         self._endpoint: Endpoint | None = None
 
@@ -225,6 +231,8 @@ class ModbusRtuDriver(ModbusTcpDriver):
         if lease is None or not lease.alive:
             raise ConnectionLost(f"{self._where}: not connected")
         line: _RtuLine = lease.conn
+        if close_on_timeout and not self.close_explicit and len(lease.link.users) > 1:
+            close_on_timeout = False                   # multi-drop: keep the line for the other units (#68)
         async with line.io_lock:
             await wait_until(line.last_io + self.gap_s)
             try:

@@ -16,7 +16,7 @@ from opencap.config.models import Device, PayloadCfg, Scale, Tag
 from opencap.core import quality as quality_mod
 from opencap.core.cache import TagValue
 from opencap.core.channel_worker import scale_value
-from opencap.drivers import ab_logix, ab_pccc, melsec_mc, s7
+from opencap.drivers import ab_df1, ab_logix, ab_pccc, melsec_mc, s7
 from opencap.drivers.modbus_tcp import ModbusBlock, ModbusTcpDriver
 from opencap.north import payload as payload_mod
 from opencap.north import payload_iotgw as payload_iotgw_mod
@@ -454,6 +454,60 @@ def s7_reply(inp: dict[str, Any]) -> dict[str, Any]:
             return {"header_error": code, "message": str(exc)}
         return {"bad_reply": str(exc)}
 
+def _hex(data: bytes) -> str:
+    return data.hex(" ")
+
+
+def ab_df1_frame(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {check, app} -> {frame}: DLE STX, the stuffed application bytes, DLE ETX, then the BCC or
+    the CRC-16 (low byte first, never stuffed). Bytes are lower-case hex pairs separated by spaces."""
+    try:
+        return {"frame": _hex(ab_df1.encode_frame(bytes.fromhex(inp["app"]), inp["check"]))}
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+
+def ab_df1_receive(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {check, chunks: [hex, ...]} -> {events: [{kind, data, reason}], noise}: one receiver fed
+    the chunks in order (frames may span chunks); `noise` counts the bytes skipped outside frames."""
+    try:
+        decoder = ab_df1.FrameDecoder(inp["check"])
+    except ValueError as exc:
+        return {"error": str(exc)}
+    events = [ev for chunk in inp["chunks"] for ev in decoder.feed(bytes.fromhex(chunk))]
+    return {"events": [{"kind": ev.kind, "data": _hex(ev.data), "reason": ev.reason} for ev in events],
+            "noise": decoder.noise}
+
+
+def _df1_device(inp: dict[str, Any]) -> tuple[Device, list[Tag]]:
+    device, tags = _device("ab_df1", 4001, inp)
+    return device.model_copy(update={"params": {"transport": "tcp", **device.params}}), tags
+
+
+def ab_df1_request(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags} -> {requests: [{address, tags, fnc}], invalid}: the PCCC function code and
+    function data of the typed read for each planned block (ab_pccc's planner), or {error}."""
+    device, tags = _df1_device(inp)
+    try:
+        params = ab_df1.Df1Params.from_mapping(device.params)
+        plan = ab_df1.AbDf1Driver(device).plan(tags)
+        requests = [{"address": b.address, "tags": list(b.tags),
+                     "fnc": _hex(ab_df1.typed_read_function(b, params.read_fnc))} for b in plan.blocks]
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return {"requests": requests, "invalid": dict(plan.invalid)}
+
+
+def ab_df1_values(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags, reply} -> {raw, values}: the tags plan to one block; `reply` is the reply's
+    data bytes (after STS/TNS). `raw` is what pycomm3 would return for the block's address, `values`
+    each tag decoded from it (ab_pccc's decode), or a decode_error."""
+    device, tags = _df1_device(inp)
+    block = _one_block(ab_df1.AbDf1Driver(device).plan(tags), ab_pccc.PcccBlock)
+    raw = ab_df1.pccc_values(block, bytes.fromhex(inp["reply"]))
+    decoded = ab_pccc.decode_block(block, raw)
+    return {"raw": encode_value(raw), "values": {name: encode_value(decoded[name]) for name in sorted(decoded)}}
+
 
 ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "modbus/plan": modbus_plan,
@@ -478,6 +532,10 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "s7/decode": s7_decode,
     "s7/frame": s7_frame,
     "s7/reply": s7_reply,
+    "ab_df1/frame": ab_df1_frame,
+    "ab_df1/receive": ab_df1_receive,
+    "ab_df1/request": ab_df1_request,
+    "ab_df1/values": ab_df1_values,
 }
 
 

@@ -23,8 +23,8 @@ the non-root user `opencap` (uid 10001) from `/opencap`. The entrypoint is `open
 the default command is `run --config /opencap/config`.
 
 ```bash
-docker build -t opencap .                                   # drivers: modbus, ab (+ north side)
-docker build --build-arg EXTRAS=modbus,ab,north,s7 -t opencap .   # more drivers
+docker build -t opencap .                                   # drivers: modbus, ab, serial lines (+ north side)
+docker build --build-arg EXTRAS=modbus,ab,north,serial,s7 -t opencap .   # more drivers
 ```
 
 Volumes:
@@ -57,6 +57,12 @@ docker run -d --name opencap --restart unless-stopped \
 - **Quick Client (live values)** uses the WebSocket `/api/v1/ws` on the same port. A reverse proxy in front must
   pass the WebSocket upgrade (`Upgrade` and `Connection` headers) and keep the `Host` header, or list the public
   origin in `api.cors_origins`: browsers may open the feed only from the API's own origin (D-067).
+- **Local serial ports** (`modbus_rtu` and `ab_df1` with `transport: serial`): the default image includes the
+  `serial` extra (pyserial). Pass the device into the container and give the container user access to it.
+  The user is uid 10001, not in the host's `dialout` group, so add the group's id:
+  `docker run ... --device /dev/ttyUSB0:/dev/ttyUSB0 --group-add "$(getent group dialout | cut -d: -f3)"`.
+  Use a stable name (`/dev/serial/by-id/...`) on the host side, and keep the path in `host` / `serial_ports`
+  the same as the container path. Serial-over-TCP gateways (`transport: tcp`, `rfc2217`) need no device.
 - **Health check:** the image probes `http://127.0.0.1:8080/health`. If you change
   `api.port`, set `OPENCAP_HEALTH_URL`.
 - **Other commands** run the same way:

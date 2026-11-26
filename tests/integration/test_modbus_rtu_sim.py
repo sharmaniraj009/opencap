@@ -127,7 +127,7 @@ async def test_exception_codes(rtu_sim, code, error):
 async def test_units_on_one_line_share_one_client(rtu_sim):
     other = make_sim_devices(1, 25, seed=22, params={"unit_id": 7})[0]
     image7 = rtu_sim.add_unit(other)
-    a = ModbusRtuDriver(_rtu(rtu_sim.device, rtu_sim.port))
+    a = ModbusRtuDriver(_rtu(rtu_sim.device, rtu_sim.port, close_on_timeout=True))
     b = ModbusRtuDriver(_rtu(other.model_copy(update={"id": "SIM_SITE_01/UNIT7", "name": "UNIT7"}),
                              rtu_sim.port, unit_id=7))
     try:
@@ -140,7 +140,7 @@ async def test_units_on_one_line_share_one_client(rtu_sim):
         await a.close()
         assert b.connected
         _assert_matches(image7, await _read_all(b))
-        # a timeout on one unit (close_on_timeout) drops the line for every unit
+        # a timeout on one unit with an explicit close_on_timeout drops the line for every unit
         await a.connect()
         rtu_sim.mute = True
         with pytest.raises(CommError):
@@ -156,6 +156,44 @@ async def test_units_on_one_line_share_one_client(rtu_sim):
     finally:
         await a.close()
         await b.close()
+
+
+async def test_one_silent_unit_does_not_close_a_multi_drop_line(rtu_sim):
+    """#68: with close_on_timeout left unset, a timeout on a shared line keeps it open for the others."""
+    other = make_sim_devices(1, 25, seed=23, params={"unit_id": 7})[0]
+    image7 = rtu_sim.add_unit(other)
+    unset = {"close_on_timeout": None}                          # the sim's params set it; leave it unset here
+    a = ModbusRtuDriver(_rtu(rtu_sim.device, rtu_sim.port, **unset))
+    b = ModbusRtuDriver(_rtu(other.model_copy(update={"id": "SIM_SITE_01/UNIT7", "name": "UNIT7"}),
+                             rtu_sim.port, unit_id=7, **unset))
+    try:
+        await a.connect()
+        await b.connect()
+        client = a._client
+        rtu_sim.muted_units = {7}                                  # unit 7 dies, unit 0 keeps answering
+        for _ in range(2):
+            with pytest.raises(CommError, match="no reply"):
+                await b.read(b.plan(b.device.tags).blocks[0])
+            _assert_matches(rtu_sim.image, await _read_all(a))       # the healthy unit, between timeouts
+        assert a.connected and b.connected and a._client is client is b._client   # never reopened
+        rtu_sim.muted_units = set()
+        _assert_matches(image7, await _read_all(b))                 # unit 7 back, on the same line
+        assert a._client is client
+    finally:
+        await a.close()
+        await b.close()
+
+
+async def test_a_single_unit_line_still_closes_on_timeout_by_default(rtu_sim):
+    drv = ModbusRtuDriver(_rtu(rtu_sim.device, rtu_sim.port, close_on_timeout=None))
+    try:
+        await drv.connect()
+        rtu_sim.muted_units = {rtu_sim.unit_id}
+        with pytest.raises(CommError):
+            await drv.read(drv.plan(drv.device.tags).blocks[0])
+        assert not drv.connected
+    finally:
+        await drv.close()
 
 
 async def test_inter_frame_gap(rtu_sim):

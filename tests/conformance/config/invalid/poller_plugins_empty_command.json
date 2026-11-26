@@ -1,0 +1,12 @@
+{
+  "document": "poller",
+  "expected_error": "plugins",
+  "semantic": false,
+  "data": {
+    "plugins": {
+      "python": {
+        "command": []
+      }
+    }
+  }
+}

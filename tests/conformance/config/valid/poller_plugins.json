@@ -1,0 +1,16 @@
+{
+  "document": "poller",
+  "data": {
+    "plugins": {
+      "python": {
+        "command": [
+          "/opt/opencap/venv/bin/python",
+          "-m",
+          "opencap.plugin_host"
+        ],
+        "transport": "tcp",
+        "start_timeout_ms": 20000
+      }
+    }
+  }
+}

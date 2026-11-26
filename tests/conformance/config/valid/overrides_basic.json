@@ -25,7 +25,8 @@
               "eng_hi": 10
             }
           }
-        }
+        },
+        "plugin": "python"
       }
     }
   }

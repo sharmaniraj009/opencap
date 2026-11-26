@@ -68,6 +68,19 @@
           "title": "Params",
           "type": "object"
         },
+        "plugin": {
+          "anyOf": [
+            {
+              "const": "python",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plugin"
+        },
         "port": {
           "anyOf": [
             {

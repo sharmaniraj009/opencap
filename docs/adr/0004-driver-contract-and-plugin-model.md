@@ -55,3 +55,11 @@ WASM component networking matures, or third-party driver demand appears (05 "rev
   crate `engine/drivers/<name>` behind a Cargo feature (#67).
 - Push drivers: the Python OPC UA client (#61) samples a notification buffer per rate period;
   the Rust `subscribe()` path comes with #46.
+
+## Amendment (2026-11-26, after #49)
+- The plugin protocol is built (`proto/opencap/plugin/v1/driver.proto`, `proto/README.md`): the Rust
+  engine runs a device's driver in the Python driver host when the device says `plugin: python`, one
+  host process per channel. Named pipes are not used: Windows uses loopback TCP with a per-run token.
+- Measured cost of a call is ~0.6 ms p50 / ~1.1 ms p99 per read on a 4 vCPU VM, not the 50–100 µs
+  estimated above: Python grpcio's fixed per-call cost. Still small against field round trips
+  (04 §4.1, D-092).

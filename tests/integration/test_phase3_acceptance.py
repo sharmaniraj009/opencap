@@ -15,7 +15,8 @@ the PCCC simulator (tests/helpers/pccc_sim.py), which stock pycomm3 `SLCDriver` 
 
 Engine-agnostic (ADR-0014 §3): the engine is driven only through its config directory, its
 API, its CLI, its log and the wire, so `--engine=rust` runs the same scenario against the Rust
-binary once it implements `ab_pccc` (until then: skipped, "driver not ported").
+binary: it has no `ab_pccc` port, so the devices say `plugin: python` and the engine reads every PLC
+through the Python driver host (#49, proto/README.md).
 
 The real-shaped run (the 30 real PCCC devices with their real tag lists, 10,298 tags) needs the
 private export: tests/integration/test_ab_pccc_sim.py::test_real_project_device and D-027.
@@ -26,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import sys
 
 import pytest
 
@@ -38,7 +40,10 @@ from tests.helpers.configdir import write_config  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.integration.test_ab_pccc_sim import DIRECTORY_READ, SYSTEM_FILES, TAGS, TYPED_READ, expected  # noqa: E402
 
-pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("ab_pccc")]
+# The Rust engine has no ab_pccc port: the devices say `plugin: python`, so it reads every PLC
+# through the Python driver host it starts and supervises (#49). The Python engine ignores the key.
+pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("ab_pccc", plugin="python")]
+PLUGINS = {"python": {"command": [sys.executable, "-m", "opencap.plugin_host"]}}
 
 PcccSim = pccc_sim.PcccSim
 N_DEVICES = 12
@@ -58,7 +63,8 @@ def _tags(i: int) -> list[Tag]:
 
 def _device(i: int, sim, tags: list[Tag]) -> Device:
     site = f"SLC_SITE_{i:02d}"
-    return Device(id=f"{site}/PLC", channel=site, name="PLC", driver="ab_pccc", host="127.0.0.1", port=sim.port,
+    return Device(id=f"{site}/PLC", channel=site, name="PLC", driver="ab_pccc", plugin="python",
+                  host="127.0.0.1", port=sim.port,
                   scan_ms=1000, min_scan_ms=1000, timeout_ms=1000, retries=1, demote_after=3,
                   demote_for_ms=2000, tags=tags)
 
@@ -102,7 +108,7 @@ async def test_phase3_acceptance(tmp_path, engine_factory):
         async with asyncio.timeout(240), TestBroker() as broker, broker.collector("opencap/#") as col:
             await col.wait_ready()
             config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=stable_port(),
-                                      poller={"stats_interval_s": 3, "log_level": "INFO"},
+                                      poller={"stats_interval_s": 3, "log_level": "INFO", "plugins": PLUGINS},
                                       publish={"interval_ms": INTERVAL_MS})
             engine = engine_factory(config_dir)     # the Python Poller, or the Rust engine (--engine=rust)
             await engine.start()

@@ -1,0 +1,43 @@
+[package]
+name = "opencap-plugin"
+description = "opencap out-of-process driver plugins: opencap.plugin.v1 gRPC client, plugin process supervisor, PluginDriver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencap-core.workspace = true
+async-trait.workspace = true
+bytes = "1"
+chrono.workspace = true
+futures-util.workspace = true
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+prost = "0.14"
+rand.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process"] }
+# =0.14.5: the last tonic 0.14 whose rust-version (1.75) is within the workspace's 1.85.
+tonic = { version = "=0.14.5", default-features = false, features = ["transport", "codegen"] }
+tonic-prost = "=0.14.5"
+tower = { workspace = true }
+tracing.workspace = true
+
+[build-dependencies]
+# The .proto is compiled in Rust (no protoc on build machines).
+protox = "0.10"
+tonic-prost-build = { version = "=0.14.5", default-features = false, features = ["transport"] }
+
+[dev-dependencies]
+indexmap.workspace = true
+# `router`: Server::add_service for the in-process fake plugin of the tests.
+tonic = { version = "=0.14.5", default-features = false, features = ["transport", "codegen", "router"] }
+tokio = { workspace = true, features = ["test-util", "process"] }
+tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
+
+[lints]
+workspace = true

@@ -24,13 +24,18 @@ fn model(document: &str, data: Value) -> Result<Value, String> {
             dump(serde_json::to_value(file))
         }
         "devices_map" => dump(serde_json::to_value(from_json::<DeviceMap>(data)?)),
-        "overrides" => dump(serde_json::to_value(from_json::<Overrides>(data)?)),
+        "overrides" => {
+            let o = from_json::<Overrides>(data)?;
+            o.validate()?;
+            dump(serde_json::to_value(o))
+        }
         "poller" => {
             let p = from_json::<PollerConfig>(data)?;
             p.mqtt.validate().map_err(|e| format!("mqtt: {e}"))?;
             p.api.validate().map_err(|e| format!("api: {e}"))?;
             p.payload.validate()?;
             p.opcua_server.validate()?;
+            p.plugins.python.validate()?;
             p.sparkplug.validate()?;
             dump(serde_json::to_value(p))
         }

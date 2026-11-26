@@ -50,7 +50,8 @@ policy-level summary, reconciled with it after #64.
 | TLS | rustls + ring | Apache-2.0 / ISC-style | no | Adopt (#64; allowed by `engine/deny.toml`) |
 | CLI, time zones | clap; chrono-tz | MIT or Apache-2.0 | no | Adopt (#64) |
 | SQLite outbox | rusqlite (bundled SQLite) | MIT (SQLite: public domain) | no | Adopt |
-| gRPC plugin protocol | tonic, prost | MIT; Apache-2.0 | no | Adopt |
+| gRPC plugin protocol | tonic 0.14.5 (pinned: later 0.14 releases need Rust 1.88), prost 0.14, tonic-prost; protox 0.10 to compile the `.proto` at build time (no `protoc`) | MIT; Apache-2.0; MIT; MIT or Apache-2.0 | yes (cargo-deny) | Adopt (#49) |
+| gRPC plugin protocol, Python host | grpcio, protobuf; grpcio-tools for the stub drift test (dev) | Apache-2.0; BSD-3-Clause; Apache-2.0 | yes (licence gate) | Adopt (#49; `plugin` extra) |
 | Modbus TCP/RTU client and server | tokio-modbus | MIT or Apache-2.0 | no | Adopt |
 | Serial ports | tokio-serial / serialport | MIT; MPL-2.0 | no | Adopt (MPL-2.0 is file-level copyleft: OK unmodified) |
 | MQTT | rumqttc | Apache-2.0 | no | Adopt |

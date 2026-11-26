@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 import math
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -20,6 +20,8 @@ DType = Literal[
 DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client",
                      "modbus_rtu", "ab_df1", "simulator", "omron_fins"]
 Quality = Literal["good", "bad_comm", "bad_config", "bad_decode", "stale"]
+# Out-of-process plugin hosts a device can be routed through (Rust engine, ADR-0004 §3, #49).
+PluginName = Literal["python"]
 
 DEFAULT_TOPIC_PREFIX = "opencap"   # poller.yaml mqtt.topic_prefix default
 
@@ -164,6 +166,9 @@ class Device(_Model):
     channel: str
     name: str
     driver: DriverName
+    # "python": the Rust engine runs this driver in the Python driver host (`plugins.python` in
+    # poller.yaml). The Python engine always runs its drivers in-process and ignores it.
+    plugin: PluginName | None = None
     host: str
     port: int
     params: dict[str, Any] = Field(default_factory=dict)  # driver-specific
@@ -277,6 +282,7 @@ class TagOverride(_Model):
 
 class DeviceOverride(_Model):
     enabled: bool | None = None
+    plugin: PluginName | None = None
     host: str | None = None
     port: int | None = None
     scan_ms: int | None = None
@@ -411,6 +417,28 @@ class DeviceDefaults(_Model):
     retries: int = 2
     demote_after: int = 3
     demote_for_ms: int = 30_000
+
+
+class PythonPluginCfg(_Model):
+    """The Python driver host the Rust engine starts for `plugin: python` devices (#49, proto/README.md).
+    The Python engine ignores it."""
+
+    # default: ["python3", "-m", "opencap.plugin_host"] ("python" on Windows)
+    command: list[Annotated[str, Field(min_length=1)]] | None = Field(default=None, min_length=1)
+    transport: Literal["auto", "unix", "tcp"] = "auto"   # auto: Unix socket, loopback TCP on Windows
+    start_timeout_ms: int = 30_000         # spawn -> ready line
+
+    @model_validator(mode="after")
+    def _check(self) -> "PythonPluginCfg":
+        if self.command is not None and not all(part.strip() for part in self.command):
+            raise ValueError("plugins.python.command: every part must be a non-blank string")
+        if self.start_timeout_ms < 1000:
+            raise ValueError("plugins.python.start_timeout_ms must be >= 1000")
+        return self
+
+
+class PluginsCfg(_Model):
+    python: PythonPluginCfg = Field(default_factory=PythonPluginCfg)
 
 
 class CheckCfg(_Model):
@@ -572,6 +600,7 @@ class PollerConfig(_Model):
     defaults: DeviceDefaults = Field(default_factory=DeviceDefaults)
     check: CheckCfg = Field(default_factory=CheckCfg)
     opcua_server: OpcUaServerCfg = Field(default_factory=OpcUaServerCfg)
+    plugins: PluginsCfg = Field(default_factory=PluginsCfg)
     sparkplug: SparkplugCfg = Field(default_factory=SparkplugCfg)   # #51: served by the Rust engine
 
 

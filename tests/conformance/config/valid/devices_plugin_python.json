@@ -1,0 +1,29 @@
+{
+  "document": "devices",
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "SITE_A",
+        "devices": [
+          {
+            "id": "SITE_A/PLC1",
+            "channel": "SITE_A",
+            "name": "PLC1",
+            "driver": "ab_pccc",
+            "host": "192.0.2.10",
+            "port": 44818,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "N7:0",
+                "dtype": "int16"
+              }
+            ],
+            "plugin": "python"
+          }
+        ]
+      }
+    ]
+  }
+}

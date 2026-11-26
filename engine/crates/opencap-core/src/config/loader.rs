@@ -27,8 +27,18 @@ pub const DEVICES_FILE: &str = "devices.json";
 pub const MAP_FILE: &str = "devices_map.yaml";
 pub const OVERRIDES_FILE: &str = "overrides.yaml";
 
-const DEVICE_SCALARS: [&str; 9] =
-    ["enabled", "host", "port", "scan_ms", "min_scan_ms", "timeout_ms", "retries", "demote_after", "demote_for_ms"];
+const DEVICE_SCALARS: [&str; 10] = [
+    "enabled",
+    "host",
+    "port",
+    "scan_ms",
+    "min_scan_ms",
+    "timeout_ms",
+    "retries",
+    "demote_after",
+    "demote_for_ms",
+    "plugin",
+];
 const TAG_FIELDS: [&str; 5] = ["enabled", "address", "dtype", "scan_ms", "scale"];
 
 #[derive(Debug, Clone)]
@@ -278,11 +288,13 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
     poller.api.validate().map_err(|e| invalid(format!("{}: api: {e}", poller_path.display())))?;
     poller.payload.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     poller.opcua_server.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
+    poller.plugins.python.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     poller.sparkplug.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     let devices_file = load_devices(&config_dir.join(DEVICES_FILE))?;
     let ov_path = config_dir.join(OVERRIDES_FILE);
     let overrides_raw = read_yaml(&ov_path)?;
     let overrides: Overrides = model(&ov_path, Json::Object(overrides_raw.clone()))?;
+    overrides.validate().map_err(|e| invalid(format!("{}: {e}", ov_path.display())))?;
     let map_path = config_dir.join(MAP_FILE);
     let device_map: DeviceMap = model(&map_path, Json::Object(read_yaml(&map_path)?))?;
     let overrides_dev_raw: Map<String, Json> =

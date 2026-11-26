@@ -1838,6 +1838,43 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
 
+### D-092 Out-of-process plugin protocol v1 and the Python driver host as built (#49)
+`proto/opencap/plugin/v1/driver.proto`, `engine/crates/opencap-plugin`, `src/opencap/plugin_host.py`. Where they go
+beyond ADR-0004 §3 / 03 §3.3:
+- **Opt-in per device: `plugin: python`** (devices.json or overrides.yaml; `plugins.python` in poller.yaml says how to
+  start the host). Expected: the engine picks the host for drivers it lacks. Why: routing stays explicit and
+  reviewable, a native port can take over device by device, and the Python engine ignores the key.
+- **One host process per channel**, so the host's single executor is the channel executor (D-015), and a crash or
+  hang in a PLC library affects one channel only. Cost: one Python process (~40 MB) per such channel.
+- **`plan()` stays pure in Rust.** `PluginRegistry::prepare()` asks the host to `Plan` every rate group before the
+  engine builds its registry (start, reload, `check`/`read`/`identity`); `PluginDriver::plan()` answers from those
+  plans. A device the host cannot plan (bad params, no Python, the host does not start) is a driver-factory error:
+  listed, not polled.
+- **Added RPCs `Hello` and `Open`**: `Hello` checks the protocol and the served drivers; `Open` creates the device's
+  driver instance in the process, and `NOT_OPEN` tells the engine to open it again after a restart. Generations are
+  unique across hosts, so a device is never taken as open in a successor process. Connect/Close replies also carry
+  `DriverInfo`, since a connect budget can change once connected (PCCC: 60 s before the file directory is cached,
+  10 s after).
+- **Block payloads are pickles signed with HMAC-SHA256** under the run's token; the host verifies before it
+  unpickles and caches verified blocks. Opaque to the engine, and stateless across host restarts. A payload that
+  does not verify is `BLOCK_CONFIG` (block disabled until reload), never deserialised.
+- **Transport:** Unix socket in a 0700 directory; loopback TCP (Windows, or `transport: tcp`) needs the token, which
+  every call carries. Named pipes are not used. The host exits when its stdin closes, so it never outlives the engine.
+- **Restart:** a process that exits, or a call that fails in transport, ends its generation; the next start waits
+  1 s, 2 s ... 60 s (reset after 60 s alive). Its devices see `ConnectionLost`, go `bad_comm`, and recover by the
+  worker's normal reconnect.
+- **Not wired yet:** `Browse` has no caller in the Rust trait; `Subscribe` returns `UNSUPPORTED` from the Python host
+  (push drivers are served through `Read`, as in the Python engine); `stale_by_read_time` is reported but the Rust
+  worker does not use read times (D-045) yet.
+- **Overhead target missed:** ~0.6 ms p50 / ~1.1 ms p99 added per read (target < 0.5 ms p99), almost all of it the
+  fixed per-call cost of Python grpcio (04 §4.1). Kept for now (small against PLC round trips); #252 tracks the
+  target (batched reads per call, a leaner `v2` transport, or the native PCCC port in #48), so #49 stays open.
+- **Codegen:** Rust compiles the `.proto` with protox in `build.rs` (no `protoc` on build machines); tonic is pinned
+  at 0.14.5 for the workspace's Rust 1.85. Python stubs are committed (grpcio-tools 1.85.4), with a drift test; the
+  `plugin` extra needs protobuf >= 7.35.1 and grpcio >= 1.85.4, the stubs' gencode versions.
+- **Harness:** `opencap-engine drivers` reports `"plugins": ["python"]`, and `@pytest.mark.drivers(..., plugin="python")`
+  lets an engine-agnostic suite run on the Rust engine through the host (Phase 3 does).
+
 ### D-088 OPC UA server hardening (#28)
 Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo, open62541 and asyncua.
 - **Per-server asyncua overrides, no global patch** (`north/opcua_services.py`): a `Server` subclass

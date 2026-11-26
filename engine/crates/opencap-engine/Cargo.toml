@@ -31,6 +31,7 @@ opencap-drivers.workspace = true
 opencap-north.workspace = true
 opencap-north-sparkplug = { path = "../../north/sparkplug" }
 opencap-api.workspace = true
+opencap-plugin.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true

@@ -9,6 +9,7 @@ import asyncio
 import inspect
 import math
 import socket
+import sys
 import time
 from collections import Counter
 from datetime import UTC, datetime
@@ -217,7 +218,8 @@ async def test_connection_refused():
     t0 = time.monotonic()
     with pytest.raises(ConnectionLost, match="connect failed"):
         await drv.connect()
-    assert time.monotonic() - t0 < 0.4
+    # Windows retries a refused connect twice (SYN after RST, about 1-2 s) before reporting it
+    assert time.monotonic() - t0 < (3.0 if sys.platform == "win32" else 0.4)
     assert not drv.connected
     with pytest.raises(ConnectionLost):
         await drv.read(drv.plan(dev.tags).blocks[0])

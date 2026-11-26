@@ -20,10 +20,13 @@ from pymcprotocol.mcprotocolerror import MCProtocolError, UnsupportedComandError
 from tests.helpers.mc_sim import McSim  # noqa: E402
 
 
-def _client(sim: McSim, plc_type: str = "Q", commtype: str = "binary") -> "pymcprotocol.Type3E":
+def _client(sim: McSim, plc_type: str = "Q", commtype: str = "binary",
+            timeout: float | None = None) -> "pymcprotocol.Type3E":
     client = pymcprotocol.Type3E(plc_type)
     if commtype != "binary":
         client.setaccessopt(commtype=commtype)
+    if timeout is not None:
+        client.soc_timeout = timeout
     client.connect(sim.host, sim.port)
     return client
 
@@ -210,7 +213,7 @@ async def test_mute_stop_and_restart() -> None:
         port = sim.port
         await sim.stop()
         with pytest.raises(ConnectionRefusedError):
-            _client(sim)
+            _client(sim, timeout=10)     # Windows reports a refused connect after ~2 s, pymcprotocol's default
         await sim.restart()
         assert sim.port == port
         client = _client(sim)

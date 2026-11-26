@@ -23,7 +23,7 @@ from tests.helpers.df1_sim import Df1Sim
 from tests.helpers.modbus_sim import free_port
 from tests.helpers.netcut import stable_port
 from tests.helpers.pccc_sim import tables_for
-from tests.helpers.pty_bridge import PtyBridge, needs_pyserial
+from tests.helpers.pty_bridge import PtyBridge, needs_pty, needs_pyserial
 
 TYPED_READ = (CMD_EXTENDED, 0xA2)
 
@@ -244,6 +244,16 @@ async def test_silent_plc_is_comm_error_within_the_ack_budget(sim, driver):
     assert all(tv.quality == "good" for tv in (await driver.read(block)).values())
 
 
+async def _accepted(sim, n: int) -> None:
+    """The sim counts a connection when its server accepts it, which can run after the client's
+    connect() has returned (seen on Windows): wait briefly, then require exactly `n`."""
+    for _ in range(200):
+        if sim.connections >= n:
+            break
+        await asyncio.sleep(0.01)
+    assert sim.connections == n
+
+
 async def test_close_on_timeout_drops_the_line(sim):
     drv = AbDf1Driver(_device(sim.port, close_on_timeout=True))
     await drv.connect()
@@ -253,7 +263,7 @@ async def test_close_on_timeout_drops_the_line(sim):
             await drv.read(drv.plan(drv.device.tags).blocks[0])
         assert not drv.connected
         await drv.connect()
-        assert sim.connections == 2
+        await _accepted(sim, 2)
     finally:
         await drv.close()
 
@@ -381,7 +391,7 @@ async def test_two_stations_share_one_line(sim):
     try:
         await a.connect()
         await b.connect()
-        assert sim.connections == 1                                # one TCP connection for the line
+        await _accepted(sim, 1)                                    # one TCP connection for the line
         _assert_values(sim, PATTERN_TAGS, await _read_all(a))
         _assert_values(sim, tags2, await _read_all(b), station=2)
         assert sim.value("F34:3", station=2) != sim.value("F34:3", station=1)
@@ -406,6 +416,7 @@ async def test_line_failure_drops_every_station(sim):
     try:
         await a.connect()
         await b.connect()
+        await _accepted(sim, 1)                                    # the line must exist before we cut it
         for line in list(sim._lines):
             line.writer.transport.abort()                          # the gateway drops the TCP connection
         with pytest.raises(ConnectionLost):
@@ -414,13 +425,14 @@ async def test_line_failure_drops_every_station(sim):
         await b.connect()
         await a.connect()
         _assert_values(sim, PATTERN_TAGS, await _read_all(a))
-        assert sim.connections == 2
+        await _accepted(sim, 2)
     finally:
         await a.close()
         await b.close()
 
 
 @needs_pyserial
+@needs_pty
 async def test_over_a_tty(sim):
     bridge = await PtyBridge.start("127.0.0.1", sim.port)
     drv = AbDf1Driver(_device(0, host=bridge.path, transport="serial", baudrate=19200, parity="N"))

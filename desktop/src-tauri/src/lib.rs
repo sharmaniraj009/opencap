@@ -8,15 +8,19 @@
 //! - engine windows load remote pages, so they get no Tauri IPC at all (capabilities cover the
 //!   launcher window only).
 //!
+//! - with an installer, it also starts and stops the engine bundled next to it (`sidecar`, #58).
+//!
 //! opencap is read-only towards PLCs; the desktop app adds nothing that could write one.
 
 pub mod engine;
 pub mod profiles;
+pub mod sidecar;
 
 use serde::Serialize;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use profiles::{KeyringStore, ProfileInput, ProfileStore, ProfileSummary};
+use sidecar::{LocalEngine, LocalStatus};
 
 pub struct AppState {
     store: ProfileStore,
@@ -49,6 +53,27 @@ pub fn injection_script(origin: &str, token: Option<&str>) -> String {
     )
 }
 
+/// The token for a profile: the keychain's, or for the bundled engine the one it was started
+/// with when the keychain could not keep it.
+fn token_for(state: &AppState, local: &LocalEngine, id: &str) -> Option<String> {
+    let stored = state.store.token(id).unwrap_or(None);
+    if stored.is_none() && id == sidecar::PROFILE_ID {
+        return local.token();
+    }
+    stored
+}
+
+fn refuse_managed(id: &str) -> Result<(), String> {
+    if id == sidecar::PROFILE_ID {
+        return Err(
+            "this profile belongs to the engine bundled with the app; it follows the \
+                    engine's address and token by itself"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct AppInfo {
     version: &'static str,
@@ -73,6 +98,9 @@ fn save_profile(
     state: tauri::State<'_, AppState>,
     input: ProfileInput,
 ) -> Result<ProfileSummary, String> {
+    if let Some(id) = &input.id {
+        refuse_managed(id)?;
+    }
     state.store.upsert(input).map_err(err)
 }
 
@@ -82,6 +110,7 @@ fn delete_profile(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
+    refuse_managed(&id)?;
     state.store.remove(&id).map_err(err)?;
     if let Some(w) = app.get_webview_window(&window_label(&id)) {
         let _ = w.close();
@@ -92,11 +121,12 @@ fn delete_profile(
 #[tauri::command]
 async fn check_engine(
     state: tauri::State<'_, AppState>,
+    local: tauri::State<'_, LocalEngine>,
     id: String,
 ) -> Result<engine::EngineStatus, String> {
     let profile = state.store.get(&id).map_err(err)?;
     // without a keychain the engine is still checked, as if no token were stored
-    let token = state.store.token(&id).unwrap_or(None);
+    let token = token_for(&state, &local, &id);
     tauri::async_runtime::spawn_blocking(move || engine::check(&profile.base_url, token.as_deref()))
         .await
         .map_err(err)?
@@ -106,11 +136,12 @@ async fn check_engine(
 fn open_engine(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    local: tauri::State<'_, LocalEngine>,
     id: String,
 ) -> Result<(), String> {
     let profile = state.store.get(&id).map_err(err)?;
     // without a keychain the UI still opens; it then asks for the token itself
-    let token = state.store.token(&id).unwrap_or(None);
+    let token = token_for(&state, &local, &id);
     let label = window_label(&id);
     if let Some(window) = app.get_webview_window(&label) {
         return window.set_focus().map_err(err);
@@ -129,6 +160,68 @@ fn open_engine(
     Ok(())
 }
 
+#[tauri::command]
+fn local_engine_status(local: tauri::State<'_, LocalEngine>) -> LocalStatus {
+    local.status()
+}
+
+#[tauri::command]
+async fn start_local_engine(app: tauri::AppHandle) -> Result<LocalStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let local = app.state::<LocalEngine>();
+        local.start(|url, token| {
+            state
+                .store
+                .set_managed(sidecar::PROFILE_ID, sidecar::PROFILE_NAME, url, token)
+                .unwrap_or_else(|e| Some(format!("Could not save the engine's profile: {e}")))
+        })
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+async fn stop_local_engine(app: tauri::AppHandle) -> Result<LocalStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<LocalEngine>().stop())
+        .await
+        .map_err(err)?
+}
+
+/// `opencap-desktop --check-bundled-engine [report-file]`: the installer smoke test (#58). Uses
+/// the engine next to the installed app, a temporary config directory and an in-memory token;
+/// touches neither the user's profiles nor the keychain.
+pub fn check_bundled_engine(report: Option<&str>) -> i32 {
+    let tmp = std::env::temp_dir().join(format!("opencap-desktop-check-{}", std::process::id()));
+    let local = LocalEngine::new(sidecar::Layout::new(tmp.clone()), sidecar::engine_binary());
+    let result = local.start(|_, _| None).and_then(|st| {
+        let url = st.base_url.clone().unwrap_or_default();
+        let health = engine::check(&url, local.token().as_deref())?;
+        let ok = matches!(health.auth, engine::Auth::Ok { .. });
+        let stopped = local.stop()?;
+        if !ok || stopped.running {
+            return Err(format!(
+                "unexpected: auth {:?}, running after stop: {}",
+                health.auth, stopped.running
+            ));
+        }
+        Ok(format!(
+            "ok: bundled engine {} started on {url}, /health {:?} with its token, stopped",
+            st.binary, health.version
+        ))
+    });
+    let _ = std::fs::remove_dir_all(&tmp);
+    let (code, text) = match result {
+        Ok(t) => (0, t),
+        Err(e) => (1, format!("failed: {e}")),
+    };
+    println!("{text}");
+    if let Some(path) = report {
+        let _ = std::fs::write(path, format!("{text}\n"));
+    }
+    code
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -138,6 +231,12 @@ pub fn run() {
                 store: ProfileStore::new(path, Box::new(KeyringStore)),
                 profiles_path,
             });
+            // the bundled engine's config and outbox: local app data, kept across upgrades
+            let engine_root = app.path().app_local_data_dir()?.join("engine");
+            app.manage(LocalEngine::new(
+                sidecar::Layout::new(engine_root),
+                sidecar::engine_binary(),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -146,10 +245,19 @@ pub fn run() {
             save_profile,
             delete_profile,
             check_engine,
-            open_engine
+            open_engine,
+            local_engine_status,
+            start_local_engine,
+            stop_local_engine
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running opencap desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building opencap desktop")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // never leave the bundled engine running without the app that manages it
+                let _ = app.state::<LocalEngine>().stop();
+            }
+        });
 }
 
 #[cfg(test)]

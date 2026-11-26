@@ -51,12 +51,13 @@ from opencap.core.cache import TagValue
 from opencap.drivers._cip_common import WRITE_SERVICES, describe_exc, is_comm_error, is_timeout, oo_socket_class
 from opencap.drivers._cip_common import Attempt as _Attempt
 from opencap.drivers._cip_common import exc_chain as _chain
+from opencap.drivers import _schema as sc
 from opencap.drivers.ab_pccc import coerce_value, parse_pccc_address
-from opencap.drivers.base import Block, CommError, ConnectionLost, DecodeError, Driver, Plan
+from opencap.drivers.base import Block, BrowseResult, CommError, ConnectionLost, DecodeError, Driver, Plan
 
 __all__ = [
     "AbLogixDriver", "DecodeError", "LogixAddress", "LogixBlock", "LogixItem", "LogixRead",
-    "NameResult", "WholeReplyError", "connection_path", "decode_block", "logix_driver_class",
+    "NameResult", "WholeReplyError", "browse_tag_list", "connection_path", "decode_block", "logix_driver_class",
     "parse_batching", "parse_logix_address", "probe_names", "resolve_read_name",
 ]
 
@@ -240,6 +241,128 @@ def decode_block(block: LogixBlock, values: Sequence[Any] | None) -> dict[str, A
 
 
 
+# --- browse: the uploaded tag list as opencap tags (#11) --------------------------------------
+
+# Logix / Micro800 atomic type -> opencap dtype, as `coerce_value` reads them. SINT/USINT have
+# no 8-bit dtype and widen to 16 bits (lossless). Bit-string types (BYTE, WORD, DWORD, LWORD) and
+# Logix BOOL arrays (DWORD-packed) are not in the table: pycomm3 returns them as bit lists.
+LOGIX_DTYPES: dict[str, str] = {
+    "BOOL": "bool", "SINT": "int16", "USINT": "uint16", "INT": "int16", "UINT": "uint16",
+    "DINT": "int32", "UDINT": "uint32", "LINT": "int64", "ULINT": "uint64",
+    "REAL": "float32", "LREAL": "float64", "SHORT_STRING": "string",
+}
+MAX_EXPANDED_ELEMENTS = 4096        # per array; a larger array is skipped with a reason
+
+
+def _dims(info: Mapping[str, Any]) -> list[int]:
+    return [int(d) for d in (info.get("dimensions") or []) if d]
+
+
+def _elements(name: str, dims: list[int]) -> list[str]:
+    """Element addresses in row-major order: `A[0]`, `A[1]`, ... or `A[0,0]`, `A[0,1]`, ..."""
+    out = [""]
+    for d in dims:
+        out = [f"{prefix},{i}" if prefix else str(i) for prefix in out for i in range(d)]
+    return [f"{name}[{index}]" for index in out]
+
+
+def _type_name(info: Mapping[str, Any]) -> str:
+    name = info.get("data_type_name")
+    if name:
+        return str(name)
+    dt = info.get("data_type")
+    return str(dt.get("name", "?")) if isinstance(dt, Mapping) else str(dt)
+
+
+def _is_string(info: Mapping[str, Any]) -> bool:
+    dt = info.get("data_type")
+    return (isinstance(dt, Mapping) and "string" in dt) or _type_name(info) == "SHORT_STRING"
+
+
+def _atomic_dtype(info: Mapping[str, Any]) -> str | None:
+    if _is_string(info):
+        return "string"
+    if info.get("tag_type") == "struct":
+        return None
+    return LOGIX_DTYPES.get(_type_name(info).upper())
+
+
+def _add_item(out: BrowseResult, name: str, info: Mapping[str, Any], dims: list[int], description: str,
+              expand_arrays: bool) -> None:
+    """One atomic tag or member (`dims` = its array dimensions), expanded to elements if asked."""
+    type_name = _type_name(info)
+    dtype = _atomic_dtype(info)
+    if dtype is None:
+        out.skipped[name] = f"type {type_name} is not supported by ab_logix (read it by hand if it is atomic)"
+        return
+    if not dims:
+        out.tags.append(Tag(name=name, address=name, dtype=dtype, description=description))
+        return
+    shape = ",".join(map(str, dims))
+    if type_name.upper() == "BOOL":
+        out.skipped[name] = f"BOOL[{shape}]: Logix BOOL arrays are DWORD-packed; not supported"
+        return
+    if not expand_arrays:
+        out.skipped[name] = (f"array {type_name}[{shape}]: ab_logix reads single elements only; "
+                             "use --expand-arrays for one tag per element")
+        return
+    count = math.prod(dims)
+    if count > MAX_EXPANDED_ELEMENTS:
+        out.skipped[name] = f"array {type_name}[{shape}]: {count} elements, more than {MAX_EXPANDED_ELEMENTS}"
+        return
+    for element in _elements(name, dims):
+        out.tags.append(Tag(name=element, address=element, dtype=dtype, description=f"{description} element"))
+
+
+def browse_tag_list(tag_list: Mapping[str, Mapping[str, Any]], *, expand_arrays: bool = False) -> BrowseResult:
+    """Pure: pycomm3's uploaded tag list (`plc.tags`) -> opencap tags, sorted by name (no case).
+
+    Controller-scoped atomic tags and strings become one tag each; a UDT becomes one tag per
+    atomic or string member (one level, D-024); arrays (of atomics, and array members) become one
+    tag per element with `expand_arrays`. Everything else is listed in `skipped` with the reason.
+    """
+    out = BrowseResult()
+    for name in sorted(tag_list, key=str.casefold):
+        info = tag_list[name]
+        type_name = _type_name(info)
+        if name.startswith("Program:"):
+            out.skipped[name] = "program-scoped tag: browse lists controller-scoped tags only"
+            continue
+        if info.get("external_access") == "None":
+            out.skipped[name] = "External Access is None: the controller does not serve it"
+            continue
+        dims = _dims(info)
+        dt = info.get("data_type")
+        if info.get("tag_type") != "struct" or _is_string(info):
+            _add_item(out, name, info, dims, type_name + (f"[{','.join(map(str, dims))}]" if dims else ""),
+                      expand_arrays)
+            continue
+        if dims:
+            out.skipped[name] = f"array of structures {type_name}[{','.join(map(str, dims))}]: not supported"
+            continue
+        members = (dt.get("internal_tags") or {}) if isinstance(dt, Mapping) else {}
+        visible = (dt.get("attributes") if isinstance(dt, Mapping) else None) or list(members)
+        if not visible:
+            out.skipped[name] = f"structure {type_name} has no readable members"
+            continue
+        for mname in visible:
+            member = members.get(mname)
+            full = f"{name}.{mname}"
+            if member is None:
+                out.skipped[full] = f"member {mname} of {type_name} is not in the uploaded template"
+                continue
+            mtype = _type_name(member)
+            if member.get("tag_type") == "struct":
+                why = "STRING members are not simulated (D-024)" if _is_string(member) else \
+                    "nested structures: browse expands one level (D-024)"
+                out.skipped[full] = f"member {mtype}: {why}; add it by hand"
+                continue
+            mdims = [int(member["array"])] if member.get("array") else []
+            _add_item(out, full, member, mdims, f"{type_name}.{mname}: {mtype}", expand_arrays)
+    return out
+
+
+# --- I/O: pure helpers ---------------------------------------------------------------------
 # --- I/O: pure helpers ---------------------------------------------------------------------
 
 _log = structlog.get_logger("opencap.drivers.ab_logix")
@@ -663,6 +786,19 @@ class AbLogixDriver(Driver):
 
     name: ClassVar[str] = "ab_logix"
     is_async: ClassVar[bool] = False
+    transport: ClassVar[str] = "tcp (EtherNet/IP)"
+    supports_browse: ClassVar[bool] = True      # Driver.browse() maps the uploaded tag list (#11, D-077)
+    address_examples: ClassVar[tuple[str, ...]] = (
+        "Pump1_Speed", "Program:MainProgram.Counter", "Recipe[3]", "Motor1.Status.Running", "Flags.5")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("ab_logix params", {
+        "micro800": sc.boolean("the device is a Micro800 (no backplane, no tag-list upload)", False),
+        "path": sc.string("CIP route after the IP address, as port,link pairs, e.g. 1,0", nullable=True),
+        "slot": sc.integer("backplane slot of the controller", minimum=0, maximum=255, nullable=True),
+        "max_batch": sc.integer("tags per read call", DEFAULT_MAX_BATCH, minimum=1),
+        "batching": {**sc.string("Multiple Service Packet batching (Micro800): auto probes on connect",
+                                 "auto", enum=(*BATCHING_MODES, True, False)), "type": ["string", "boolean"]},
+        "connection_size": sc.integer("CIP connection size in bytes (wire estimate)", minimum=1, nullable=True),
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)
@@ -833,6 +969,14 @@ class AbLogixDriver(Driver):
             **s.identity, "micro800": s.micro800, "batching": s.batching,
             "batching_reason": s.batching_reason, "tag_count": len(s.cache.tags),
         }
+
+    async def browse(self, *, expand_arrays: bool = False) -> BrowseResult:
+        """Tags generated from the tag list uploaded at connect (#11): no extra request, so only
+        the read/list services of `connect()` ever reach the controller."""
+        s = self._session
+        if s is None or s.dead:
+            raise ConnectionLost(f"{self._where}: not connected")
+        return browse_tag_list(s.cache.tags, expand_arrays=expand_arrays)
 
     # --- executor side (every pycomm3 call happens below, on the channel executor) ---
 

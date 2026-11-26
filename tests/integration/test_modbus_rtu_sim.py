@@ -19,7 +19,7 @@ from opencap.drivers.modbus_rtu import MIN_INTER_FRAME_S, ModbusRtuDriver, inter
 from opencap.drivers._serial import SerialSettings
 from tests.helpers.modbus_sim import ModbusSim, free_port, make_sim_devices
 from tests.helpers.netcut import stable_port
-from tests.helpers.pty_bridge import PtyBridge, needs_pyserial
+from tests.helpers.pty_bridge import PtyBridge, needs_pty, needs_pyserial
 
 
 def _rtu(device: Device, port: int, *, host: str = "127.0.0.1", **params) -> Device:
@@ -67,6 +67,7 @@ async def test_reads_match_the_image_over_rtu_on_tcp(rtu_sim):
 
 
 @needs_pyserial
+@needs_pty
 async def test_reads_over_a_tty(rtu_sim):
     bridge = await PtyBridge.start("127.0.0.1", rtu_sim.port)
     # 8N1: a Linux pty refuses parity on every open but the first (EINVAL), real ports do not
@@ -171,7 +172,7 @@ async def test_inter_frame_gap(rtu_sim):
         started = time.monotonic()
         for _ in range(3):
             await drv.read(block)
-        assert time.monotonic() - started >= 3 * 0.12 - 0.01
+        assert time.monotonic() - started >= 3 * 0.12
     finally:
         await drv.close()
 

@@ -295,19 +295,25 @@ async def test_demotion_after_failed_cycles_probe_and_resume():
         health = worker.health(d.id)
         async with running(worker):
             await wait_until(lambda: health.state == "demoted", 1.0)
-            demoted_at = time.monotonic()
+            # The probe may not start before demoted_until, set from the worker's monotonic clock
+            # when it demoted the device. connect_attempts are stamped with that same clock, so
+            # the check is exact on every OS. A time this test takes after it notices the
+            # demotion would lag by its polling step (a whole 15.6 ms tick on Windows).
+            probe_due = health.demoted_until
             connects = len(s.connect_attempts)
             assert connects == 2                 # one per failed cycle, then demoted
             await asyncio.sleep(0.15)
             assert len(s.connect_attempts) == connects      # skipped while demoted
             await wait_until(lambda: len(s.connect_attempts) == connects + 1, 0.5)   # the probe
-            assert time.monotonic() - demoted_at >= 0.24
+            assert s.connect_attempts[connects] >= probe_due
             await asyncio.sleep(0.03)
             assert health.state == "demoted"     # probe failed: demoted again
             assert len(s.connect_attempts) == connects + 1
+            next_probe_due = health.demoted_until
+            assert next_probe_due >= probe_due + 0.25       # demote_for_ms counts from the failed probe
             s.down = False
             await wait_until(lambda: health.state == "ok", 1.0)  # next probe passes
-            assert time.monotonic() - demoted_at >= 0.48
+            assert s.connect_attempts[connects + 1] >= next_probe_due
             await wait_until(lambda: cache.get(d.id, "A_0").quality == "good", 0.5)
     events = [e["event"] for e in logs]
     assert events.count("device.demoted") == 1   # one INFO line per state change
@@ -557,6 +563,7 @@ async def test_not_polled_plan_error_disabled_device_and_disabled_channel():
         assert worker.device_status(ab.id) == {
             "state": "offline", "last_good": None, "errors": 0, "cycle_ms": None,
             "last_error": "driver 'ab_logix' is not implemented yet", "connected": False,
+            "consecutive_failures": 0, "error_since": None, "last_connect_failed": False,
         }
         assert worker.device_status(off.id)["last_error"] == "device disabled"
         st = worker.device_status(ok.id)
@@ -675,8 +682,25 @@ async def test_periodic_cycle_stats_log_line():
     assert stats, [e["event"] for e in logs]
     first = stats[0]
     assert first["device"] == dev.id and first["log_level"] == "info"
-    assert first["cycles"] >= 3 and first["mean_cycle_ms"] >= 5 and first["max_cycle_ms"] >= first["mean_cycle_ms"]
+    assert first["cycles"] >= 3 and first["max_cycle_ms"] >= first["mean_cycle_ms"]
+    assert first["mean_cycle_ms"] >= 4, first      # a 5 ms read, with room for timer granularity
     assert first["state"] == "ok" and first["bad_cycles"] == 0
+
+
+async def test_cycle_times_do_not_depend_on_the_scheduling_clock(monkeypatch):
+    """With a coarse monotonic clock (Windows, Python 3.12: ~15.6 ms) cycles still measure > 0 (#199)."""
+    tick = 0.0156
+    monkeypatch.setattr("opencap.core.channel_worker._mono", lambda: (time.monotonic() // tick) * tick)
+    name = uniq()
+    dev = device(name, "PLC", tags("A", 2), scan_ms=30)
+    worker, factory, _ = make_worker(channel(name, [dev]), stats_interval_s=0.3)
+    factory.script(dev.id).delay_s = 0.005
+    with capture_logs() as logs:
+        async with running(worker):
+            await asyncio.sleep(0.8)
+    stats = [e for e in logs if e["event"] == "device.stats"]
+    assert stats and all(e["mean_cycle_ms"] >= 4 and e["max_cycle_ms"] < 1000 for e in stats), stats
+    assert 0 < worker.device_status(dev.id)["cycle_ms"] < 1000
 
 
 async def test_cycle_stats_can_be_turned_off():
@@ -687,3 +711,69 @@ async def test_cycle_stats_can_be_turned_off():
         async with running(worker):
             await asyncio.sleep(0.3)
     assert not [e for e in logs if e["event"] == "device.stats"]
+
+
+# --- status fields for the system tags (spec §9, #120) ------------------------------------
+
+async def test_error_since_and_last_connect_failed_follow_the_failure_run():
+    clock = [datetime(2026, 11, 18, 10, 0, 0, tzinfo=UTC)]
+    ch, d = one_device(scan_ms=20, demote_after=0, retries=0)
+    worker, factory, _ = make_worker(ch, backoff_base_s=0.01, backoff_max_s=0.01, clock=lambda: clock[0])
+    s = factory.script(d.id)
+    st = worker.device_status(d.id)
+    assert st["error_since"] is None and st["last_connect_failed"] is False       # before any attempt
+    assert st["consecutive_failures"] == 0
+    s.down = True
+    async with running(worker):
+        await wait_until(lambda: worker.health(d.id).errors >= 1)
+        first = worker.device_status(d.id)
+        assert first["error_since"] == "2026-11-18T10:00:00.000Z"
+        assert first["last_connect_failed"] is True and first["consecutive_failures"] >= 1
+        clock[0] += timedelta(seconds=5)
+        floor = worker.health(d.id).errors + 2
+        await wait_until(lambda: worker.health(d.id).errors >= floor)
+        assert worker.device_status(d.id)["error_since"] == "2026-11-18T10:00:00.000Z"   # the run's first cycle
+        s.down = False
+        await wait_until(lambda: worker.health(d.id).state == "ok")
+        ok = worker.device_status(d.id)
+        assert ok["error_since"] is None and ok["last_connect_failed"] is False and ok["consecutive_failures"] == 0
+
+
+async def test_failed_reads_counts_one_per_block_read_that_ends_bad_comm():
+    ch, d = one_device(tags("A", 1) + tags("B", 1), scan_ms=1000, demote_after=0, retries=2)
+    worker, factory, _ = make_worker(ch)
+    s = factory.script(d.id)
+    s.timeout_blocks.add("A")
+    await worker.read_once(d.id)
+    assert requests(d.id, "timeout") == 3                       # 1 attempt + 2 retries
+    assert metric("poll_failed_reads_total", device=d.id) == 1  # one failed block read
+    assert requests(d.id, "ok") == 1
+    await worker.read_once(d.id)
+    assert metric("poll_failed_reads_total", device=d.id) == 2
+    s.timeout_blocks.clear()
+    await worker.read_once(d.id)
+    assert metric("poll_failed_reads_total", device=d.id) == 2
+    await worker.stop()
+
+
+async def test_wire_lock_counts_requests_in_flight_and_the_maximum():
+    ch, d = one_device(scan_ms=1000)
+    worker, factory, _ = make_worker(ch)
+    s = factory.script(d.id)
+    assert (worker.in_flight, worker.max_in_flight) == (0, 0)
+    s.delay_s = 0.15
+    task = asyncio.create_task(worker.read_once(d.id))
+    await wait_until(lambda: worker.in_flight == 1)
+    await task
+    assert (worker.in_flight, worker.max_in_flight) == (0, 1)
+    await worker.stop()
+
+
+async def test_scanned_tags_exclude_blocks_the_device_rejected():
+    ch, d = one_device(tags("A", 2) + tags("B", 3), scan_ms=1000)
+    worker, factory, _ = make_worker(ch)
+    assert worker.scanned_tags(d.id) == 5
+    factory.script(d.id).config_error_blocks.add("B")
+    await worker.read_once(d.id)
+    assert worker.scanned_tags(d.id) == 2
+    await worker.stop()

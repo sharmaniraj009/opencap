@@ -189,18 +189,18 @@ pub type DriverFactory = Arc<dyn Fn(&Device) -> Result<Box<dyn Driver>, String> 
   `BlockConfigError`, `NotImplementedError`) so `last_error` texts read the same in both
   engines.
 
-### 2.6 Cache
+### 2.6 Cache (now the tag store)
 
-`ValueCache` keeps the Python semantics (contract §2): register pre-fills enabled tags as
+`ValueCache` kept the Python semantics (contract §2): register pre-fills enabled tags as
 `(None, stale, None)`; a good value replaces value, quality and `source_ts`; any other
 quality keeps the last value and last good timestamp; `version()` bumps on every change;
 snapshots are copies in tag order. One short-held mutex replaces "one event loop, no locks".
 
 [ADR-0005](../adr/0005-north-plugins-tag-store-event-bus.md)'s tag store (one slot per device,
-one writer, bounded broadcast of `ChangeBatch` with conflation) replaces it in #41 without
-changing any rule above; the publisher then subscribes instead of being woken by `on_cycle`.
-The second timestamp (`server_ts`, [ADR-0006](../adr/0006-quality-and-timestamps.md)) arrives
-with the store. Timestamps are truncated to microseconds, Python's precision, so the two
+one writer, bounded broadcast of `ChangeBatch` with conflation) replaced it in #41 without
+changing any rule above (`opencap-core::store`, 03 §3.2, D-066); the publisher subscribes
+instead of being woken by `on_cycle`. The second timestamp (`server_ts`,
+[ADR-0006](../adr/0006-quality-and-timestamps.md)) arrived with the store. Timestamps are truncated to microseconds, Python's precision, so the two
 engines report identical `last_good` and `source_ts` strings.
 
 ### 2.7 North side
@@ -301,6 +301,8 @@ oss-reuse.md.
 | Body cap in the API guard (reads and drains the body frame by frame) | http-body-util 0.1.5 | MIT ([LICENSE](https://docs.rs/crate/http-body-util/0.1.5/source/LICENSE)) | hyper project; already in the lock through axum (D-062) | Adopt |
 | Field paths in config errors (pydantic-style `loc`) | serde_path_to_error 0.1.20 | MIT OR Apache-2.0 ([LICENSE-MIT](https://docs.rs/crate/serde_path_to_error/0.1.20/source/LICENSE-MIT)) | dtolnay; already in the lock through axum (D-063) | Adopt |
 | Licence gate | cargo-deny 0.21 | MIT OR Apache-2.0 (manifest) | standard | Test-only (CI) |
+| Modbus RTU framing (#47) | tokio-modbus 0.17 `rtu` feature | MIT OR Apache-2.0 (lock) | same crate as Modbus TCP | Adopt |
+| Local serial ports (#47) | tokio-serial 5.5.0 + mio-serial 5.0.7, on serialport 4.10.1 | MIT ([LICENSE](https://docs.rs/crate/tokio-serial/5.5.0/source/LICENSE)); serialport MPL-2.0 ([LICENSE.txt](https://docs.rs/crate/serialport/4.10.1/source/LICENSE.txt)), unmodified (lock) | serialport-rs project; default features off (no libudev) | Adopt (D-070) |
 
 `cargo deny check licenses` over the whole dependency graph passes with the allow-list
 MIT, Apache-2.0 (incl. LLVM exception), BSD-2/3, ISC, Zlib, Unicode-3.0 (`engine/deny.toml`);
@@ -488,7 +490,7 @@ uninstall removes the service but keeps config and data.
 | CLI parity | `check -v` (every block of every device, warnings, rate groups, invalid-tag reasons, load) and `read` against live simulators: identical stdout and exit codes | `tests/integration/test_rust_engine_cli.py` |
 | Outbox interchange | a Python-written outbox drains from the Rust engine in order; a Rust-written outbox is read by Python | `tests/integration/test_rust_engine_outbox.py` |
 | API and reload | bearer auth on every protected route, open `/health` and `/metrics`, 404 texts, refusal of a public bind without a token, `POST /reload` and SIGHUP restart only the changed channels, an invalid config keeps the old one; named tokens and roles, read-only loopback-only open mode, 401 before the body and the 1 MiB cap, run against both engines (D-062) | `tests/integration/test_rust_engine_api.py` |
-| Acceptance | `tests/integration/test_phase1_acceptance.py` with `--engine=rust` / `OPENCAP_ENGINE=rust`: 30 simulated Modbus devices (1,590 tags), publish interval, payload values, kill-one demotion and resume, API, network outage with no loss | the existing suite, through `tests/helpers/engine.py` |
+| Acceptance | every acceptance suite with `--engine=rust` / `OPENCAP_ENGINE=rust`; today Phase 1 runs (30 simulated Modbus devices, 1,590 tags: publish interval, payload values, kill-one demotion and resume, API, network outage with no loss) and the suites for drivers not ported yet (Phase 2 `ab_logix`, Phase 3 `ab_pccc`, serial, S7/MC, OPC UA) skip as "driver not ported" (D-069) | the existing suites, through `tests/helpers/engine.py` |
 
 The adapter (`tests/helpers/engine.py`) gives the test the same `Poller` surface for both
 engines: it starts the binary with the test's config directory, answers `device_detail`,
@@ -498,13 +500,15 @@ into the Python adapter).
 
 CI (`.github/workflows/rust-engine.yml`): `cargo fmt --check`, `cargo build`, `cargo clippy
 -D warnings`, `cargo test`, `cargo deny check licenses bans sources`; then the conformance
-job builds the binary and runs the golden, CLI, outbox and Phase 1 acceptance tests against
-it, plus the API/reload tests; a Windows build-and-test job is informational until #35.
+job builds the binary and runs the golden, CLI, outbox, API/reload and harness tests against
+it, and the `acceptance-rust` job builds the release binary and runs every acceptance suite
+against it (on pull requests and nightly), with the port gap in the job summary (D-069); a
+Windows build-and-test job is informational until #35.
 
 Not yet covered, and where it goes: conformance **vectors** for Modbus planning/decoding,
 scaling and payloads under `tests/conformance/` (#3, then #40 replaces the engine-local
-golden file with them); config fixtures (#2, #39); every other acceptance suite with
-`OPENCAP_ENGINE=rust` (#42); TLS to a real broker; the benchmark harness (#7).
+golden file with them); config fixtures (#2, #39); TLS to a real broker; the benchmark
+harness (#7).
 
 ## 7. KEPServerEX feature parity checklist
 
@@ -513,8 +517,8 @@ Status: ✅ done, 🚧 in progress, 📋 planned. Python = reference engine, Rus
 | KEPServerEX feature | opencap equivalent | Python | Rust | Milestone | Acceptance criteria |
 |---|---|---|---|---|---|
 | Modbus TCP/IP Ethernet | `modbus_tcp` | ✅ | ✅ (this PR) | M2 | Phase 1 suite green on both engines; vectors (#40) |
-| Allen-Bradley ControlLogix / Micro800 / model 23 | `ab_logix`, `ab_pccc` | ✅ | 📋 #43, #48 | M3 | Phase 2 acceptance and the AB simulator suites (`test_ab_logix_sim.py`, `test_ab_pccc_sim.py`) green with `OPENCAP_ENGINE=rust`; Micro800 batching probe identical (D-025); writes refused |
-| Siemens, Mitsubishi, OPC UA client, Modbus serial, DF1 | `s7`, `melsec_mc`, `opcua_client`, `modbus_rtu`, `ab_df1` | 🚧 | 📋 #44–#47, #53 | M3 | each driver's Python simulator suite green on Rust |
+| Allen-Bradley ControlLogix / Micro800 / model 23 | `ab_logix`, `ab_pccc` | ✅ | `ab_logix` ✅ (#43, D-076), `ab_pccc` 📋 #48 | M3 | Phase 2 acceptance and the AB simulator suites (`test_ab_logix_sim.py`, `test_ab_pccc_sim.py`) green with `OPENCAP_ENGINE=rust`; Micro800 batching probe identical (D-025); writes refused |
+| Siemens, Mitsubishi, OPC UA client, Modbus serial, DF1 | `s7`, `melsec_mc`, `opcua_client`, `modbus_rtu`, `ab_df1` | 🚧 | `melsec_mc` ✅ (#45, D-080), `s7` ✅ (#44, D-085), 📋 #46, #47, #53 | M3 | each driver's Python simulator suite green on Rust |
 | FINS, BACnet, DNP3, IEC 104, ADS, SNMP, MQTT/ODBC/OPC DA clients | Rust-first drivers | 📋 | 📋 | M5 | simulator + vectors + read-only guard (ADR-0004 §5) |
 | **Advanced Tags** (derived) | derived tags on virtual devices | 📋 | 📋 #55 | M5 | `docs/spec/derived-tags.md` vectors pass; DAG check rejects cycles at load; values in OPC UA, MQTT and the API |
 | **Alarms & Events** | alarm subscribers on the event bus | 📋 | 📋 | M5 | spec #24 vectors (limits, deadband, delay, ack, return); OPC UA A&C and MQTT alarm topic; history query |

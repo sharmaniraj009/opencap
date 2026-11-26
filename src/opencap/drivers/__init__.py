@@ -16,6 +16,7 @@ DRIVERS: dict[str, str] = {
     "opcua_client": "opencap.drivers.opcua_client:OpcUaClientDriver",
     "modbus_rtu": "opencap.drivers.modbus_rtu:ModbusRtuDriver",
     "ab_df1": "opencap.drivers.ab_df1:AbDf1Driver",
+    "simulator": "opencap.drivers.simulator:SimulatorDriver",
 }
 
 

@@ -29,10 +29,10 @@ import pytest
 from opencap.logsetup import configure_logging
 from tests.helpers.broker import TestBroker
 from tests.helpers.configdir import write_config
-from tests.helpers.modbus_sim import free_port, make_sim_devices, start_sims, stop_sims
-from tests.helpers.netcut import NetCut
+from tests.helpers.modbus_sim import make_sim_devices, start_sims, stop_sims
+from tests.helpers.netcut import NetCut, stable_port
 
-pytestmark = pytest.mark.acceptance
+pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("modbus_tcp")]
 
 N_DEVICES = 30
 TAGS_PER_DEVICE = 53
@@ -82,7 +82,7 @@ async def _scenario(tmp_path, broker: TestBroker, netcut: NetCut, sims, engine_f
     devices = [s.device for s in sims]
     assert len(devices) == N_DEVICES
     assert 1_550 <= sum(len(d.tags) for d in devices) <= 1_650
-    api_port = free_port()
+    api_port = stable_port()      # below the ephemeral range: the engine's client sockets take ephemeral ports before its API binds
     config_dir = write_config(
         tmp_path, devices, mqtt_port=netcut.port, api_port=api_port,       # poller -> NetCut -> broker
         publish={"interval_ms": INTERVAL_MS},

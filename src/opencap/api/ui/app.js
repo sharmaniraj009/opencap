@@ -19,7 +19,7 @@
     this.status = status;
     this.data = data;
     var d = data && data.detail;
-    this.message = typeof d === "string" ? d : (data && data.message) || ("HTTP " + status);
+    this.message = typeof d === "string" ? d : (data && data.message) || tr("error.http", { status: status });
   }
 
   function readToken() {
@@ -52,6 +52,22 @@
     });
   }
 
+  // Live values: the WebSocket /api/v1/ws (protocol opencap.v1). A browser cannot set headers on a
+  // WebSocket, so the token goes in the subprotocol "opencap.bearer.<base64url(token)>"; the server
+  // answers with "opencap.v1" and never echoes it.
+  var LIVE_PATH = "/api/v1/ws";
+  function b64url(text) {
+    var bytes = new TextEncoder().encode(text), bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function openLive() {
+    var origin = BASE || (location.protocol + "//" + location.host);
+    var protocols = ["opencap.v1"], token = readToken();
+    if (token) protocols.push("opencap.bearer." + b64url(token));
+    return new WebSocket(origin.replace(/^http/, "ws") + LIVE_PATH, protocols);
+  }
+
   function enc(s) { return encodeURIComponent(String(s)); }
   function encId(id) { return String(id).split("/").map(encodeURIComponent).join("/"); }   // "<channel>/<device>"
 
@@ -60,7 +76,7 @@
     var fields = {}, general = [];
     if (!(err instanceof ApiError)) { general.push(String(err && err.message || err)); return { fields: fields, general: general }; }
     if (err.status === 412) {
-      general.push("Someone changed the configuration since you loaded it. Load the page again, then redo your change.");
+      general.push(tr("error.conflict"));
     } else if (err.data && Array.isArray(err.data.detail)) {
       err.data.detail.forEach(function (e) {
         var loc = (e.loc || []).slice();
@@ -82,16 +98,110 @@
     if (!text || !String(text).trim()) return null;
     try {
       var v = JSON.parse(text);
-      if (v === null || typeof v !== "object" || Array.isArray(v)) { errors[field] = "expected a JSON object like {\"key\": 1}"; return undefined; }
+      if (v === null || typeof v !== "object" || Array.isArray(v)) { errors[field] = tr("error.json_object"); return undefined; }
       return v;
     } catch (e) {
-      errors[field] = "not valid JSON: " + e.message;
+      errors[field] = tr("error.json_invalid", { error: e.message });
       return undefined;
     }
   }
 
   function pretty(v) { return v && Object.keys(v).length ? JSON.stringify(v, null, 2) : ""; }
   function compact(v) { return v && Object.keys(v).length ? JSON.stringify(v) : ""; }
+
+  // ---------------------------------------------------------------- strings (i18n/)
+  // Every user-visible string comes from a table per language: i18n/en.json, plus i18n/<code>.json
+  // for each other language listed in i18n/languages.json (code -> name in that language). The
+  // language follows the browser's preferred languages, falls back to English, and a choice made in
+  // the header is kept for this tab (sessionStorage). A key missing from a table falls back to
+  // English; a key missing from English shows itself. Templates use t('key', {name: value}) for
+  // text ("{name}" is replaced) and x-rich="rich('key', {...})" for text with a little markup.
+  var LANG_KEY = "opencap.lang";
+  var I18N_DIR = "i18n/";
+  var I18N = { lang: "en", table: {}, languages: { en: "English" } };    // copied into Alpine.store("i18n")
+
+  function strings() { return (window.Alpine && Alpine.store("i18n")) || I18N; }
+  function hasText(key) { return Object.prototype.hasOwnProperty.call(strings().table, key); }
+  function fill(text, vars) {
+    if (!vars) return text;
+    return text.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, function (m, name) {
+      if (!Object.prototype.hasOwnProperty.call(vars, name)) return m;
+      var v = vars[name];
+      return v === null || v === undefined ? "" : String(v);
+    });
+  }
+  function tr(key, vars) { return fill(hasText(key) ? strings().table[key] : key, vars); }
+
+  function readLang() {
+    try { return sessionStorage.getItem(LANG_KEY) || ""; } catch (e) { return ""; }
+  }
+  function writeLang(code) {
+    try { sessionStorage.setItem(LANG_KEY, code); } catch (e) { /* private mode */ }
+  }
+  // the tab's choice, else the first preferred language with a table (exact, then without region)
+  function pickLanguage(codes, chosen, preferred) {
+    var byLower = {};
+    codes.forEach(function (c) { byLower[c.toLowerCase()] = c; });
+    if (chosen && byLower[chosen.toLowerCase()]) return byLower[chosen.toLowerCase()];
+    for (var i = 0; i < preferred.length; i++) {
+      var p = String(preferred[i] || "").toLowerCase();
+      if (byLower[p]) return byLower[p];
+      if (byLower[p.split("-")[0]]) return byLower[p.split("-")[0]];
+    }
+    return "en";
+  }
+  // the tables are files of this bundle (not the API), loaded relative to the page
+  function bundleJson(name) {
+    return fetch(I18N_DIR + name, { cache: "no-cache" }).then(function (resp) {
+      if (!resp.ok) throw new Error(name + ": HTTP " + resp.status);
+      return resp.json();
+    });
+  }
+  var english = bundleJson("en.json");
+  function tableFor(code) {
+    if (code === "en") return english;
+    return Promise.all([english, bundleJson(code + ".json")]).then(function (r) { return Object.assign({}, r[0], r[1]); });
+  }
+  function useStrings(code, table, languages) {
+    var patch = { lang: code, table: table };
+    if (languages) patch.languages = languages;
+    Object.assign(I18N, patch);
+    if (window.Alpine && Alpine.store("i18n")) Object.assign(Alpine.store("i18n"), patch);
+    document.documentElement.lang = code;
+  }
+  var STRINGS_READY = bundleJson("languages.json").catch(function () { return { en: "English" }; }).then(function (languages) {
+    var preferred = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+    var code = pickLanguage(Object.keys(languages), readLang(), preferred);
+    return tableFor(code).catch(function () { code = "en"; return english; }).then(function (table) { useStrings(code, table, languages); });
+  }).catch(function () { /* no table at all: the keys show */ });
+  function chooseLanguage(code) {
+    writeLang(code);
+    return tableFor(code).then(function (table) { useStrings(code, table); }, function () { /* keep the current table */ });
+  }
+
+  // x-rich: a table string with a little markup, built as DOM nodes (the CSP build has no x-html).
+  // Only <code>, <strong>, <em> and <a href="..."> to a page of this UI or a relative file are made;
+  // anything else stays text, and the {name} values are filled into text nodes only.
+  var RICH_TAG = /<(\/?)(code|strong|em|a)(?:\s+href="(#\/[^"]*|[A-Za-z][A-Za-z0-9_.\/-]*)")?>/g;
+  function renderRich(el, text, vars) {
+    var root = document.createDocumentFragment(), stack = [root], last = 0, m;
+    function addText(s) { if (s) stack[stack.length - 1].appendChild(document.createTextNode(fill(s, vars))); }
+    RICH_TAG.lastIndex = 0;
+    while ((m = RICH_TAG.exec(text)) !== null) {
+      addText(text.slice(last, m.index));
+      last = RICH_TAG.lastIndex;
+      if (m[1]) {
+        if (stack.length > 1 && stack[stack.length - 1].localName === m[2]) stack.pop();
+        continue;
+      }
+      var node = document.createElement(m[2]);
+      if (m[2] === "a" && m[3]) node.setAttribute("href", m[3]);
+      stack[stack.length - 1].appendChild(node);
+      stack.push(node);
+    }
+    addText(text.slice(last));
+    el.replaceChildren(root);
+  }
 
   // ---------------------------------------------------------------- routing
   function parseHash() {
@@ -108,16 +218,19 @@
 
   // ---------------------------------------------------------------- shared helpers (mixed into views)
   var helpers = {
+    t: function (key, vars) { return tr(key, vars); },
+    rich: function (key, vars) { return { text: tr(key), vars: vars || null }; },
     href: href,
     deviceHref: function (id) { return href("device", id); },
     editHref: function (id) { return href("edit", id); },
+    quickHref: function (id) { return href("quick", id); },
     channelHref: function (name) { return "#/channel/" + enc(name); },
     isAdmin: function () { return Alpine.store("app").role === "admin"; },
     canEdit: function () { var s = Alpine.store("app"); return s.role === "admin" && s.writable; },
     editBlockedText: function () {
       var s = Alpine.store("app");
-      if (s.role !== "admin") return s.open ? "No API token is configured: the configuration is read-only." : "Your role is viewer: changes need an admin token.";
-      return s.writable ? "" : "The config directory is read-only: " + s.writableReason;
+      if (s.role !== "admin") return tr(s.open ? "blocked.open" : "blocked.viewer");
+      return s.writable ? "" : tr("blocked.readonly", { reason: s.writableReason });
     },
     fmt: function (v) {
       if (v === null || v === undefined) return "—";
@@ -133,20 +246,22 @@
       return s.length > n ? s.slice(0, n - 1) + "…" : s;
     },
     ago: function (iso) {
-      if (!iso) return "never";
+      if (!iso) return tr("time.never");
       var s = (Date.now() - Date.parse(iso)) / 1000;
       if (isNaN(s)) return iso;
       if (s < 0) s = 0;
-      if (s < 90) return Math.round(s) + " s ago";
-      if (s < 5400) return Math.round(s / 60) + " min ago";
-      if (s < 172800) return Math.round(s / 3600) + " h ago";
-      return Math.round(s / 86400) + " d ago";
+      if (s < 90) return tr("time.s_ago", { n: Math.round(s) });
+      if (s < 5400) return tr("time.min_ago", { n: Math.round(s / 60) });
+      if (s < 172800) return tr("time.h_ago", { n: Math.round(s / 3600) });
+      return tr("time.d_ago", { n: Math.round(s / 86400) });
     },
-    ms: function (v) { return v === null || v === undefined ? "—" : Math.round(v) + " ms"; },
-    pct: function (v) { return v === null || v === undefined ? "—" : Math.round(v * 100) + "%"; },
+    ms: function (v) { return v === null || v === undefined ? "—" : tr("unit.ms", { n: Math.round(v) }); },
+    pct: function (v) { return v === null || v === undefined ? "—" : tr("unit.pct", { n: Math.round(v * 100) }); },
     stateClass: function (s) { return "badge state-" + (s || "offline"); },
+    stateText: function (s) { s = s || "offline"; return hasText("state." + s) ? tr("state." + s) : s; },
+    yesNo: function (v) { return tr(v ? "common.yes" : "common.no"); },
     qualityClass: function (q) { return "badge q-" + q; },
-    rateText: function (r) { return r % 1000 === 0 ? (r / 1000) + "s" : r + "ms"; },
+    rateText: function (r) { return r % 1000 === 0 ? tr("unit.rate_s", { n: r / 1000 }) : tr("unit.rate_ms", { n: r }); },
     join: function (list, sep) { return (list || []).join(sep || ", "); },
     count: function (list) { return (list || []).length; },
     has: function (list) { return !!(list && list.length); },
@@ -160,6 +275,11 @@
   }
 
   document.addEventListener("alpine:init", function () {
+    Alpine.store("i18n", Object.assign({}, I18N));
+    Alpine.directive("rich", function (el, dir, utils) {
+      var get = utils.evaluateLater(dir.expression);
+      utils.effect(function () { get(function (r) { renderRich(el, (r && r.text) || "", r && r.vars); }); });
+    });
     Alpine.store("app", { name: "", role: "", open: false, writable: false, writableReason: "", ready: false, route: parseHash(), pending: null, flash: null });
 
     // ------------------------------------------------------------ shell
@@ -169,24 +289,37 @@
           var self = this;
           window.addEventListener("hashchange", function () { self.route(); });
           window.addEventListener("opencap:changed", function () { self.loadPending(); });
-          this.whoami().then(function () { self.route(); });
+          // the page shows once the strings and the caller are known (no flash of empty labels)
+          Promise.all([this.whoami(), STRINGS_READY]).then(function (r) { self.signIn(r[0]); self.language = strings().lang; self.route(); });
           this.stopPending = poll(function () { self.loadPending(); }, 30000);
         },
         app: function () { return Alpine.store("app"); },
         view: function (name) { return Alpine.store("app").ready && Alpine.store("app").route.name === name; },
         active: function (names) { return names.split(" ").indexOf(Alpine.store("app").route.name) !== -1; },
-        whoami: function () {
-          var s = Alpine.store("app");
+        whoami: function () {        // the caller, or null when a login is needed
           return call("GET", "/api/v1/auth-info", { token: "" }).then(function (info) {
-            if (!info.open && !readToken()) throw new Error("login needed");
+            if (!info.open && !readToken()) return null;
             return call("GET", "/api/v1/whoami", { token: readToken() });
-          }).then(function (me) {
-            s.name = me.name; s.role = me.role; s.open = me.open; s.ready = true;
-            s.writable = !!me.config_writable; s.writableReason = me.config_writable_reason || "";
-          }).catch(function () {
-            s.name = ""; s.role = ""; s.ready = true;
-          });
+          }).catch(function () { return null; });
         },
+        signIn: function (me) {
+          var s = Alpine.store("app");
+          if (me) {
+            s.name = me.name; s.role = me.role; s.open = me.open;
+            s.writable = !!me.config_writable; s.writableReason = me.config_writable_reason || "";
+          } else {
+            s.name = ""; s.role = "";
+          }
+          s.ready = true;
+        },
+        // language picker (shown when i18n/languages.json lists more than English)
+        language: "",
+        languageList: function () {
+          var l = strings().languages;
+          return Object.keys(l).sort().map(function (code) { return { code: code, name: l[code] }; });
+        },
+        languageChoice: function () { return Object.keys(strings().languages).length > 1; },
+        pickLanguage: function () { if (this.language && this.language !== strings().lang) chooseLanguage(this.language); },
         route: function () {
           var s = Alpine.store("app");
           var r = parseHash();
@@ -204,15 +337,15 @@
         pendingText: function () {
           var p = Alpine.store("app").pending;
           if (!p) return "";
-          if (!p.disk_valid) return "The config on disk does not load: " + p.error + ". A reload would fail and keep the running config.";
+          if (!p.disk_valid) return tr("pending.disk_invalid", { error: p.error });
           var parts = [];
           var c = p.channels || {};
-          if (c.changed && c.changed.length) parts.push(c.changed.length + " channel(s) change (" + c.changed.slice(0, 3).join(", ") + (c.changed.length > 3 ? ", …" : "") + ")");
-          if (c.added && c.added.length) parts.push(c.added.length + " added");
-          if (c.removed && c.removed.length) parts.push(c.removed.length + " removed");
-          if (p.poller_changed && p.poller_changed.length) parts.push("poller.yaml: " + p.poller_changed.join(", "));
-          var text = "Changes not applied yet: " + parts.join("; ") + ".";
-          if (p.restart_needed && p.restart_needed.length) text += " " + p.restart_needed.join(", ") + " need a restart.";
+          if (c.changed && c.changed.length) parts.push(tr("pending.changed", { n: c.changed.length, names: c.changed.slice(0, 3).join(", ") + (c.changed.length > 3 ? ", …" : "") }));
+          if (c.added && c.added.length) parts.push(tr("pending.added", { n: c.added.length }));
+          if (c.removed && c.removed.length) parts.push(tr("pending.removed", { n: c.removed.length }));
+          if (p.poller_changed && p.poller_changed.length) parts.push(tr("pending.poller", { fields: p.poller_changed.join(", ") }));
+          var text = tr("pending.text", { parts: parts.join("; ") });
+          if (p.restart_needed && p.restart_needed.length) text += " " + tr("pending.restart", { names: p.restart_needed.join(", ") });
           return text;
         },
         canReload: function () { var p = Alpine.store("app").pending; return this.isAdmin() && !!(p && p.disk_valid); },
@@ -220,8 +353,8 @@
           var self = this;
           call("POST", "/api/v1/reload").then(function (r) {
             var parts = [];
-            ["started", "restarted", "stopped"].forEach(function (k) { if (r[k] && r[k].length) parts.push(k + " " + r[k].join(", ")); });
-            self.flash("Reloaded: " + (parts.length ? parts.join("; ") : "nothing changed"), "ok");
+            ["started", "restarted", "stopped"].forEach(function (k) { if (r[k] && r[k].length) parts.push(tr("reload." + k, { names: r[k].join(", ") })); });
+            self.flash(tr("reload.done", { what: parts.length ? parts.join("; ") : tr("reload.nothing") }), "ok");
             changed();
           }).catch(function (e) { self.flash(e.message, "error"); });
         },
@@ -273,7 +406,7 @@
             self.token = "";
             go("dashboard");
           }).catch(function (e) {
-            self.error = e.status === 401 ? "Unknown token." : e.message;
+            self.error = e.status === 401 ? tr("login.unknown_token") : e.message;
           }).then(function () { self.busy = false; });
         },
       });
@@ -297,7 +430,7 @@
           }).catch(function (e) { self.error = e.message; });
         },
         health: function () { return (this.data && this.data.health) || { devices: {} }; },
-        mqttText: function () { return this.health().mqtt_connected ? "connected" : "down"; },
+        mqttText: function () { return tr(this.health().mqtt_connected ? "dashboard.mqtt_up" : "dashboard.mqtt_down"); },
         mqttClass: function () { return "value " + (this.health().mqtt_connected ? "ok" : "bad"); },
         outboxClass: function () { return "value" + (this.health().saf_queue > 100 ? " warn" : ""); },
         stateCount: function (s) { var d = this.health().devices || {}; return d[s] || 0; },
@@ -362,29 +495,226 @@
           var self = this;
           this.busy = true;
           call("POST", "/api/v1/devices/" + encId(this.id) + "/read-once").then(function () {
-            self.readNote = "Read once at " + new Date().toLocaleTimeString();
+            self.readNote = tr("device.read_once_at", { time: new Date().toLocaleTimeString(strings().lang) });
             self.refresh();
-          }).catch(function (e) { shellFlash("Read once failed: " + e.message, "error"); }).then(function () { self.busy = false; });
+          }).catch(function (e) { shellFlash(tr("device.read_once_failed", { error: e.message }), "error"); }).then(function () { self.busy = false; });
         },
         qualityCount: function (q) { return this.values.filter(function (v) { return v.quality === q; }).length; },
         countsText: function () {
-          var self = this, parts = [this.qualityCount("good") + " good"];
-          ["bad_comm", "bad_config", "bad_decode", "stale"].forEach(function (q) { var n = self.qualityCount(q); if (n) parts.push(n + " " + q); });
+          var self = this, parts = [tr("common.n_quality", { n: this.qualityCount("good"), quality: "good" })];
+          ["bad_comm", "bad_config", "bad_decode", "stale"].forEach(function (q) { var n = self.qualityCount(q); if (n) parts.push(tr("common.n_quality", { n: n, quality: q })); });
           return parts.join(" · ");
         },
         subtitle: function () {
           var d = this.detail;
           if (!d) return "";
-          return d.driver + " · " + d.host + ":" + d.port + " · topic " + d.topic + " · SubDeviceId " + (d.sub_device_id || "none") + (d.enabled ? "" : " · disabled");
+          var text = tr("device.subtitle", { driver: d.driver, host: d.host, port: d.port, topic: d.topic, sub: d.sub_device_id || tr("common.none") });
+          return d.enabled ? text : text + " · " + tr("device.disabled");
         },
         planText: function () {
           var p = this.plan;
           if (!p || p.plan_error) return "";
-          return p.enabled_tags + " enabled tags in " + p.blocks + " block(s), " + p.wire_requests + " request(s) per full pass, about " +
-            Math.round(p.est_cycle_ms) + " ms per pass, channel load " + Math.round(p.load * 100) + "% (estimates).";
+          return tr("device.plan_text", { tags: p.enabled_tags, blocks: p.blocks, requests: p.wire_requests,
+                                          ms: Math.round(p.est_cycle_ms), pct: Math.round(p.load * 100) });
         },
         invalidRows: function () { var inv = (this.plan && this.plan.invalid) || {}; return Object.keys(inv).sort().map(function (k) { return { name: k, reason: inv[k] }; }); },
         blockRows: function () { return (this.plan && this.plan.block_plan) || []; },
+      });
+    });
+
+    // ------------------------------------------------------------ Quick Client (live values)
+    var QUICK_ROWS = 1000;          // rows rendered at once; the filter narrows the rest
+    Alpine.data("quickView", function () {
+      // the socket and the row index live outside Alpine's reactive state (a proxied WebSocket breaks)
+      var sock = null, index = {}, retry = null, failures = 0, everOpen = false, closing = false, stopPoll = null;
+      return Object.assign({}, helpers, {
+        channels: [], q: "", tq: "", id: "", rows: [], loaded: false, version: 0, unavailable: "", error: "",
+        devError: "", busy: false, readNote: "", mode: "connecting", now: Date.now(), config: {},
+        init: function () {
+          var self = this;
+          routed(this, this.select);
+          this.loadDevices();
+          this._stop = poll(function () { self.loadDevices(); }, 10000);
+          this._clock = setInterval(function () { self.now = Date.now(); }, 1000);
+          this.select();
+          this.connect();
+        },
+        destroy: function () {
+          closing = true;
+          unrouted(this);
+          clearInterval(this._clock);
+          if (retry) clearTimeout(retry);
+          if (stopPoll) stopPoll();
+          if (sock) sock.close();
+          sock = null;
+        },
+        // --- devices
+        loadDevices: function () {
+          var self = this;
+          call("GET", "/api/v1/status").then(function (d) { self.channels = d.channels || []; self.devError = ""; })
+            .catch(function (e) { self.devError = e.message; });
+        },
+        tree: function () {
+          var q = this.q.trim().toLowerCase(), out = [];
+          this.channels.forEach(function (ch) {
+            var devices = ch.devices.filter(function (d) { return !q || d.id.toLowerCase().indexOf(q) !== -1; });
+            if (devices.length) out.push({ name: ch.name, devices: devices });
+          });
+          return out;
+        },
+        deviceName: function (d, ch) { return d.id.indexOf(ch.name + "/") === 0 ? d.id.slice(ch.name.length + 1) : d.id; },
+        stateDot: function (s) { return "dot state-" + (s || "offline"); },
+        select: function () {
+          var r = Alpine.store("app").route;
+          if (r.name !== "quick") return;
+          this.id = r.arg; this.rows = []; index = {}; this.loaded = false; this.version = 0;
+          this.unavailable = ""; this.error = ""; this.readNote = ""; this.config = {};
+          if (!this.id) { this.subscribe(); return; }
+          var self = this, id = this.id;
+          // address and type from the configuration (best effort: the feed works without it)
+          call("GET", "/api/v1/devices/" + encId(id) + "/tags").then(function (t) {
+            if (self.id !== id) return;
+            var cfg = {};
+            (t.tags || []).forEach(function (tag) { cfg[tag.name] = tag; });
+            self.config = cfg;
+            self.rows.forEach(function (row) { self.describe(row); });
+          }).catch(function () { /* no config directory, or not in the config */ });
+          this.subscribe();
+          if (this.mode === "polling") this.pollOnce();
+        },
+        describe: function (row) {
+          var c = this.config[row.tag];
+          row.address = c ? c.address : ""; row.dtype = c ? c.dtype : "";
+        },
+        // --- the socket
+        connect: function () {
+          var self = this;
+          if (closing) return;
+          try { sock = openLive(); } catch (e) { this.fallback(); return; }
+          this.mode = "connecting";
+          sock.onopen = function () { everOpen = true; failures = 0; self.mode = "live"; self.subscribe(); };
+          sock.onmessage = function (ev) {
+            var m;
+            try { m = JSON.parse(ev.data); } catch (e) { return; }
+            self.receive(m);
+          };
+          sock.onclose = function () {
+            sock = null;
+            if (closing) return;
+            failures += 1;
+            // never opened three times in a row: this engine has no live feed; poll the REST API instead
+            if (!everOpen && failures >= 3) { self.fallback(); return; }
+            self.mode = "connecting";
+            retry = setTimeout(function () { retry = null; self.connect(); }, Math.min(15000, 1000 * Math.pow(2, failures - 1)));
+          };
+        },
+        subscribe: function () {
+          if (!sock || sock.readyState !== 1) return;
+          sock.send(JSON.stringify({ subscribe: { devices: this.id ? [this.id] : [] } }));
+        },
+        receive: function (m) {
+          if (m.type === "error") { this.error = m.detail; return; }
+          if (m.device !== this.id) return;
+          if (m.type === "unavailable") { this.unavailable = m.detail; this.rows = []; index = {}; this.loaded = true; return; }
+          if (m.type === "snapshot") { this.unavailable = ""; this.version = m.version; this.replace(m.changes); return; }
+          if (m.type === "changes" && m.version > this.version) {
+            this.version = m.version;
+            var self = this;
+            m.changes.forEach(function (c) { self.apply(c.tag, c); });
+          }
+        },
+        replace: function (list) {
+          var self = this, now = Date.now();
+          var rows = list.map(function (c) {
+            var old = index[c.tag];
+            var row = { tag: c.tag, value: c.value, quality: c.quality, ts: c.source_ts, updates: old ? old.updates : 0,
+                        changedAt: 0, address: "", dtype: "" };
+            if (old && (old.value !== c.value || old.quality !== c.quality || old.ts !== c.source_ts)) { row.updates += 1; row.changedAt = now; }
+            self.describe(row);
+            return row;
+          });
+          rows.sort(function (a, b) { return a.tag < b.tag ? -1 : (a.tag > b.tag ? 1 : 0); });
+          this.rows = rows;
+          index = {};
+          this.rows.forEach(function (r) { index[r.tag] = r; });    // the reactive rows
+          this.loaded = true;
+        },
+        apply: function (tag, tv) {
+          var row = index[tag];
+          if (!row) return;
+          if (row.value === tv.value && row.quality === tv.quality && row.ts === tv.source_ts) return;
+          row.value = tv.value; row.quality = tv.quality; row.ts = tv.source_ts;
+          row.updates += 1; row.changedAt = Date.now();
+        },
+        // --- REST fallback (an engine without /api/v1/ws)
+        fallback: function () {
+          var self = this;
+          this.mode = "polling";
+          if (stopPoll) return;
+          this.pollOnce();
+          stopPoll = poll(function () { self.pollOnce(); }, 2000);
+        },
+        pollOnce: function () {
+          var self = this, id = this.id;
+          if (!id) return;
+          call("GET", "/api/v1/devices/" + encId(id) + "/values").then(function (v) {
+            if (self.id !== id) return;
+            self.unavailable = "";
+            var list = Object.keys(v).map(function (k) { return { tag: k, value: v[k].value, quality: v[k].quality, source_ts: v[k].source_ts }; });
+            if (!self.loaded || list.length !== self.rows.length) self.replace(list);
+            else list.forEach(function (c) { self.apply(c.tag, c); });
+          }).catch(function (e) {
+            if (self.id !== id) return;
+            if (e.status === 404) { self.unavailable = e.message; self.rows = []; index = {}; self.loaded = true; } else self.error = e.message;
+          });
+        },
+        modeText: function () { return tr("quick.mode_" + this.mode); },
+        modeClass: function () { return "badge mode-" + this.mode; },
+        modeTitle: function () {
+          return tr("quick.title_" + this.mode);
+        },
+        // --- demand read
+        readDisabled: function () { return this.busy || !!this.unavailable; },
+        readNow: function () {
+          var self = this, id = this.id;
+          this.busy = true; this.readNote = "";
+          call("POST", "/api/v1/devices/" + encId(id) + "/read-once").then(function (v) {
+            if (self.id !== id) return;
+            Object.keys(v).forEach(function (k) { self.apply(k, v[k]); });
+            self.readNote = tr("quick.read_now_at", { time: new Date().toLocaleTimeString(strings().lang) });
+          }).catch(function (e) { shellFlash(tr("quick.read_now_failed", { error: e.message }), "error"); }).then(function () { self.busy = false; });
+        },
+        // --- table
+        shown: function () {
+          var q = this.tq.trim().toLowerCase();
+          var list = q ? this.rows.filter(function (r) { return r.tag.toLowerCase().indexOf(q) !== -1 || (r.address || "").toLowerCase().indexOf(q) !== -1; }) : this.rows;
+          return list.length > QUICK_ROWS ? list.slice(0, QUICK_ROWS) : list;
+        },
+        shownNote: function () {
+          var q = this.tq.trim().toLowerCase(), n = this.rows.length;
+          if (q) n = this.rows.filter(function (r) { return r.tag.toLowerCase().indexOf(q) !== -1 || (r.address || "").toLowerCase().indexOf(q) !== -1; }).length;
+          return n > QUICK_ROWS ? tr("quick.shown_note", { shown: QUICK_ROWS, n: n }) : "";
+        },
+        countsText: function () {
+          var counts = {}, parts = [];
+          this.rows.forEach(function (r) { counts[r.quality] = (counts[r.quality] || 0) + 1; });
+          parts.push(tr("quick.tags_n", { n: this.rows.length }));
+          ["good", "bad_comm", "bad_config", "bad_decode", "stale"].forEach(function (q) { if (counts[q]) parts.push(tr("common.n_quality", { n: counts[q], quality: q })); });
+          return parts.join(" · ");
+        },
+        rowClass: function (r) { return this.now - r.changedAt < 1500 ? "changed" : ""; },
+        valueClass: function (r) { return "num" + (r.quality === "good" ? "" : " old-value"); },
+        tsText: function (r) { return r.ts ? String(r.ts).replace("T", " ").replace(/(\.\d{3})\d*/, "$1") : tr("time.never"); },
+        ageSeconds: function (r) { var t = r.ts ? Date.parse(r.ts) : NaN; return isNaN(t) ? null : Math.max(0, (this.now - t) / 1000); },
+        age: function (r) {
+          var s = this.ageSeconds(r);
+          if (s === null) return "—";
+          if (s < 60) return tr("unit.s", { n: Math.floor(s) });
+          if (s < 3600) return tr("unit.min", { n: Math.floor(s / 60) });
+          if (s < 172800) return tr("unit.h", { n: Math.floor(s / 3600) });
+          return tr("unit.d", { n: Math.floor(s / 86400) });
+        },
+        ageClass: function (r) { var s = this.ageSeconds(r); return "small nowrap" + (s !== null && s > 60 ? " age-old" : ""); },
       });
     });
 
@@ -405,7 +735,7 @@
         counts: function () { return (this.summary && this.summary.counts) || {}; },
         warnings: function () { return (this.summary && this.summary.warnings) || []; },
         diskErrors: function () { return ((this.summary && this.summary.errors) || []).slice(0, 20).map(function (e) { return (e.loc || []).join(".") + ": " + e.msg; }); },
-        overrideText: function (c) { return c.override ? "enabled: " + c.override.enabled : "—"; },
+        overrideText: function (c) { return c.override ? tr("config.override_enabled", { value: c.override.enabled }) : "—"; },
         addChannel: function () {
           var self = this;
           this.errors = {}; this.general = [];
@@ -423,7 +753,7 @@
             document.body.appendChild(a);
             a.click();
             setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-          }).catch(function (e) { shellFlash("Export failed: " + e.message, "error"); });
+          }).catch(function (e) { shellFlash(tr("config.export_failed", { error: e.message }), "error"); });
         },
         saveDefaults: function () {
           var self = this, errs = {};
@@ -438,12 +768,12 @@
     });
 
     function savedNote(r) {
-      if (!r.files || !r.files.length) return "No change.";
-      var note = "Saved to " + r.files.join(", ") + ". Reload to apply.";
+      if (!r.files || !r.files.length) return tr("saved.no_change");
+      var note = tr("saved.files", { files: r.files.join(", ") });
       var target = String(r.target || "").split("#")[0];
       var mine = (r.warnings || []).filter(function (w) { return w.indexOf(target + ":") === 0; });
-      if (r.comments_lost) note += " Comments could not be kept in " + r.comments_lost.join(", ") + " (old text in .bak).";
-      return mine.length ? note + " Warning: " + mine.join(" ") : note;
+      if (r.comments_lost) note += " " + tr("saved.comments_lost", { files: r.comments_lost.join(", ") });
+      return mine.length ? note + " " + tr("saved.warning", { warnings: mine.join(" ") }) : note;
     }
 
     // ------------------------------------------------------------ channel page
@@ -483,7 +813,7 @@
         },
         remove: function () {
           var self = this, n = (this.channel && this.channel.devices.length) || 0;
-          if (!window.confirm("Delete channel " + this.name + " with its " + n + " device(s), their publish map entries and overrides?")) return;
+          if (!window.confirm(tr("channel.confirm_delete", { name: this.name, n: n }))) return;
           call("DELETE", "/api/v1/channels/" + enc(this.name), { rev: this.rev }).then(function () { changed(); go("config"); })
             .catch(function (e) { shellFlash(splitErrors(e, []).general.join(" "), "error"); });
         },
@@ -565,7 +895,7 @@
           var self = this;
           return call("GET", "/api/v1/devices/" + encId(this.id)).then(function (d) { self.apply(d); });
         },
-        sourceText: function () { return this.dev && this.dev.source && Object.keys(this.dev.source).length ? "Imported from KEPServerEX: " + JSON.stringify(this.dev.source) : ""; },
+        sourceText: function () { return this.dev && this.dev.source && Object.keys(this.dev.source).length ? tr("edit.source", { source: JSON.stringify(this.dev.source) }) : ""; },
         saveDevice: function () {
           var self = this, errs = {};
           this.errors = {}; this.general = []; this.note = "";
@@ -585,7 +915,7 @@
         },
         removeDevice: function () {
           var self = this, channel = this.dev.channel;
-          if (!window.confirm("Delete device " + this.id + " with its " + this.tags.length + " tag(s), its publish map entry and its override?")) return;
+          if (!window.confirm(tr("edit.confirm_delete_device", { id: this.id, n: this.tags.length }))) return;
           call("DELETE", "/api/v1/devices/" + encId(this.id), { rev: this.rev }).then(function () {
             changed(); location.hash = "#/channel/" + enc(channel);
           }).catch(function (e) { self.general = splitErrors(e, []).general; });
@@ -593,9 +923,9 @@
         // tags
         isEditing: function (t) { return this.editing === t.name; },
         hasTagOverride: function (t) { return Object.prototype.hasOwnProperty.call(this.tagOverrides, t.name); },
-        tagOverrideText: function (t) { return "override: " + JSON.stringify(this.tagOverrides[t.name]); },
+        tagOverrideText: function (t) { return tr("edit.tag_override", { override: JSON.stringify(this.tagOverrides[t.name]) }); },
         scanText: function (t) { return t.scan_ms === undefined || t.scan_ms === null ? "" : String(t.scan_ms); },
-        enabledText: function (t) { return t.enabled === false ? "no" : "yes"; },
+        enabledText: function (t) { return this.yesNo(t.enabled !== false); },
         scaleText: function (t) { return t.scale ? this.short(JSON.stringify(t.scale), 60) : ""; },
         rowClass: function (t) { return t.enabled === false ? "disabled" : ""; },
         startEdit: function (t) { this.editing = t.name; this.tagEdit = tagForm(t); this.tagErrors = {}; this.tagGeneral = []; },
@@ -613,7 +943,7 @@
         },
         deleteTag: function (t) {
           var self = this;
-          if (!window.confirm("Delete tag " + t.name + "?")) return;
+          if (!window.confirm(tr("edit.confirm_delete_tag", { name: t.name }))) return;
           call("DELETE", "/api/v1/devices/" + encId(this.id) + "/tags/" + enc(t.name), { rev: this.rev }).then(function () {
             changed(); return self.reloadDevice();
           }).catch(function (e) { self.tagGeneral = splitErrors(e, []).general; });
@@ -645,7 +975,7 @@
         },
         removeMap: function () {
           var self = this;
-          if (!window.confirm("Remove the publish map entry of " + this.id + "?")) return;
+          if (!window.confirm(tr("edit.confirm_remove_map", { id: this.id }))) return;
           call("DELETE", "/api/v1/map/devices/" + encId(this.id), { rev: this.rev }).then(function (r) {
             changed();
             return self.reloadDevice().then(function () { self.mapNote = savedNote(r); });
@@ -660,7 +990,7 @@
           var req;
           if (body) req = call("PUT", "/api/v1/overrides/devices/" + encId(this.id), { body: body, rev: this.rev });
           else if (this.hasOverride) req = call("DELETE", "/api/v1/overrides/devices/" + encId(this.id), { rev: this.rev });
-          else { this.ovNote = "Nothing to save."; return; }
+          else { this.ovNote = tr("edit.nothing_to_save"); return; }
           req.then(function (r) {
             changed();
             return self.reloadDevice().then(function () { self.ovNote = savedNote(r); });
@@ -683,7 +1013,12 @@
         ok: function () { return !!this.report && this.report.error === undefined; },
         failed: function () { return !!this.report && this.report.error !== undefined; },
         totals: function () { return (this.report && this.report.totals) || {}; },
-        channelTotal: function (ch) { return ch.devices.length > 1 ? " · total " + ch.wire_requests + " req, " + Math.round(ch.est_cycle_ms) + " ms, " + Math.round(ch.load * 100) + "%" : ""; },
+        channelNote: function (ch) {    // " (disabled) · total 3 req, 120 ms, 40%" after the channel name
+          var parts = [];
+          if (!ch.enabled) parts.push(tr("check.channel_disabled"));
+          if (ch.devices.length > 1) parts.push(tr("check.channel_total", { req: ch.wire_requests, ms: Math.round(ch.est_cycle_ms), pct: Math.round(ch.load * 100) }));
+          return parts.length ? " " + parts.join(" ") : "";
+        },
         rates: function (d) { var self = this; return (d.rates_ms || []).map(function (r) { return self.rateText(r); }).join(","); },
       });
     });
@@ -695,7 +1030,7 @@
         pick: function (ev) { this.file = ev.target.files[0] || null; this.fileName = this.file ? this.file.name : ""; this.report = null; this.errors = []; this.applied = false; },
         send: function (dryRun) {
           var self = this;
-          if (!this.file) { this.errors = ["Choose a file first."]; return; }
+          if (!this.file) { this.errors = [tr("import.choose_file")]; return; }
           this.busy = true; this.errors = [];
           var url = "/api/v1/project/import?filename=" + enc(this.fileName) + (dryRun ? "" : "&dry_run=false");
           call("POST", url, { raw: this.file, rev: dryRun ? undefined : this.report.revision }).then(function (r) {
@@ -704,11 +1039,11 @@
           }).catch(function (e) { self.errors = splitErrors(e, []).general; }).then(function () { self.busy = false; });
         },
         preview: function () { this.send(true); },
-        apply: function () { if (window.confirm("Write the imported config? The current files are kept as .bak.")) this.send(false); },
+        apply: function () { if (window.confirm(tr("import.confirm_apply"))) this.send(false); },
         dj: function () { return (this.report && this.report.devices_json) || null; },
         sum: function (part, key) { var d = this.dj(); return d ? d.summary[part][key] : 0; },
         changeCounts: function (part) { return "+" + this.sum(part, "added") + " −" + this.sum(part, "removed") + " ~" + this.sum(part, "changed"); },
-        filesText: function () { var f = (this.report && this.report.files) || []; return f.length ? f.join(", ") : "no change"; },
+        filesText: function () { var f = (this.report && this.report.files) || []; return f.length ? f.join(", ") : tr("import.no_change"); },
         canApply: function () { return !!this.report && !this.applied && !!(this.report.files || []).length; },
         nothing: function () { return !!this.report && !this.applied && !(this.report.files || []).length; },
         fieldChanges: function (d) { var self = this; return d.fields.map(function (c) { return c.path + ": " + self.short(c.old, 60) + " → " + self.short(c.new, 60); }); },
@@ -719,9 +1054,10 @@
           });
         },
         firstNames: function (list) { return list.slice(0, 20).join(", ") + (list.length > 20 ? " … (+" + (list.length - 20) + ")" : ""); },
+        stubsText: function () { var n = this.stubs().length; return tr(n === 1 ? "import.stubs_one" : "import.stubs_many", { n: n }); },
         stubs: function () { return (this.report && this.report.devices_map && this.report.devices_map.stubs_added) || []; },
         textDiffs: function () { var t = (this.report && this.report.text) || {}; return Object.keys(t).map(function (k) { return { name: k, d: t[k] }; }); },
-        textState: function (x) { return x.d.unchanged ? "unchanged" : (x.d.created ? "new file" : "changed"); },
+        textState: function (x) { return tr(x.d.unchanged ? "import.file_unchanged" : (x.d.created ? "import.file_new" : "import.file_changed")); },
         problems: function () { return (this.report && this.report.problems) || []; },
         warnings: function () { return (this.report && this.report.warnings) || []; },
       });
@@ -743,7 +1079,7 @@
         newer: function () { this.offset = Math.max(0, this.offset - this.per); this.load(); },
         older: function () { this.offset += this.per; this.load(); },
         when: function (e) { return String(e.ts || "").slice(0, 19).replace("T", " "); },
-        changeRows: function (e) { var self = this; return (e.changes || []).map(function (c) { return (c.path || "(whole object)") + ": " + self.short(c.old) + " → " + self.short(c.new); }); },
+        changeRows: function (e) { var self = this; return (e.changes || []).map(function (c) { return (c.path || tr("audit.whole_object")) + ": " + self.short(c.old) + " → " + self.short(c.new); }); },
         detailText: function (e) { return e.detail ? this.short(JSON.stringify(e.detail), 300) : ""; },
         filesText: function (e) { return (e.files || []).join(", "); },
       });

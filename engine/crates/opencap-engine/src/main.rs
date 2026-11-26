@@ -5,12 +5,21 @@
 //! opencap-engine read "Site 008/Device1" [--tag FLOW_1]    # one read, print values, no MQTT
 //! opencap-engine identity "Site 008/Device1"               # vendor/model if the device reports it
 //! opencap-engine run [--config DIR] [--site NAME ...]      # poll, publish, serve the API
+//! opencap-engine drivers                                   # drivers this build implements (JSON)
+//! opencap-engine service install|uninstall|run [--config]  # Windows: a native service (#57)
 //! ```
+//!
+//! Under systemd (`deploy/opencapd.service`, `Type=notify`) `run` reports readiness once the
+//! config is loaded and the API listens, and reload/stop progress (`sdnotify`).
 //!
 //! Reads the same config directory as the Python `opencap` CLI.
 
 mod check;
 mod runtime;
+#[cfg(unix)]
+mod sdnotify;
+#[cfg(windows)]
+mod winsvc;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -20,9 +29,9 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 
 use opencap_api::EngineView as _;
-use opencap_core::cache::ValueCache;
 use opencap_core::config::{load_config, Channel, Device, LoadedConfig};
 use opencap_core::registry::plan_device;
+use opencap_core::store::TagStore;
 use opencap_core::worker::{ChannelWorker, WorkerOptions};
 
 #[derive(Parser)]
@@ -69,7 +78,19 @@ enum Cmd {
         #[arg(long)]
         site: Vec<String>,
     },
+    /// Print, as JSON, which of the drivers the config schema knows this build implements.
+    /// The acceptance harness (tests/helpers/engine.py) skips suites for drivers not ported yet.
+    Drivers,
+    /// The engine as a native Windows service (docs/deployment.md, "Rust engine on Windows").
+    #[cfg(windows)]
+    Service {
+        #[command(subcommand)]
+        action: winsvc::ServiceCmd,
+    },
 }
+
+/// Where `configure_logging` writes: stdout, or this file (a Windows service has no console).
+static LOG_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 fn configure_logging(level: &str) {
     let lvl = match level.to_ascii_uppercase().as_str() {
@@ -81,15 +102,18 @@ fn configure_logging(level: &str) {
     // Library chatter stays at WARN unless DEBUG is asked for (Python logsetup does the same).
     let libs = if lvl == "debug" { "debug" } else { "warn" };
     let filter = format!("{lvl},rumqttc={libs},tokio_modbus={libs},hyper={libs},axum={libs}");
-    let _ = tracing_subscriber::fmt()
+    let builder = tracing_subscriber::fmt()
         .json()
         .flatten_event(true)
         .with_current_span(false)
         .with_span_list(false)
         .with_target(true)
-        .with_writer(std::io::stdout)
-        .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
-        .try_init();
+        .with_env_filter(tracing_subscriber::EnvFilter::new(filter));
+    let file = LOG_FILE.get().and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
+    let _ = match file {
+        Some(f) => builder.with_writer(std::sync::Mutex::new(f)).try_init(),
+        None => builder.with_writer(std::io::stdout).try_init(),
+    };
 }
 
 fn find_device(config_dir: &Path, device_id: &str) -> Result<(LoadedConfig, Channel, Device)> {
@@ -112,16 +136,15 @@ async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Resu
         bail!("{device_id}: {e}");
     }
     let single = Channel { devices: vec![device.clone()], ..channel };
-    let cache = Arc::new(ValueCache::new());
-    cache.register(&device);
+    let store = Arc::new(TagStore::new());
     let plans = [(device.id.clone(), Arc::new(plan))].into_iter().collect();
-    let worker = ChannelWorker::new(&single, &plans, cache, factory, WorkerOptions::default());
+    let worker = ChannelWorker::new(&single, &plans, store, factory, WorkerOptions::default());
     let result = worker.read_once(&device.id).await;
     worker.stop().await;
     let values = result.map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut names: Vec<String> = match tag {
         Some(t) => vec![t.to_string()],
-        None => values.keys().cloned().collect(),
+        None => values.keys().map(str::to_string).collect(),
     };
     if tag.is_none() {
         names.sort();
@@ -150,6 +173,22 @@ async fn cmd_identity(config_dir: &Path, device_id: &str) -> Result<i32> {
     Ok(0)
 }
 
+/// Which of the schema's drivers (`KNOWN_DRIVERS`, in its order) this build can poll:
+/// `implemented` (compiled in), `not_compiled_in` (a crate exists, its Cargo feature is off),
+/// `not_implemented` (no Rust crate yet).
+fn drivers_json() -> serde_json::Value {
+    let compiled = opencap_drivers::compiled_in();
+    let has_crate = |d: &str| opencap_drivers::DRIVERS.iter().any(|e| e.name == d);
+    let pick = |f: &dyn Fn(&str) -> bool| -> Vec<&str> {
+        opencap_core::config::KNOWN_DRIVERS.iter().copied().filter(|d| f(d)).collect()
+    };
+    serde_json::json!({
+        "implemented": pick(&|d| compiled.contains(&d)),
+        "not_compiled_in": pick(&|d| has_crate(d) && !compiled.contains(&d)),
+        "not_implemented": pick(&|d| !has_crate(d)),
+    })
+}
+
 async fn shutdown_signal() -> &'static str {
     #[cfg(unix)]
     {
@@ -168,7 +207,14 @@ async fn shutdown_signal() -> &'static str {
     }
 }
 
-async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
+/// `run`: poll, publish and serve the API until `stop` resolves (it names what stopped it).
+/// `on_ready` runs once the config is loaded, the poller started and the API listens.
+async fn cmd_run(
+    config_dir: &Path,
+    sites: Vec<String>,
+    stop: impl std::future::Future<Output = &'static str>,
+    on_ready: impl FnOnce(),
+) -> Result<i32> {
     let loaded = load_config(config_dir).map_err(|e| anyhow::anyhow!("{e}"))?;
     let known: Vec<&str> = loaded.channels.iter().map(|c| c.name.as_str()).collect();
     let unknown: Vec<&String> = sites.iter().filter(|s| !known.contains(&s.as_str())).collect();
@@ -209,17 +255,21 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
         let _ = api_stop_rx.await;
     }));
     info!(bind = %api_cfg.bind, port = api_cfg.port, health = %poller.health()["status"], "api_started");
+    on_ready();
 
     #[cfg(unix)]
     let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
-    let stop = shutdown_signal();
     tokio::pin!(stop);
     loop {
         #[cfg(unix)]
         {
             tokio::select! {
                 sig = &mut stop => { info!(signal = sig, "poller_stopping"); break; }
-                _ = hup.recv() => { let _ = poller.reload().await; }
+                _ = hup.recv() => {
+                    sdnotify::notify("RELOADING=1\nSTATUS=reloading the config");
+                    let _ = poller.reload().await;
+                    sdnotify::notify("READY=1\nSTATUS=running");
+                }
             }
         }
         #[cfg(not(unix))]
@@ -229,6 +279,8 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
             break;
         }
     }
+    #[cfg(unix)]
+    sdnotify::notify("STOPPING=1");
     let _ = api_stop_tx.send(());
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), api).await;
     poller.stop().await;
@@ -237,6 +289,18 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
 
 fn main() {
     let cli = Cli::parse();
+    // The SCM runs `service run` and its dispatcher owns the thread; it starts its own runtime.
+    #[cfg(windows)]
+    if let Cmd::Service { action } = cli.cmd {
+        let code = match winsvc::dispatch(action) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime");
     let code = rt.block_on(async {
         match cli.cmd {
@@ -250,7 +314,19 @@ fn main() {
             )),
             Cmd::Read { device_id, tag, config } => cmd_read(&config, &device_id, tag.as_deref()).await,
             Cmd::Identity { device_id, config } => cmd_identity(&config, &device_id).await,
-            Cmd::Run { config, site } => cmd_run(&config, site).await,
+            Cmd::Run { config, site } => {
+                #[cfg(unix)]
+                let ready = || sdnotify::notify("READY=1\nSTATUS=running");
+                #[cfg(not(unix))]
+                let ready = || {};
+                cmd_run(&config, site, shutdown_signal(), ready).await
+            }
+            Cmd::Drivers => {
+                println!("{}", drivers_json());
+                Ok(0)
+            }
+            #[cfg(windows)]
+            Cmd::Service { .. } => unreachable!("handled before the runtime starts"),
         }
     });
     let code = match code {
@@ -262,4 +338,32 @@ fn main() {
     };
     rt.shutdown_timeout(std::time::Duration::from_secs(2));
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drivers_json_partitions_the_known_drivers() {
+        let v = drivers_json();
+        let names = |k: &str| -> Vec<String> {
+            v[k].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+        };
+        let implemented = names("implemented");
+        // the JSON lists follow KNOWN_DRIVERS order, `compiled_in` the driver table's: compare as sets
+        let mut expected: Vec<String> = opencap_drivers::compiled_in().iter().map(|s| s.to_string()).collect();
+        expected.sort();
+        let mut got = implemented.clone();
+        got.sort();
+        assert_eq!(got, expected, "{v}");
+        let mut all: Vec<String> =
+            implemented.iter().chain(&names("not_compiled_in")).chain(&names("not_implemented")).cloned().collect();
+        all.sort();
+        let mut known: Vec<String> = opencap_core::config::KNOWN_DRIVERS.iter().map(|s| s.to_string()).collect();
+        known.sort();
+        assert_eq!(all, known, "every known driver in exactly one list");
+        #[cfg(feature = "driver-modbus-tcp")]
+        assert!(implemented.contains(&"modbus_tcp".to_string()), "{v}");
+    }
 }

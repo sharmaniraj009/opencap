@@ -51,6 +51,9 @@ docker run -d --name opencap --restart unless-stopped \
   by the container user: `sudo chown -R 10001:10001 config` and `-v "$PWD/config:/opencap/config"`
   (no `:ro`). With `:ro` the UI shows editing as off and config writes answer 503 with the path.
   The audit log of config changes goes to `data/audit.jsonl`, in the data volume.
+- **Quick Client (live values)** uses the WebSocket `/api/v1/ws` on the same port. A reverse proxy in front must
+  pass the WebSocket upgrade (`Upgrade` and `Connection` headers) and keep the `Host` header, or list the public
+  origin in `api.cors_origins`: browsers may open the feed only from the API's own origin (D-067).
 - **Health check:** the image probes `http://127.0.0.1:8080/health`. If you change
   `api.port`, set `OPENCAP_HEALTH_URL`.
 - **Other commands** run the same way:
@@ -98,6 +101,45 @@ sudo systemctl enable --now opencap
   `/var/lib/opencap/data/audit.jsonl`. For a read-only configuration, remove `ReadWritePaths=`
   from the unit and keep `/etc/opencap` and its files root-owned (`0755`/`0644`): the UI then
   shows editing as off, and config writes answer 503 with the path.
+
+## Waiting for readiness
+
+`GET /health/live` answers 200 while the process serves requests. `GET /health/ready` answers 200 once
+the config is loaded, the north servers are started and every enabled device has finished one poll
+cycle (a device that failed its first cycle is `offline` and counts, a demoted one too); until then it
+answers 503 with `{"ready": false, "waiting": ["<channel>/<device>", ...]}`. Both are open (no token).
+Readiness is sticky: once reached it stays until a restart. `/health` also shows `initial_scan_complete`
+and `initial_scan_ms`. The OPC UA server is `Running` from the start, so clients may connect earlier.
+
+A SCADA start script (Linux):
+
+```bash
+until curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; do sleep 2; done
+```
+
+On Windows (PowerShell), with a limit of two minutes:
+
+```powershell
+$deadline = (Get-Date).AddMinutes(2)
+while ((Get-Date) -lt $deadline) {
+  try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8080/health/ready | Out-Null; break }
+  catch { Start-Sleep -Seconds 2 }
+}
+```
+
+A systemd unit that must start after opencap has its first values:
+
+```ini
+[Service]
+ExecStartPre=/usr/bin/curl -fsS --retry 60 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/health/ready
+```
+
+A container health check can use `/health/live` (the image probes `/health`); a readiness probe in an
+orchestrator uses `/health/ready`.
+
+`opencap info` prints a support summary (versions, platform, drivers, north interfaces, config revision)
+that is safe to paste into an issue: no addresses, host names or secrets. The same data is at
+`GET /api/v1/support` (viewer token); `GET /api/v1/about` (open) has only the product and version.
 
 ## Logs and log rotation
 
@@ -160,7 +202,71 @@ Notes:
 - By default WinSW runs the service as LocalSystem. To run it as `NT AUTHORITY\LocalService`,
   uncomment `<serviceaccount>` in the XML and grant that account modify rights on
   `C:\ProgramData\opencap\data` and `\logs`.
-- Windows support has not been tested on real hardware yet. Please report what you find.
+- CI runs the test suite and this WinSW setup (install, start, `/health`, stop with a clean
+  exit 0, uninstall) on windows-latest; see `docs/decisions.md` D-082. It has not been tried on
+  plant hardware yet. Please report what you find.
+
+## Rust engine (opencap-engine) as a service
+
+The Rust engine reads the same config directory and behaves the same way (ADR-0002). It is a
+single binary, `opencap-engine`, so it needs no Python and no service wrapper. Run it **or**
+the Python `opencap` on a machine, not both: they share the config directory and the API port.
+`opencap-engine drivers` lists which drivers your build has.
+
+### Linux: systemd (`deploy/opencapd.service`)
+
+The same layout and hardening as `opencap.service` above, with two differences:
+`ExecStart=/usr/local/bin/opencap-engine run --config /etc/opencap`, and `Type=notify`. The
+engine tells systemd it is ready only once the config has loaded, the poller has started and
+the API listens, so `systemctl start opencapd` waits for that and fails when the config does
+not load. `systemctl reload opencapd` sends SIGHUP: a diff reload, reported to systemd as
+reloading and ready again.
+
+```bash
+sudo install -m 0755 opencap-engine /usr/local/bin/opencap-engine
+sudo useradd --system --home /var/lib/opencap --shell /usr/sbin/nologin opencap   # if not there yet
+sudo cp deploy/opencapd.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now opencapd
+journalctl -u opencapd -f -o cat
+```
+
+CI checks the unit with `systemd-analyze verify`, and the readiness, reload and stop
+notifications against the real binary (`tests/integration/test_rust_engine_sdnotify.py`).
+
+### Windows: a native service (no WinSW)
+
+From an elevated prompt:
+
+```bat
+opencap-engine.exe service install --config C:\ProgramData\opencap\config
+sc start opencap-engine
+sc query opencap-engine
+sc stop opencap-engine
+opencap-engine.exe service uninstall
+```
+
+- **Install** registers `opencap-engine` to start automatically as LocalSystem, with
+  `service run --config <dir>` as its command line (the config path is stored absolute). The
+  config defaults to `C:\ProgramData\opencap\config`.
+- **Recovery:** restart after 5 s, 5 s, then 30 s; the count resets after a day, and a stop with
+  a non-zero exit counts as a failure too.
+- **Files:** `C:\ProgramData\opencap\` is the working directory, so a relative `saf.path`
+  (`data\saf.sqlite`) lands there. Logs are JSON lines in `logs\opencap-engine.log`. Rotate or
+  trim that file yourself; the engine only appends to it.
+- **Stop and shutdown** do the same clean stop as SIGTERM on Linux: the API stops, PLC
+  connections close, the outbox keeps whatever the broker has not acknowledged, and `offline`
+  is published.
+- **Event log:** source `opencap-engine` under Application (created at install with
+  `eventcreate`), with "started", "stopped" and, if a run fails, the error that ended it.
+- **Uninstall** stops the service and removes it and its event log source. The config, the
+  outbox and the logs stay.
+- There is no reload on Windows yet: change the config, then `sc stop` and `sc start`.
+
+CI installs, starts (against a simulator and the test broker), checks `/health`, stops
+(exit code 0, `poller_stopped` in the log, the event log entries) and uninstalls the service
+on windows-latest (`deploy/windows/engine_service_smoke.py`). It has not been tried on plant
+hardware yet. Please report what you find.
 
 ## Commissioning a Siemens S7 or Mitsubishi PLC
 

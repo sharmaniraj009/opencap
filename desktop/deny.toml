@@ -1,0 +1,81 @@
+# Licence and supply-chain gate for the desktop shell (ADR-0007, docs/adr/0007-oss-licence-policy.md).
+# CI: `cargo deny --manifest-path desktop/Cargo.toml check licenses bans sources advisories`
+# (.github/workflows/licenses.yml, job "desktop"), on PRs that touch desktop/ and nightly.
+# The allow-list is engine/deny.toml's. The exceptions below are per crate, so a new crate
+# under one of these licences still fails until someone reviews it and adds it here.
+
+[graph]
+all-features = true
+
+[licenses]
+# Permissive licences only, as in engine/deny.toml. LGPL, GPL, AGPL, non-commercial and unknown
+# licences are not listed and therefore rejected.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+# MPL-2.0 is file-level copyleft: allowed for these crates only, unmodified (ADR-0007). They come
+# in through Tauri's HTML handling (desktop/README.md, "Licences"). Changes to their files would
+# have to be published under MPL-2.0, so we never patch or vendor them.
+[[licenses.exceptions]]
+crate = "cssparser"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "cssparser-macros"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "selectors"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "dtoa-short"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "option-ext"
+allow = ["MPL-2.0"]
+
+# Mozilla's root certificate bundle (via ureq). CDLA-Permissive-2.0 is a permissive data licence:
+# redistribution with or without changes, no copyleft. Allowed for this crate only.
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
+
+# r-efi is "MIT OR Apache-2.0 OR LGPL-2.1-or-later": the OR expression is satisfied by MIT
+# (allowed above), so it needs no exception and LGPL never applies.
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[advisories]
+# Known vulnerabilities and unmaintained notices fail the gate (unlike engine/deny.toml, D-061:
+# here every unmaintained crate is someone else's, so each one is listed and tracked below).
+# `unmaintained = "all"` is spelled out: cargo-deny's default scope differs between versions
+# (0.22 checks only direct dependencies), and this gate must not depend on that.
+# Yanked releases warn.
+unmaintained = "all"
+yanked = "warn"
+
+[[advisories.ignore]]
+id = "RUSTSEC-2024-0370"
+reason = """proc-macro-error 1.0.4 is unmaintained (not a vulnerability). It is a compile-time proc-macro helper of
+glib-macros 0.18, reached only through Tauri's Linux webview stack (gtk/glib 0.18 via muda, tao, wry,
+webkit2gtk); nothing from it ships in the binary and we cannot replace it ourselves.
+Remove when Tauri leaves gtk-rs 0.18: https://github.com/sharmaniraj009/opencap/issues/102"""

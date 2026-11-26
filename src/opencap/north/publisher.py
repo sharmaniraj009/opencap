@@ -15,6 +15,8 @@ Data messages (topic ``device.publish.topic`` or ``default_topic(device, topic_p
   SubDevice JSON format has one ``Data`` object per device; ``DataValid``/``BadTags`` would be
   wrong for a partial one). The cache is checked when ``notify_cycle()`` is called and,
   as a fallback, every ``on_change_poll_s``.
+- ``publish.format`` picks the message body (``subdevice_json`` or the KEPServerEX ``iotgw_json``
+  standard template); timing, topics, the outbox and the status topic do not depend on it.
 - A device that has **never had a good read** since start (no tag with a ``source_ts``)
   publishes no data message: an empty message stamped "now" would look like fresh data.
   It still gets status messages. Once it has had one good read, it publishes on schedule
@@ -40,6 +42,7 @@ from opencap.config.loader import default_topic
 from opencap.config.models import DEFAULT_TOPIC_PREFIX, Device, PayloadCfg
 from opencap.core.cache import TagValue
 from opencap.north.payload import build_payload, build_status, clean_value, encode, is_bad, status_topic
+from opencap.north.payload_iotgw import build_iotgw_payload
 
 log = structlog.get_logger("opencap.north.publisher")
 
@@ -135,7 +138,10 @@ class Publisher:
 
     # ------------------------------------------------------------------ data
     async def _publish_data(self, dev: Device, snapshot: dict[str, TagValue]) -> None:
-        payload = build_payload(dev, snapshot, self._cfg, is_secure=self._link.is_secure)
+        if dev.publish.format == "iotgw_json":
+            payload = build_iotgw_payload(dev, snapshot, self._cfg)
+        else:
+            payload = build_payload(dev, snapshot, self._cfg, is_secure=self._link.is_secure)
         await self._link.publish(self._data_topic[dev.id], encode(payload), retain=False)
         self.data_published[dev.id] += 1
 

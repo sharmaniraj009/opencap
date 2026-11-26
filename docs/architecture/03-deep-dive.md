@@ -11,7 +11,7 @@ the target contract and names the issue that brings it.
 |---|---|---|---|
 | Channel | `Channel.name` | `ChannelId(u32)` | `Channel` |
 | Device | `Device.id = "<channel>/<device>"` | `DeviceId(u32)` | `Channel.Device` |
-| Tag | `Tag.name` (group path dot-joined, e.g. `LTI002.Pv`) | `TagId(u32)` dense index into the store | `Channel.Device.Group.Tag` |
+| Tag | `Tag.name` (group path dot-joined, e.g. `LTI002.Pv`) | `TagIndex` (`u32`): dense device-local index into the device's slot (#41) | `Channel.Device.Group.Tag` |
 | OPC UA node | — | — | `ns=<idx>;s=Channel.Device.Group.Tag` (KEPServerEX uses the same string form, so SCADA tag references survive the migration; ADR-0009) |
 | MQTT topic | `opencap/<slug(channel)>/<slug(device)>/data` (D-012; `opencap` is `mqtt.topic_prefix`, D-028) | same | same |
 
@@ -29,12 +29,16 @@ the dotted path.
 ### Tag value (runtime)
 ```
 TagValue {
-  value:      Variant          // Bool | I8..I64 | U8..U64 | F32 | F64 | String | DateTime | Bytes | Array(Variant[])
+  value:      Option<Value>    // Bool | Int(i64) | UInt(u64) | Float(f64) | Str | List(Value[]); None = never read good
   quality:    Quality          // good | bad_comm | bad_config | bad_decode | stale  (ADR-0006)
   source_ts:  Option<UtcTime>  // when the reply arrived, or the device's own timestamp when the protocol has one
-  server_ts:  UtcTime          // when the store accepted it (Rust adds this; Python derives it)
+  server_ts:  Option<UtcTime>  // when the store last accepted a write for the tag (Rust only; None = never written)
 }
 ```
+As built (#41): `Value` is the Rust name of the variant; narrower integer and float widths,
+`DateTime` and `Bytes` arrive with the first driver that produces them. `server_ts` is set by
+the store on every write it accepts (good, bad, or expired to stale) and is not part of the
+admin API's JSON or the SubDevice payload, which stay identical to Python's.
 Rules carried over from the Python cache (contract §2 of `docs/phase1_contracts.md`): a good
 value replaces value, quality and `source_ts`; any other quality keeps the last value and the
 last good `source_ts` and changes only the quality; never-read tags are `(None, stale, None)`.
@@ -42,26 +46,46 @@ last good `source_ts` and changes only the quality; never-read tags are `(None, 
 ## 3.2 Tag store and change-event bus
 ([ADR-0005](../adr/0005-north-plugins-tag-store-event-bus.md))
 
+As built in `engine/crates/opencap-core/src/store.rs` (#41; deviations in D-066):
+
 - **Layout.** One `DeviceSlot` per device: a contiguous `Vec<TagValue>` indexed by the
-  device-local tag index, a monotonic `version: u64`, `last_good`. Slots live in a
-  `Vec<DeviceSlot>` indexed by `DeviceId`, created at config load.
+  device-local `TagIndex` (enabled tags in config order, `TagLayout`), a monotonic
+  `version: u64`, `last_good`. Slots live in a `Vec` indexed by `DeviceId`; a device keeps
+  its id for the life of the process. Measured: 68 B per tag for the values, 102 B per tag
+  for the names and name index (04 §4.1).
 - **Writers.** Exactly one writer per device: its channel worker (or, for virtual devices,
-  the processing task that owns them). A write is one batch (one block's results) under a
-  short per-device lock; no global lock exists.
-- **Readers.** `get(tag)`, `snapshot(device)`; a snapshot is a copy taken under the device
-  lock (hundreds of tags, microseconds). North plugins never hold a lock across an await.
-- **Events.** After each batch the store publishes `Arc<ChangeBatch { device, version,
-  changes: [(TagId, TagValue)] }>` on a bounded broadcast channel (capacity configurable,
-  default 4,096 batches). A subscriber that falls behind receives `Lagged(n)` and must
-  resynchronise from `snapshot()` of the devices it serves: conflation to the latest value,
-  bounded memory, and the scan loop never blocks.
+  the processing task that owns them). `TagStore::register(device)` returns the device's only
+  valid `DeviceWriter`; registering it again (reload) makes earlier writers stale, so a
+  worker that is still stopping cannot write over its successor. A write
+  (`update`/`update_indexed`/`expire`) is one batch under a short per-device
+  `std::sync::Mutex`; no global lock is on the write path. The channel worker writes once
+  per cycle (all blocks of the rate group).
+- **Readers.** `get(device, tag)`, `snapshot(device)`; a snapshot is a copy taken under the
+  device lock (125 tags: 2.6 µs). The guard is not `Send`, so no task can hold it across an
+  await. North plugins get a read-only `TagStoreReader`.
+- **Events.** After each write the writer publishes `Arc<ChangeBatch { device, layout,
+  version, full, changes: [(TagIndex, TagValue)] }>` on a bounded `tokio::sync::broadcast`
+  channel (default 4,096 batches) while it still holds the device lock, so one device's
+  batches are on the bus in version order. `changes` holds the tags whose value, quality or
+  `source_ts` changed, with their stored values; a write that changed nothing publishes
+  nothing. `register` publishes the whole device (`full: true`) when its tags are new or
+  changed. `send` never waits: writer methods are plain functions.
+- **Lag.** A subscriber that falls more than the capacity behind receives `Lagged(n)`; its
+  receiver jumps to the newest batch, and the subscriber resynchronises from `snapshot()`
+  of the devices it serves, then ignores batches whose `version` is not newer than the
+  snapshot's: conflation to the latest value, bounded memory (only unread batches are kept),
+  and the scan loop never blocks. Skipped batches are counted in
+  `north_lagged_total{agent}`; a `north.lagged` warning is logged at most every 10 s per
+  subscriber.
 - **Lossless consumers** (MQTT agents in interval/on-change mode, Sparkplug, data logger)
   turn events into outbox rows as fast as they arrive; the outbox, not the bus, absorbs
   downstream outages. If such a consumer still lags (CPU starvation), it logs a
   `north.lagged` event, increments `north_lagged_total` and resynchronises; that is the
   only path on which intermediate changes can be skipped, and it is observable.
 - **Python today:** `ValueCache` plus the `on_cycle(device_id)` callback that the publisher
-  uses to notice changes. Same semantics at device granularity.
+  uses to notice changes. Same semantics at device granularity. The Rust MQTT publisher keeps
+  the Python publish rules (it compares snapshots with what it last published) and uses the
+  bus only as its wake-up signal, so payloads stay byte-identical.
 
 ## 3.3 Driver contract
 
@@ -89,8 +113,11 @@ pub enum DriverError { Comm(String), ConnectionLost(String), BlockConfig(String)
 - Per-tag outcomes are expressed as the returned `TagValue`'s quality (`good`, `bad_decode`,
   and, where a protocol reports per-item errors such as Logix CIP status, `bad_config` or
   `bad_comm`), exactly like Python's `dict[str, TagValue]`.
-- **`browse()`** (automatic tag generation, Python #11) is added to the trait, with a default
-  that returns `NotImplemented`, by the first Rust port that needs it (#43).
+- **`browse()`** (automatic tag generation). Python (#11): `async browse(*, expand_arrays=False) ->
+  BrowseResult(tags, skipped)` on a connected driver, default `NotImplementedError`; read and list
+  services only; every returned tag must plan cleanly. `ab_logix` maps the tag list uploaded at
+  connect (no extra request). Rust: added to the trait with a default that returns `NotImplemented`,
+  by the first port that needs it (follow-up to #11, after #43).
 - **Crates:** `engine/crates/opencap-{core,drivers,north,api,engine}` (#64). Each driver moves
   to its own crate `engine/drivers/<name>` behind an `opencap-engine` Cargo feature (#67)
   before the ports pile up.
@@ -151,6 +178,7 @@ pub trait NorthPlugin: Send {
     async fn run(self: Box<Self>, ctx: NorthContext) -> Result<(), NorthError>;   // until ctx.shutdown
 }
 pub struct NorthContext {
+    pub agent: String,                       // agent name: north_lagged_total{agent}, logs
     pub store: TagStoreReader,               // get / snapshot / address-space browse
     pub events: ChangeReceiver,              // bounded broadcast; Lagged(n) => resync
     pub outbox: Option<Outbox>,              // present when the agent's config says durable
@@ -159,6 +187,14 @@ pub struct NorthContext {
     pub shutdown: CancellationToken,
 }
 ```
+
+As built in `engine/crates/opencap-north/src/plugin.rs` (#41): `NorthContext::new(agent,
+store, status)` subscribes to the bus (start from snapshots taken after it);
+`plugin::spawn(plugin, ctx)` runs a plugin on its own task and `NorthHandle::stop(grace)`
+cancels `shutdown`, then aborts after the grace period. The MQTT publisher is the first
+plugin (`kind() == "mqtt"`, agent `mqtt`): the runtime restarts it on reload and keeps the
+MQTT link and its outbox. `DemandReader::read()` serves the store until devices can opt in
+to demand reads (`allow_demand_reads` arrives with the OPC UA server, #46).
 
 - **Caching and device reads.** Every north read is served from the tag store
   (KEPServerEX "initial updates from cache"). An OPC UA `Read` with `maxAge = 0`, or an OPC DA
@@ -195,8 +231,9 @@ pub struct NorthContext {
   `/devices/{id}/status|values|plan|identity`, `POST /devices/{id}/read-once`, `POST /reload`.
   List reads return `{items…, revision}` with an `ETag` too. Writes without `If-Match` get `428`. A write changes the files only; `POST /api/v1/reload`
   applies it, or `?apply=true` on the write reloads right after it (deviation, D-039). Roles are
-  `viewer` (GET) and `admin` until the security RFC. The WebSocket feed (#31) and the committed
-  OpenAPI document (#32) are still to do. The web UI (`/ui/`, ADR-0010) uses only these routes.
+  `viewer` (GET) and `admin` until the security RFC. The WebSocket feed is `GET /api/v1/ws` (`live.py`, #31,
+  D-067: subscribe, snapshot, changes conflated to one message per device per 250 ms, auth in the handshake);
+  the OpenAPI document is committed (`api/openapi.json`, #32, D-064). The web UI (`/ui/`, ADR-0010) uses only these routes.
 
 ## 3.7 Security
 

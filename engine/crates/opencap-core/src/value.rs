@@ -93,18 +93,31 @@ impl fmt::Display for Quality {
     }
 }
 
-/// One tag's value as the cache holds it. `value` is `None` for a tag never read good.
+/// One tag's value as the tag store holds it. `value` is `None` for a tag never read good.
+///
+/// The two timestamps follow [ADR-0006](../../../../docs/adr/0006-quality-and-timestamps.md):
+/// `source_ts` is when the reply arrived (or the device's own timestamp), `server_ts` is when
+/// the tag store last accepted a write for the tag. Drivers leave `server_ts` at `None`; the
+/// store sets it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagValue {
     pub value: Option<Value>,
     pub quality: Quality,
     /// Time the reply arrived (UTC); `None` = never read.
     pub source_ts: Option<DateTime<Utc>>,
+    /// Time the tag store accepted the last write (UTC); `None` = never written.
+    pub server_ts: Option<DateTime<Utc>>,
 }
 
 impl TagValue {
     pub fn new(value: Option<Value>, quality: Quality, source_ts: Option<DateTime<Utc>>) -> Self {
-        Self { value, quality, source_ts }
+        Self { value, quality, source_ts, server_ts: None }
+    }
+
+    /// Same value, quality and `source_ts` (the Python `TagValue` fields); `server_ts` is
+    /// ignored.
+    pub fn same_reading(&self, other: &TagValue) -> bool {
+        self.quality == other.quality && self.source_ts == other.source_ts && self.value == other.value
     }
 
     pub fn good(value: Value, ts: DateTime<Utc>) -> Self {
@@ -124,6 +137,9 @@ impl TagValue {
         })
     }
 }
+
+/// Source of "now" for timestamps (tests inject a fixed clock).
+pub type Clock = std::sync::Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
 
 /// Current UTC time truncated to microseconds (Python `datetime` precision), so both engines
 /// report the same timestamps.

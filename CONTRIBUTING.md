@@ -119,6 +119,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   | CI: tests (Python 3.12, 3.13), wheel and container image | always | always | |
   | CI: `acceptance-pr` (Python 3.12, 8 s outage) | when the PR touches `src/opencap/`, `tests/helpers/`, `tests/integration/`, `tests/conftest.py` or `pyproject.toml` | | |
   | CI: acceptance (Python 3.12, 3.13) | | | nightly, and on manual dispatch |
+  | CI: Windows (Python 3.12): fast suite, WinSW service smoke test | always | always | acceptance suite + service smoke test |
   | Rust engine: fmt, clippy, test, deny, conformance, Windows | when it touches `engine/`, `src/`, `tests/`, `config/` or `pyproject.toml` | same paths | manual dispatch |
   | Licences: Python and Rust gates | always | always | |
   | desktop: build and bundle | when it touches `desktop/` | same paths | manual dispatch |
@@ -126,6 +127,10 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   A skipped `acceptance-pr` shows as skipped on the PR; the job's log in "changed paths"
   says why. The path lists live in `.github/workflows/ci.yml` (job `changes`) and in each
   workflow's `paths:`.
+  The Linux acceptance jobs also restart a real Mosquitto three times
+  (`tests/integration/test_mosquitto_restart.py`, #8). They set `OPENCAP_REQUIRE_MOSQUITTO`,
+  so if neither a `mosquitto` binary nor Docker is there, the job fails instead of skipping
+  the test. Locally the test skips with a reason; `apt install mosquitto` makes it run.
 - Tests must exercise behaviour, not just lines: a driver against its simulator, a planner
   against vectors, a fault path by switching on the simulator's fault.
 - A test with a wall-clock bound (a cadence, a gap, a timeout under ~1 s) uses the `no_gc`

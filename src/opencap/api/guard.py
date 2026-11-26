@@ -2,7 +2,7 @@
 
 A pure ASGI middleware in front of the whole app:
 
-- every route except the open ones (`/health`, `/metrics`, `/api/v1/auth-info`, the UI's
+- every route except the open ones (`/health`, `/health/ready`, `/health/live`, `/metrics`, `/api/v1/auth-info`, `/api/v1/about`, the UI's
   static files) is authenticated from the headers alone, so an unauthenticated caller gets
   401/403 before a single body byte is read or parsed;
 - the body is capped at `MAX_BODY` (1 MiB), or `MAX_IMPORT_BODY` (64 MiB) for
@@ -19,12 +19,14 @@ from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 
 from opencap.api.auth import Auth, AuthError
+from opencap.api.events import UNKNOWN, RefusalLog
 from opencap.config.store import MAX_IMPORT_BYTES
 
 MAX_BODY = 1024 * 1024
 MAX_IMPORT_BODY = MAX_IMPORT_BYTES
 IMPORT_PATH = "/api/v1/project/import"
-OPEN_PATHS = frozenset({"/health", "/metrics", "/api/v1/auth-info", "/", "/ui"})
+OPEN_PATHS = frozenset({"/health", "/health/ready", "/health/live", "/metrics", "/api/v1/auth-info",
+                        "/api/v1/about", "/", "/ui"})
 OPEN_PREFIXES = ("/ui/",)
 
 
@@ -52,9 +54,19 @@ async def _send_json(send: Any, status: int, detail: str, headers: dict[str, str
 
 
 class ApiGuard:
-    def __init__(self, app: Any, auth: Auth) -> None:
+    def __init__(self, app: Any, auth: Auth, refusals: RefusalLog | None = None) -> None:
         self.app = app
         self.auth = auth
+        self.refusals = refusals
+
+    def _refused(self, scope: Any, headers: Headers, status: int, who: str | None = None) -> None:
+        """One `api.request_refused` event (API-14): never the token, the query or the body."""
+        if self.refusals is None:
+            return
+        client = scope.get("client")
+        self.refusals.refused(method=scope["method"], path=scope["path"], status=status, who=who,
+                              client=client[0] if client else UNKNOWN,
+                              via="ui" if headers.get("x-opencap-client") == "ui" else "api")
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         if scope["type"] != "http":
@@ -62,16 +74,19 @@ class ApiGuard:
             return
         path, method = scope["path"], scope["method"]
         headers = Headers(scope=scope)
+        who: str | None = None
         if not is_open(path) and method != "OPTIONS":      # CORS preflight carries no token
             try:
-                self.auth.principal(method, headers, headers.get("host"))
+                who = self.auth.principal(method, headers, headers.get("host")).name
             except AuthError as exc:
+                self._refused(scope, headers, exc.status, exc.who)
                 extra = {"WWW-Authenticate": "Bearer"} if exc.status == 401 else None
                 await _send_json(send, exc.status, exc.message, extra)
                 return
         limit = body_limit(method, path)
         length = headers.get("content-length")
         if length and length.isdigit() and int(length) > limit:
+            self._refused(scope, headers, 413, who)
             await _send_json(send, 413, f"request body larger than {limit} bytes")
             return
 
@@ -98,4 +113,5 @@ class ApiGuard:
         except BodyTooLarge as exc:
             if started:
                 raise
+            self._refused(scope, headers, 413, who)
             await _send_json(send, 413, exc.detail)

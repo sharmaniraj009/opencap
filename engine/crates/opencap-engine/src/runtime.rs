@@ -1,5 +1,5 @@
 //! Poller runtime (Python `opencap.core.runtime.Poller`): wires config, registry, channel
-//! workers, cache, publisher, MQTT and the API. SIGHUP / `POST /reload` re-read the config
+//! workers, the tag store, the MQTT north plugin and the API. SIGHUP / `POST /reload` re-read the config
 //! and restart only the channels that changed.
 
 use std::collections::{HashMap, HashSet};
@@ -15,15 +15,21 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use opencap_api::{EngineView, ReadOnceError};
-use opencap_core::cache::ValueCache;
 use opencap_core::config::{load_config, Channel, LoadedConfig};
 use opencap_core::driver::DriverFactory;
 use opencap_core::registry::Registry;
-use opencap_core::worker::{ChannelWorker, OnCycle, WorkerOptions};
+use opencap_core::store::TagStore;
+use opencap_core::worker::{ChannelWorker, WorkerOptions};
 use opencap_core::FIRM_VERSION;
 use opencap_north::mqtt::{LinkOptions, MqttLink};
-use opencap_north::publisher::{Publisher, PublisherOptions, Sink, StatusFn};
+use opencap_north::plugin::{self, DeviceStatusReader, NorthContext, NorthHandle};
+use opencap_north::publisher::{Publisher, PublisherOptions, Sink};
 use opencap_north::saf::StoreAndForward;
+
+/// Agent name of the MQTT link's publisher (`north_lagged_total{agent}`).
+pub const MQTT_AGENT: &str = "mqtt";
+/// How long a stopping north plugin may take before it is aborted.
+const NORTH_STOP_GRACE: Duration = Duration::from_secs(5);
 
 fn lock<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -40,12 +46,11 @@ pub struct Poller {
     only: Option<HashSet<String>>,
     factory: DriverFactory,
     loaded: RwLock<LoadedConfig>,
-    cache: Arc<ValueCache>,
+    store: Arc<TagStore>,
     state: RwLock<RtState>,
     link: StdMutex<Option<Arc<MqttLink>>>,
     link_task: StdMutex<Option<JoinHandle<()>>>,
-    publisher: Arc<RwLock<Option<Arc<Publisher>>>>,
-    pub_task: StdMutex<Option<JoinHandle<()>>>,
+    north: tokio::sync::Mutex<Option<NorthHandle>>,
     reload_lock: tokio::sync::Mutex<()>,
     me: Weak<Poller>,
 }
@@ -75,11 +80,10 @@ impl Poller {
             }),
             factory,
             loaded: RwLock::new(loaded),
-            cache: Arc::new(ValueCache::new()),
+            store: Arc::new(TagStore::new()),
             link: StdMutex::new(None),
             link_task: StdMutex::new(None),
-            publisher: Arc::new(RwLock::new(None)),
-            pub_task: StdMutex::new(None),
+            north: tokio::sync::Mutex::new(None),
             reload_lock: tokio::sync::Mutex::new(()),
             me: me.clone(),
         })
@@ -158,15 +162,6 @@ impl Poller {
         self.selected(&rlock(&self.loaded).channels)
     }
 
-    fn on_cycle(&self) -> OnCycle {
-        let publisher = self.publisher.clone();
-        Arc::new(move |device_id: &str| {
-            if let Some(p) = rlock(&publisher).as_ref() {
-                p.notify_cycle(device_id);
-            }
-        })
-    }
-
     /// Start, stop or restart workers so they match `channels`. Returns what changed.
     fn apply_channels(&self, channels: &[Channel]) -> Value {
         let wanted: IndexMap<String, Channel> =
@@ -197,16 +192,19 @@ impl Poller {
             } else {
                 started.push(name.clone());
             }
+            // Every device gets a slot (disabled ones too, so the API can list their tags);
+            // the worker registers the devices it polls again and keeps their writers,
+            // which makes the previous worker's writers stale (ADR-0005: one writer).
             for dev in &ch.devices {
-                self.cache.register(dev);
+                self.store.register(dev);
             }
             let plans = ch
                 .devices
                 .iter()
                 .filter_map(|d| st.registry.plans.get(&d.id).map(|p| (d.id.clone(), p.clone())))
                 .collect();
-            let opts = WorkerOptions { on_cycle: Some(self.on_cycle()), stats_interval_s, ..Default::default() };
-            let worker = ChannelWorker::new(ch, &plans, self.cache.clone(), self.factory.clone(), opts);
+            let opts = WorkerOptions { stats_interval_s, ..Default::default() };
+            let worker = ChannelWorker::new(ch, &plans, self.store.clone(), self.factory.clone(), opts);
             worker.start();
             st.workers.insert(name.clone(), worker);
         }
@@ -216,31 +214,34 @@ impl Poller {
 
     // --- publisher --------------------------------------------------------------
 
+    /// (Re)start the `mqtt` north plugin over the active devices; the MQTT link (connection,
+    /// outbox) is kept.
     async fn restart_publisher(&self) {
-        self.stop_publisher().await;
+        let mut north = self.north.lock().await;
+        if let Some(old) = north.take() {
+            old.stop(NORTH_STOP_GRACE).await;
+        }
         let Some(link) = self.link() else { return };
         let devices = self.active_channels().into_iter().flat_map(|c| c.devices).filter(|d| d.enabled).collect();
         let me = self.me.clone();
-        let status_fn: StatusFn =
-            Arc::new(move |id: &str| me.upgrade().and_then(|p| p.worker_for(id)).and_then(|w| w.health(id)));
+        let status = DeviceStatusReader::new(move |id: &str| {
+            me.upgrade().and_then(|p| p.worker_for(id)).and_then(|w| w.health(id))
+        });
         let (cfg, prefix) = {
             let l = rlock(&self.loaded);
             (l.poller.payload.clone(), l.poller.mqtt.topic_prefix.clone())
         };
+        let outbox = link.saf().clone();
         let sink: Arc<dyn Sink> = link;
-        let publisher =
-            Publisher::new(devices, self.cache.clone(), sink, cfg, status_fn, PublisherOptions::default(), &prefix);
-        *wlock(&self.publisher) = Some(publisher.clone());
-        *lock(&self.pub_task) = Some(tokio::spawn(publisher.run()));
+        let publisher = Publisher::new(devices, sink, cfg, PublisherOptions::default(), &prefix);
+        let ctx = NorthContext::new(MQTT_AGENT, self.store.reader(), status).with_outbox(outbox);
+        *north = Some(plugin::spawn(Box::new(publisher), ctx));
     }
 
     async fn stop_publisher(&self) {
-        let task = lock(&self.pub_task).take();
-        if let Some(task) = task {
-            task.abort();
-            let _ = task.await;
+        if let Some(old) = self.north.lock().await.take() {
+            old.stop(NORTH_STOP_GRACE).await;
         }
-        *wlock(&self.publisher) = None;
     }
 
     // --- reload -----------------------------------------------------------------
@@ -364,8 +365,8 @@ impl EngineView for Poller {
 
     fn device_values(&self, device_id: &str) -> Option<Value> {
         self.worker_for(device_id)?;
-        let snap = self.cache.snapshot(device_id);
-        Some(Value::Object(snap.iter().map(|(n, tv)| (n.clone(), tv.to_api_json())).collect()))
+        let snap = self.store.snapshot(device_id);
+        Some(Value::Object(snap.iter().map(|(n, tv)| (n.to_string(), tv.to_api_json())).collect()))
     }
 
     async fn read_once(&self, device_id: &str) -> Result<Value, ReadOnceError> {
@@ -374,7 +375,7 @@ impl EngineView for Poller {
             opencap_core::worker::ReadOnceError::UnknownDevice(..) => ReadOnceError::UnknownDevice,
             other => ReadOnceError::Failed(other.to_string()),
         })?;
-        Ok(Value::Object(snap.iter().map(|(n, tv)| (n.clone(), tv.to_api_json())).collect()))
+        Ok(Value::Object(snap.iter().map(|(n, tv)| (n.to_string(), tv.to_api_json())).collect()))
     }
 
     async fn reload(&self) -> Result<Value, String> {

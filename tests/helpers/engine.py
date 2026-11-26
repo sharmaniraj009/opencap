@@ -5,13 +5,22 @@ assertions drive either the Python reference `Poller` or the Rust engine binary 
     OPENCAP_ENGINE=rust pytest -m acceptance ...          # same, via the environment
     OPENCAP_ENGINE_BIN=/path/to/opencap-engine           # binary to run (default: engine/target/{release,debug})
 
-Both adapters expose the part of `opencap.core.runtime.Poller` the acceptance test uses:
+Both adapters expose the part of `opencap.core.runtime.Poller` the acceptance tests use:
 
     engine = factory(config_dir); await engine.start(); ...; await engine.stop()
     engine.sent                    # {topic: [payload bytes]} handed by the publisher to the link
     engine.loaded.channels         # the config as loaded (same files, Python loader)
     engine.health(), engine.device_detail(id), engine.device_values(id)
     engine.link.connected, engine.saf.count()
+    engine.log_events("device.stats")   # the engine's structured log lines with that event name
+    await engine.cli("identity", dev_id, "--config", str(config_dir))   # (exit code, output)
+    engine.kind, engine.is_python  # "python" | "rust"; guard Python-internal assertions with it
+
+A suite marks the PLC drivers it polls with `@pytest.mark.drivers("ab_logix", ...)`. With
+`--engine=rust`, a suite whose drivers the binary does not implement yet (`opencap-engine
+drivers`) is skipped with "driver not ported: ...", and an acceptance suite that does not drive
+the engine through `engine_factory` is skipped as "not engine-agnostic"; tests/conftest.py
+lists both in the "Rust port gap" summary (and in $GITHUB_STEP_SUMMARY on CI).
 
 The Rust adapter answers these from the engine's admin API (`/health`, `/devices/...`) and
 from a publish tap: with `OPENCAP_PUBLISH_TAP=<file>` the engine appends every message the
@@ -24,9 +33,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import functools
 import json
 import os
 import signal
+import subprocess
+import sys
 import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
@@ -39,6 +51,9 @@ from opencap.config.loader import load_config
 
 ROOT = Path(__file__).resolve().parents[2]
 ENGINES = ("python", "rust")
+NOT_PORTED = "driver not ported"           # skip reasons with --engine=rust (tests/conftest.py)
+NOT_COMPILED = "driver not compiled in"    # its crate exists, the binary was built without its feature
+NOT_AGNOSTIC = "not engine-agnostic"
 
 
 def rust_binary() -> Path | None:
@@ -60,16 +75,82 @@ def rust_binary() -> Path | None:
     return None
 
 
+@functools.lru_cache(maxsize=4)
+def _rust_drivers(binary: str, mtime_ns: int) -> dict[str, list[str]]:
+    out = subprocess.run([binary, "drivers"], capture_output=True, text=True, timeout=30)
+    if out.returncode != 0:
+        raise RuntimeError(f"`{binary} drivers` failed ({out.returncode}): {out.stderr.strip()}\n"
+                           "The binary may predate the `drivers` subcommand: rebuild it.")
+    return json.loads(out.stdout)
+
+
+def _rust_report() -> dict[str, list[str]]:
+    binary = rust_binary()
+    if binary is None or not binary.exists():
+        raise FileNotFoundError(
+            "Rust engine binary not found: build it with `cd engine && cargo build --release` "
+            "or point OPENCAP_ENGINE_BIN at it")
+    return _rust_drivers(str(binary), binary.stat().st_mtime_ns)
+
+
+def implemented_drivers(kind: str) -> frozenset[str] | None:
+    """Drivers the engine implements, or None for "all of them" (the Python reference: a driver
+    whose optional library is missing is the test's own importorskip, not a port gap)."""
+    if kind == "python":
+        return None
+    return frozenset(_rust_report()["implemented"])
+
+
+def unsupported_reason(kind: str, drivers: tuple[str, ...]) -> str | None:
+    """Why the engine cannot run a suite that polls `drivers`, or None if it can."""
+    implemented = implemented_drivers(kind)
+    if implemented is None:
+        return None
+    missing = sorted(set(drivers) - implemented)
+    if not missing:
+        return None
+    compiled_out = set(_rust_report().get("not_compiled_in", ()))
+    off = [d for d in missing if d in compiled_out]
+    if off:
+        return f"{NOT_COMPILED}: {', '.join(off)} (rebuild with its driver-* Cargo feature)"
+    return f"{NOT_PORTED}: {', '.join(missing)}"
+
+
+async def run_process(argv: list[str], cwd: Path | None, timeout: float) -> tuple[int, str]:
+    """Run a child process to completion: (exit code, stdout + stderr). `subprocess` in a worker
+    thread, not an asyncio subprocess, so it works on every event loop, including the Windows
+    selector loop the tests use (tests/conftest.py, event_loop_policy). Raises TimeoutError."""
+    try:
+        done = await asyncio.to_thread(subprocess.run, [str(a) for a in argv], cwd=cwd,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        raise TimeoutError(f"{argv[0]} did not finish within {timeout} s") from e
+    return done.returncode, done.stdout.decode(errors="replace")
+
+
+
 class PythonEngine:
-    """The reference implementation, in-process (exactly what the test did before)."""
+    """The reference implementation, in-process (exactly what the tests did before)."""
+
+    kind = "python"
+    is_python = True
 
     def __init__(self, config_dir: Path) -> None:
         from opencap.core.runtime import Poller
 
+        self.config_dir = Path(config_dir)
         self.poller = Poller(config_dir)
         self.sent: dict[str, list[bytes]] = defaultdict(list)
+        self._logs: contextlib.ExitStack | None = None
+        self._events: list[dict[str, Any]] = []
 
     async def start(self) -> None:
+        # Structured log events as the Rust adapter reads them from the engine's stdout. The
+        # level filter still applies (configure_logging), as poller.yaml `log_level` does for Rust.
+        from structlog.testing import capture_logs
+
+        self._logs = contextlib.ExitStack()
+        self._events = self._logs.enter_context(capture_logs())
         await self.poller.start()
         # Spy on everything the publisher hands to the link (right after start, before any data).
         real_publish = self.poller.link.publish
@@ -81,7 +162,19 @@ class PythonEngine:
         self.poller.link.publish = spy
 
     async def stop(self) -> None:
-        await self.poller.stop()
+        try:
+            await self.poller.stop()
+        finally:
+            if self._logs is not None:
+                self._logs.close()
+                self._logs = None
+
+    def log_events(self, event: str) -> list[dict[str, Any]]:
+        return [e for e in self._events if e.get("event") == event]
+
+    async def cli(self, *args: str, cwd: Path | None = None, timeout: float = 60) -> tuple[int, str]:
+        """`opencap <args>` (the Python CLI, in a subprocess): (exit code, stdout + stderr)."""
+        return await run_process([sys.executable, "-m", "opencap", *args], cwd, timeout)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.poller, name)
@@ -145,6 +238,9 @@ class _Saf:
 class RustEngine:
     """The Rust engine as a child process, driven through its admin API."""
 
+    kind = "rust"
+    is_python = False
+
     def __init__(self, config_dir: Path, binary: Path, workdir: Path) -> None:
         self.config_dir = Path(config_dir).resolve()
         self.binary = Path(binary).resolve()
@@ -201,6 +297,26 @@ class RustEngine:
             self._log.close()
             self._log = None
 
+    def log_events(self, event: str) -> list[dict[str, Any]]:
+        """JSON log lines (tracing's `message` is structlog's `event`) with that event name."""
+        out = []
+        try:
+            text = self.log_path.read_text(errors="replace")
+        except OSError:
+            return out
+        for line in text.splitlines():
+            if not line.startswith("{"):
+                continue
+            with contextlib.suppress(ValueError):
+                rec = json.loads(line)
+                if rec.get("event", rec.get("message")) == event:
+                    out.append({**rec, "event": event})
+        return out
+
+    async def cli(self, *args: str, cwd: Path | None = None, timeout: float = 60) -> tuple[int, str]:
+        """`opencap-engine <args>`: (exit code, stdout + stderr)."""
+        return await run_process([str(self.binary), *args], cwd, timeout)
+
     def log_tail(self, lines: int = 40) -> str:
         try:
             return "\n".join(self.log_path.read_text(errors="replace").splitlines()[-lines:])
@@ -232,9 +348,31 @@ def make_engine_factory(kind: str, workdir: Path) -> Callable[[Path], Any]:
         return PythonEngine
     if kind != "rust":
         raise ValueError(f"unknown engine {kind!r}; expected one of {ENGINES}")
+    implemented_drivers(kind)               # raises when the binary is missing
     binary = rust_binary()
-    if binary is None or not binary.exists():
-        raise FileNotFoundError(
-            "Rust engine binary not found: build it with `cd engine && cargo build --release` "
-            "or point OPENCAP_ENGINE_BIN at it")
+    assert binary is not None
     return lambda config_dir: RustEngine(config_dir, binary, workdir / "rust-engine")
+
+
+def port_gap_markdown(gap: dict[str, dict]) -> str:
+    """The job-summary table: every acceptance suite run against the Rust engine and its result."""
+    icon = {"passed": "✅ passed", "failed": "❌ failed", "skipped": "⏭️ skipped"}
+    rows = []
+    for nodeid, e in sorted(gap.items()):
+        drivers = ", ".join(f"`{d}`" for d in e["drivers"]) or "—"
+        rows.append(f"| `{nodeid}` | {drivers} | {icon.get(e['outcome'], e['outcome'] or '—')} | {e['reason']} |")
+    ported = sum(e["outcome"] == "passed" for e in gap.values())
+    not_ported = sorted({d for e in gap.values() if e["reason"].startswith(NOT_PORTED)
+                         for d in e["reason"].split(": ", 1)[1].split(", ")})
+    lines = [
+        "## Rust port gap (acceptance suites, `OPENCAP_ENGINE=rust`)",
+        "",
+        f"{ported} of {len(gap)} suites pass on the Rust engine. "
+        f"Drivers not ported yet: {', '.join(f'`{d}`' for d in not_ported) or 'none'}.",
+        "",
+        "| Suite | Drivers | Result | Reason |",
+        "|---|---|---|---|",
+        *rows,
+        "",
+    ]
+    return "\n".join(lines)

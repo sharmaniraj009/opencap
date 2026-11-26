@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opencap"
-version = "0.1.0"
+dynamic = ["version"]           # single source: opencap.__version__ (docs/release.md)
 description = "Open-source industrial connectivity server: polls PLCs (Modbus, Allen-Bradley, ...) and publishes to MQTT"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]   # NOTICE lists the vendored files (ADR-0007)
@@ -25,18 +25,22 @@ s7 = ["python-snap7>=3.5,<4"]          # pure-Python 3.x API (D-048)
 melsec = ["pymcprotocol>=0.3,<0.4"]    # driver overrides its socket I/O (D-053)
 opcua = ["asyncua>=2.1,<2.2"]   # client state machine and subscription keep-alive tracking touch asyncua internals (D-045)
 serial = ["pyserial>=3.5"]          # local serial ports and RFC 2217 (modbus_rtu, ab_df1); TCP gateways need nothing
-north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "prometheus-client>=0.20", "ruamel.yaml>=0.19"]  # ruamel.yaml: config API keeps YAML comments
+north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "websockets>=13", "prometheus-client>=0.20", "ruamel.yaml>=0.19"]  # ruamel.yaml: config API keeps YAML comments; websockets: uvicorn serves /api/v1/ws with it
 all = ["opencap[modbus,ab,s7,melsec,opcua,north,serial]"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "amqtt>=0.11", "jsonschema>=4.18"]  # amqtt: in-process test broker
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "amqtt>=0.11", "jsonschema>=4.18",
+       "fins-driver>=0.3.1,<0.4"]  # amqtt: in-process test broker; fins-driver (MIT): independent FINS client for fins_sim
 
 [project.scripts]
 opencap = "opencap.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "opencap.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"opencap.api" = ["ui/*.html", "ui/*.js", "ui/*.css", "ui/vendor/*"]   # the web UI bundle (ADR-0010)
+"opencap.api" = ["ui/*.html", "ui/*.js", "ui/*.css", "ui/i18n/*.json", "ui/vendor/*"]   # the web UI bundle (ADR-0010)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -46,4 +50,5 @@ pythonpath = ["."]
 markers = [
     "real_project: needs the real KEPServer export at tests/fixtures/project.json (skipped when absent)",
     "acceptance: end-to-end phase acceptance run (slower; OPENCAP_OUTAGE_S sets the broker outage)",
+    "drivers(*names): PLC drivers the test polls; with --engine=rust it is skipped as 'driver not ported' until the binary implements them",
 ]

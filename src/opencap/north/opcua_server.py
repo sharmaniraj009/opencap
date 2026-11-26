@@ -14,9 +14,8 @@ KEPServer, so an existing client only changes the endpoint URL.
 Values: copied from the cache when a device's cache version changes (woken by every device
 cycle, at the latest every `update_ms`), only for tags whose value or quality changed.
 SourceTimestamp = the cache's `source_ts`. DataType follows the tag dtype (Double for scaled
-tags). Quality -> StatusCode: good -> Good; stale -> UncertainLastUsableValue
-(BadWaitingForInitialData when never read); bad_comm -> BadCommunicationError; bad_config ->
-BadConfigurationError; bad_decode -> BadDataEncodingInvalid.
+tags). Quality -> StatusCode comes from `opencap.core.quality` (ADR-0006); a value that does not
+fit its variable's type is sent as bad_decode.
 
 Read-only: variables have AccessLevel CurrentRead, the user manager never grants the Admin
 role, and a permission ruleset refuses Write, HistoryUpdate, Call and node management for
@@ -42,6 +41,7 @@ import structlog
 
 from opencap import FIRM_VERSION, __version__
 from opencap.config.models import Device, OpcUaServerCfg, Tag
+from opencap.core import quality as q
 from opencap.core.cache import TagValue, ValueCache
 
 log = structlog.get_logger("opencap.north.opcua_server")
@@ -61,15 +61,6 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
 DEFAULTS: dict[str, Any] = {"Boolean": False, "String": "", "Float": 0.0, "Double": 0.0, "DateTime": None,
                             **dict.fromkeys(_INT_RANGES, 0)}
 
-GOOD = 0x00000000
-UNCERTAIN_LAST_USABLE_VALUE = 0x40900000
-BAD_WAITING_FOR_INITIAL_DATA = 0x80320000
-BAD_COMMUNICATION_ERROR = 0x80050000
-BAD_CONFIGURATION_ERROR = 0x80890000
-BAD_DATA_ENCODING_INVALID = 0x80380000
-BAD = 0x80000000
-_QUALITY_STATUS = {"bad_comm": BAD_COMMUNICATION_ERROR, "bad_config": BAD_CONFIGURATION_ERROR,
-                   "bad_decode": BAD_DATA_ENCODING_INVALID}
 NEVER = datetime(1601, 1, 1, tzinfo=UTC)          # OPC UA's null DateTime (encodes as 0)
 
 
@@ -79,12 +70,9 @@ def variant_type(tag: Tag) -> str:
 
 
 def status_code(tv: TagValue) -> int:
-    """opencap quality -> OPC UA StatusCode (module docstring, D-046)."""
-    if tv.quality == "good":
-        return GOOD
-    if tv.quality == "stale":
-        return BAD_WAITING_FOR_INITIAL_DATA if tv.value is None else UNCERTAIN_LAST_USABLE_VALUE
-    return _QUALITY_STATUS.get(tv.quality, BAD)
+    """OPC UA StatusCode of a cache entry (ADR-0006). The cache keeps the last value on every
+    non-good quality, so a tag without a value was never read good."""
+    return q.to_opcua(tv.quality, ever_good=tv.value is not None)
 
 
 def coerce(vtype: str, value: Any) -> Any:
@@ -722,14 +710,14 @@ class OpcUaNorth:
                 value = get(status, nodes.device)
                 if var.last != value:
                     var.last = value
-                    await self._write(var, value, GOOD, None)
+                    await self._write(var, value, q.to_opcua("good", ever_good=True), None)
 
     async def _write_tag(self, var: _Var, tv: TagValue) -> None:
         code = status_code(tv)
         try:
             value = coerce(var.vtype, tv.value)
         except (ValueError, TypeError, OverflowError):
-            value, code = None, BAD_DATA_ENCODING_INVALID
+            value, code = None, q.to_opcua("bad_decode", ever_good=tv.value is not None)
         await self._write(var, value, code, tv.source_ts)
 
     async def _write(self, var: _Var, value: Any, code: int, source_ts: datetime | None) -> None:

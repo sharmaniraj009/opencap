@@ -30,14 +30,48 @@ pub struct DriverEntry {
 }
 
 /// Every driver crate that exists, compiled in or not. Add one entry per crate.
-pub static DRIVERS: &[DriverEntry] = &[DriverEntry {
-    name: "modbus_tcp",
-    feature: "driver-modbus-tcp",
-    #[cfg(feature = "driver-modbus-tcp")]
-    create: Some(|d| Ok(Box::new(opencap_driver_modbus_tcp::ModbusTcpDriver::new(d)?))),
-    #[cfg(not(feature = "driver-modbus-tcp"))]
-    create: None,
-}];
+pub static DRIVERS: &[DriverEntry] = &[
+    DriverEntry {
+        name: "modbus_tcp",
+        feature: "driver-modbus-tcp",
+        #[cfg(feature = "driver-modbus-tcp")]
+        create: Some(|d| Ok(Box::new(opencap_driver_modbus_tcp::ModbusTcpDriver::new(d)?))),
+        #[cfg(not(feature = "driver-modbus-tcp"))]
+        create: None,
+    },
+    DriverEntry {
+        name: "modbus_rtu",
+        feature: "driver-modbus-rtu",
+        #[cfg(feature = "driver-modbus-rtu")]
+        create: Some(|d| Ok(Box::new(opencap_driver_modbus_rtu::ModbusRtuDriver::new(d)?))),
+        #[cfg(not(feature = "driver-modbus-rtu"))]
+        create: None,
+    },
+    DriverEntry {
+        name: "ab_logix",
+        feature: "driver-ab-logix",
+        #[cfg(feature = "driver-ab-logix")]
+        create: Some(|d| Ok(Box::new(opencap_driver_ab_logix::AbLogixDriver::new(d)?))),
+        #[cfg(not(feature = "driver-ab-logix"))]
+        create: None,
+    },
+    DriverEntry {
+        name: "melsec_mc",
+        feature: "driver-melsec-mc",
+        #[cfg(feature = "driver-melsec-mc")]
+        create: Some(|d| Ok(Box::new(opencap_driver_melsec_mc::MelsecMcDriver::new(d)?))),
+        #[cfg(not(feature = "driver-melsec-mc"))]
+        create: None,
+    },
+    DriverEntry {
+        name: "s7",
+        feature: "driver-s7",
+        #[cfg(feature = "driver-s7")]
+        create: Some(|d| Ok(Box::new(opencap_driver_s7::S7Driver::new(d)?))),
+        #[cfg(not(feature = "driver-s7"))]
+        create: None,
+    },
+];
 
 /// Driver names this build can poll, in table order.
 pub fn compiled_in() -> Vec<&'static str> {

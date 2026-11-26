@@ -2,13 +2,13 @@
 
 Status, assignments and next priorities for opencap. Maintained by the technical lead on every pass; the issue [#1](https://github.com/sharmaniraj009/opencap/issues/1) and `docs/BOARD.md` carry the same text. How to work with it: `CONTRIBUTING.md` → "Engineering protocol".
 
-**Last updated:** 2026-11-18 10:55 UTC, pass 11 (lead-2)
+**Last updated:** 2026-11-26, status refresh (the per-session tables below are from pass 11 and are stale)
 
 ## The push: resolve every open issue
 
 The owner asked to resolve every issue that was open when the push started ([#3](https://github.com/sharmaniraj009/opencap/issues/3)–[#90](https://github.com/sharmaniraj009/opencap/issues/90), 57 issues; [#1](https://github.com/sharmaniraj009/opencap/issues/1) is this board). Ten area sessions work their queues in order, one PR per issue; `lead-2` reviews, merges, relabels and keeps this board. The previous lead session has handed over: it no longer merges or edits the board, and may leave comment reviews.
 
-- **Progress:** 3 of 57 closed ([#3](https://github.com/sharmaniraj009/opencap/issues/3), [#38](https://github.com/sharmaniraj009/opencap/issues/38), [#67](https://github.com/sharmaniraj009/opencap/issues/67)). 4 PRs in review. 10 issues claimed.
+- **Progress (2026-11-26):** about 21 of the 57 closed, 36 still open (97 open issues in all, counting follow-ups). Open PRs: [#195](https://github.com/sharmaniraj009/opencap/pull/195) (Rust melsec_mc, no CI reported), [#190](https://github.com/sharmaniraj009/opencap/pull/190) (driver catalogue; Rust conformance, Rust acceptance and Python 3.13 failing), [#177](https://github.com/sharmaniraj009/opencap/pull/177) (BACnet spike; Python 3.13 failing), [#176](https://github.com/sharmaniraj009/opencap/pull/176) (Windows CI; checks running). [#196](https://github.com/sharmaniraj009/opencap/pull/196) (events, #135) merged today. Next P1s: Sparkplug B ([#51](https://github.com/sharmaniraj009/opencap/issues/51)) and the Rust OPC UA server ([#50](https://github.com/sharmaniraj009/opencap/issues/50)).
 - **Done when:** each of the 57 is closed by a merged PR, or closed with a written reason. Follow-up issues filed during the push ([#102](https://github.com/sharmaniraj009/opencap/issues/102) onward) are not part of that set; sessions take them only after their own queue.
 
 ## Status summary

@@ -18,7 +18,9 @@ allow = [
     "ISC",
     "Zlib",
     "Unicode-3.0",
-    # Add MPL-2.0 (unmodified crates only) in the PR that first needs it, e.g. async-opcua.
+    # File-level copyleft, allowed for crates used unmodified (ADR-0007). First needed by
+    # serialport (via tokio-serial) for the Modbus RTU / serial-line drivers (#47).
+    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 

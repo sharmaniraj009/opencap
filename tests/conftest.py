@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import gc
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,84 @@ def pytest_addoption(parser):
         help="engine the conformance (acceptance) tests drive: the Python reference Poller (default) "
              "or the Rust engine binary from engine/ (see tests/helpers/engine.py)",
     )
+
+
+# --- the Rust port gap: suites the chosen engine cannot run yet ---------------------------------
+# `@pytest.mark.drivers("ab_logix", ...)` names the PLC drivers a suite polls. With --engine=rust
+# a suite is skipped when the binary does not implement one of them ("driver not ported", or
+# "driver not compiled in" when its crate exists but the feature is off), and an acceptance suite
+# that does not drive the engine through `engine_factory` (it reaches into the Python Poller) is
+# skipped too. Both are listed at the end of the run and, on CI, in the job summary.
+_PORT_GAP = pytest.StashKey[dict]()
+
+
+def pytest_configure(config):
+    config.stash[_PORT_GAP] = {}
+
+
+def _suite_drivers(item) -> tuple[str, ...]:
+    return tuple(d for m in item.iter_markers("drivers") for d in m.args)
+
+
+def pytest_runtest_setup(item):
+    if item.config.getoption("--engine") != "rust":
+        return
+    acceptance = item.get_closest_marker("acceptance") is not None
+    drivers = _suite_drivers(item)
+    if not acceptance and not drivers:
+        return
+    from tests.helpers.engine import NOT_AGNOSTIC, unsupported_reason
+
+    gap = item.config.stash[_PORT_GAP]
+    gap[item.nodeid] = {"drivers": drivers, "outcome": None, "reason": ""}
+    reason = unsupported_reason("rust", drivers)                 # raises when there is no binary
+    if reason is None and "engine_factory" not in getattr(item, "fixturenames", ()):
+        reason = f"{NOT_AGNOSTIC}: drives the Python engine directly, not through engine_factory"
+    if reason is None:
+        return
+    gap[item.nodeid].update(outcome="skipped", reason=reason)
+    pytest.skip(reason)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = (yield).get_result()
+    entry = item.config.stash.get(_PORT_GAP, {}).get(item.nodeid)
+    if entry is None or entry["outcome"] in ("skipped", "failed"):
+        return                                     # first verdict wins: our skip, or a failure
+    if report.failed:
+        entry["outcome"] = "failed"
+    elif report.skipped:
+        entry["outcome"] = "skipped"
+        entry["reason"] = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+    elif report.when == "call":
+        entry["outcome"] = "passed"
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    gap = config.stash.get(_PORT_GAP, {})
+    if config.getoption("--engine") != "rust" or not gap:
+        return
+    terminalreporter.section("Rust port gap")
+    for nodeid, e in sorted(gap.items()):
+        terminalreporter.write_line(f"{(e['outcome'] or '?'):8} {nodeid}  {e['reason']}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        from tests.helpers.engine import port_gap_markdown
+
+        with open(summary, "a", encoding="utf-8") as f:
+            f.write(port_gap_markdown(gap))
+
+
+@pytest.fixture(scope="session")
+def event_loop_policy():
+    """Async tests on Windows run on the selector loop, as `opencap run` does (D-031): aiomqtt
+    (paho) needs `add_reader`/`add_writer`, which the default proactor loop lacks. The selector
+    loop cannot start asyncio subprocesses on Windows, so tests start child processes with
+    `subprocess` in a worker thread (`run_process` in tests/helpers/engine.py), on any loop."""
+    if sys.platform == "win32":
+        return asyncio.WindowsSelectorEventLoopPolicy()
+    return asyncio.get_event_loop_policy()
 
 
 @pytest.fixture

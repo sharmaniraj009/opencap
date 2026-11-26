@@ -28,7 +28,9 @@ cargo build --release
 
 `SIGTERM`/`SIGINT` stop cleanly (the link publishes `offline`, the outbox stays on disk);
 `SIGHUP` or `POST /reload` re-reads the config and restarts only the channels that changed.
-Logs are JSON lines on stdout. Secrets come from the same environment variables as Python
+`/health/ready` (200 once every polled device has finished one cycle, else 503 with the devices still
+waiting), `/health/live` and `/api/v1/about` are open; `/api/v1/support` and `opencap-engine info` give the
+support summary, safe to paste into a public issue (D-075, D-093). Logs are JSON lines on stdout. Secrets come from the same environment variables as Python
 (`OPENCAP_MQTT_PASSWORD`, `OPENCAP_API_TOKEN`, and the env vars named in `api.tokens`).
 The API applies the same roles as Python: a `viewer` token may only read, an `admin` token may
 also `POST /reload` and `read-once`; with no token the API is read-only and answers only

@@ -49,6 +49,12 @@ pub trait EngineView: Send + Sync + 'static {
     async fn reload(&self) -> Result<Value, String>;
     /// Prometheus text exposition.
     fn metrics(&self) -> String;
+    /// `/health/ready` (D-075): `{"ready", "waiting": [device ids], "reason"?}`.
+    fn readiness(&self) -> Value;
+    /// `/api/v1/about`: build facts only, open.
+    fn about(&self) -> Value;
+    /// `/api/v1/support`: the support summary (viewer), as `opencap-engine info`.
+    fn support(&self) -> Value;
 }
 
 pub const METRICS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
@@ -226,7 +232,8 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 /// Paths answered without a token (Python `guard.OPEN_PATHS` / `OPEN_PREFIXES`). The Rust
 /// engine serves only `/health` and `/metrics` of these; the rest answer 404 without a token,
 /// as they would in Python on a build without the UI.
-const OPEN_PATHS: [&str; 5] = ["/health", "/metrics", "/api/v1/auth-info", "/", "/ui"];
+const OPEN_PATHS: [&str; 8] =
+    ["/health", "/health/ready", "/health/live", "/metrics", "/api/v1/auth-info", "/api/v1/about", "/", "/ui"];
 const OPEN_PREFIX: &str = "/ui/";
 /// Request body cap (Python `guard.MAX_BODY`).
 pub const MAX_BODY: usize = 1024 * 1024;
@@ -335,6 +342,27 @@ async fn health(State(st): St) -> Response {
     Json(st.view.health()).into_response()
 }
 
+/// Open: 200 while the process serves requests (a liveness probe).
+async fn health_live() -> Response {
+    Json(serde_json::json!({"status": "live"})).into_response()
+}
+
+/// Open: 200 once the config is loaded, the north side is started and every enabled device has
+/// finished one cycle (or is demoted); 503 with the devices still waiting. Sticky (D-075).
+async fn health_ready(State(st): St) -> Response {
+    let state = st.view.readiness();
+    let code = if state["ready"] == true { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    (code, Json(state)).into_response()
+}
+
+async fn about(State(st): St) -> Response {
+    Json(st.view.about()).into_response()
+}
+
+async fn support(State(st): St) -> Response {
+    Json(st.view.support()).into_response()
+}
+
 async fn metrics(State(st): St) -> Response {
     ([(header::CONTENT_TYPE, METRICS_CONTENT_TYPE)], st.view.metrics()).into_response()
 }
@@ -382,6 +410,10 @@ pub fn router(view: Arc<dyn EngineView>, auth: Auth) -> Router {
     let state = Arc::new(AppState { view, auth });
     Router::new()
         .route("/health", get(health))
+        .route("/health/live", get(health_live))
+        .route("/health/ready", get(health_ready))
+        .route("/api/v1/about", get(about))
+        .route("/api/v1/support", get(support))
         .route("/metrics", get(metrics))
         .route("/channels", get(channels))
         .route("/devices/{*path}", get(device_get).post(device_post))
@@ -445,6 +477,16 @@ mod tests {
         }
         fn metrics(&self) -> String {
             "# HELP poll_requests_total x\n".into()
+        }
+        fn readiness(&self) -> Value {
+            let ready = self.reloads.load(Ordering::SeqCst) > 0; // the tests flip it with a reload
+            json!({"ready": ready, "waiting": if ready { json!([]) } else { json!([DEV]) }})
+        }
+        fn about(&self) -> Value {
+            json!({"product": "opencap", "engine": "rust"})
+        }
+        fn support(&self) -> Value {
+            json!({"product": "opencap", "config_revision": "0123456789abcdef"})
         }
     }
 
@@ -717,5 +759,24 @@ mod tests {
         assert_eq!(host_name(" 127.0.0.1 "), "127.0.0.1");
         assert_eq!(host_name("::1"), "::1");
         assert_eq!(host_name(""), "");
+    }
+
+    #[tokio::test]
+    async fn readiness_about_and_support() {
+        let (a, fake) = app();
+        for open in ["/health/live", "/health/ready", "/api/v1/about"] {
+            assert!(is_open_path(open), "{open}");
+        }
+        let (code, body) = call(&a, "GET", "/health/ready", None).await;
+        assert_eq!(
+            (code, body["ready"].clone(), body["waiting"].clone()),
+            (StatusCode::SERVICE_UNAVAILABLE, json!(false), json!([DEV]))
+        );
+        assert_eq!(call(&a, "GET", "/health/live", None).await.1, json!({"status": "live"}));
+        assert_eq!(call(&a, "GET", "/api/v1/about", None).await.1["engine"], "rust", "open, no token");
+        assert_eq!(call(&a, "GET", "/api/v1/support", None).await.0, StatusCode::UNAUTHORIZED, "viewer, not open");
+        assert_eq!(call(&a, "GET", "/api/v1/support", Some("s3cret")).await.1["config_revision"], "0123456789abcdef");
+        fake.reloads.fetch_add(1, Ordering::SeqCst);
+        assert_eq!(call(&a, "GET", "/health/ready", None).await.0, StatusCode::OK);
     }
 }

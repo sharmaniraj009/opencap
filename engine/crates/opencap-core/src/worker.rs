@@ -228,6 +228,10 @@ struct Runner {
     unsupported: StdMutex<Option<String>>,
     stats: StdMutex<CycleStats>,
     wake: Notify,
+    /// Has a poll loop (set by `start()`); cleared if the device stops being polled.
+    polled: AtomicBool,
+    /// One poll cycle finished, whatever its outcome (readiness, D-075).
+    first_cycle_done: AtomicBool,
 }
 
 /// The device's store writer and its stale limits by tag index.
@@ -280,6 +284,8 @@ impl Runner {
             tags,
             max_age_s,
             writer: OnceLock::new(),
+            polled: AtomicBool::new(false),
+            first_cycle_done: AtomicBool::new(false),
             rates_s,
             status: StdMutex::new(DeviceStatus {
                 state: State::Offline,
@@ -662,6 +668,7 @@ impl Runner {
 
     fn mark_unsupported(&self, st: &mut RunnerState, w: &Shared, reason: String) {
         *lock(&self.unsupported) = Some(reason.clone());
+        self.polled.store(false, Ordering::SeqCst);
         st.last_error = Some(reason.clone());
         st.connected = false;
         warn!(channel = %w.channel, device = %self.id, error = %reason, "device.unsupported");
@@ -746,6 +753,7 @@ impl Runner {
         let ended = mono();
         let cycle_ms = round1((ended - started) * 1000.0);
         st.cycle_ms = Some(cycle_ms);
+        self.first_cycle_done.store(true, Ordering::SeqCst);
         observe_cycle(&self.id, ended - started);
         let overrun = sched.complete(slot.index, started, ended);
         lock(&self.stats).add(cycle_ms, overrun, st.health.state == State::Ok);
@@ -866,6 +874,7 @@ impl ChannelWorker {
         let mut tasks = lock(&self.tasks);
         for r in &polled {
             METRICS.device_state.with_label_values(&[&r.id]).set(State::Offline.code());
+            r.polled.store(true, Ordering::SeqCst);
             tasks.push(tokio::spawn(r.clone().poll_loop(w.clone())));
         }
         if !polled.is_empty() {
@@ -922,6 +931,16 @@ impl ChannelWorker {
             Ok(result) => result,
             Err(_) => Err(ReadOnceError::Unusable("channel worker stopped".into())),
         }
+    }
+
+    /// True while the device is polled but has not finished a poll cycle and is not demoted:
+    /// what `/health/ready` waits for (D-075). A device that is not polled never waits.
+    pub fn awaiting_first_cycle(&self, device_id: &str) -> bool {
+        let Some(r) = self.runners.get(device_id) else { return false };
+        r.polled.load(Ordering::SeqCst)
+            && r.broken().is_none()
+            && !r.first_cycle_done.load(Ordering::SeqCst)
+            && lock(&r.status).state != State::Demoted
     }
 
     pub fn has_device(&self, device_id: &str) -> bool {

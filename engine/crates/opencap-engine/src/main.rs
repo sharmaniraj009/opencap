@@ -18,6 +18,7 @@ mod check;
 mod runtime;
 #[cfg(unix)]
 mod sdnotify;
+mod support;
 #[cfg(windows)]
 mod winsvc;
 
@@ -83,6 +84,15 @@ enum Cmd {
     /// Print, as JSON, which of the drivers the config schema knows this build implements.
     /// The acceptance harness (tests/helpers/engine.py) skips suites for drivers not ported yet.
     Drivers,
+    /// Support summary, safe to paste into a public issue: versions, platform, drivers, north
+    /// interfaces and the config revision. Never an IP address, host name or secret.
+    Info {
+        #[arg(short, long, default_value = "config")]
+        config: PathBuf,
+        /// Print JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
     /// The engine as a native Windows service (docs/deployment.md, "Rust engine on Windows").
     #[cfg(windows)]
     Service {
@@ -370,6 +380,17 @@ fn main() {
             }
             Cmd::Drivers => {
                 println!("{}", drivers_json());
+                Ok(0)
+            }
+            Cmd::Info { config, json } => {
+                // A broken or missing config still gets the build information.
+                let revision = load_config(&config).ok().map(|_| opencap_core::config::config_revision(&config));
+                let info = support::support_info(revision);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&info)?);
+                } else {
+                    println!("{}", support::render_text(&info));
+                }
                 Ok(0)
             }
             #[cfg(windows)]

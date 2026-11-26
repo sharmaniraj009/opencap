@@ -18,6 +18,7 @@ indexmap.workspace = true
 prometheus.workspace = true
 rand.workspace = true
 regex.workspace = true
+ring = { version = "0.17", default-features = false }   # SHA-256 of the config revision; already in the tree via rustls
 serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error.workspace = true

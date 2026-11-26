@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex as StdMutex, RwLock, Weak};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -58,6 +58,11 @@ pub struct Poller {
     sparkplug: tokio::sync::Mutex<(Option<Value>, Option<NorthHandle>)>,
     reload_lock: tokio::sync::Mutex<()>,
     me: Weak<Poller>,
+    /// Readiness (D-075): process start, end of `start()` (north side up), and the latched
+    /// initial-scan duration (set once, never cleared).
+    t0: std::time::Instant,
+    started_at: OnceLock<std::time::Instant>,
+    ready_ms: OnceLock<u64>,
 }
 
 fn rlock<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
@@ -93,6 +98,9 @@ impl Poller {
             north: tokio::sync::Mutex::new(None),
             sparkplug: tokio::sync::Mutex::new((None, None)),
             reload_lock: tokio::sync::Mutex::new(()),
+            t0: std::time::Instant::now(),
+            started_at: OnceLock::new(),
+            ready_ms: OnceLock::new(),
             me: me.clone(),
         })
     }
@@ -135,6 +143,8 @@ impl Poller {
         }
         let devices: usize = self.active_channels().iter().map(|c| c.devices.len()).sum();
         info!(version = FIRM_VERSION, channels = rlock(&self.state).workers.len(), devices, "poller_started");
+        let _ = self.started_at.set(std::time::Instant::now());
+        self.check_ready();
         Ok(())
     }
 
@@ -217,7 +227,13 @@ impl Poller {
                 .iter()
                 .filter_map(|d| st.registry.plans.get(&d.id).map(|p| (d.id.clone(), p.clone())))
                 .collect();
-            let opts = WorkerOptions { stats_interval_s, ..Default::default() };
+            let me = self.me.clone();
+            let on_cycle: opencap_core::worker::OnCycle = Arc::new(move |_: &str| {
+                if let Some(p) = me.upgrade() {
+                    p.check_ready();
+                }
+            });
+            let opts = WorkerOptions { stats_interval_s, on_cycle: Some(on_cycle), ..Default::default() };
             let worker = ChannelWorker::new(ch, &plans, self.store.clone(), self.factory.clone(), opts);
             worker.start();
             st.workers.insert(name.clone(), worker);
@@ -337,6 +353,28 @@ impl Poller {
         Ok(changed)
     }
 
+    // --- readiness (D-075) --------------------------------------------------------
+
+    /// Enabled, polled devices that have not finished one cycle and are not demoted.
+    fn waiting_devices(&self) -> Vec<String> {
+        let st = rlock(&self.state);
+        let mut out = Vec::new();
+        for ch in self.active_channels() {
+            if let Some(w) = st.workers.get(&ch.name) {
+                out.extend(ch.devices.iter().filter(|d| w.awaiting_first_cycle(&d.id)).map(|d| d.id.clone()));
+            }
+        }
+        out
+    }
+
+    /// Latch the initial scan once the north side is up and nothing waits. Sticky: a device
+    /// added by a later reload never turns a ready process unready.
+    fn check_ready(&self) {
+        if self.ready_ms.get().is_none() && self.started_at.get().is_some() && self.waiting_devices().is_empty() {
+            let _ = self.ready_ms.set(self.t0.elapsed().as_millis() as u64);
+        }
+    }
+
     // --- queries ----------------------------------------------------------------
 
     fn worker_for(&self, device_id: &str) -> Option<Arc<ChannelWorker>> {
@@ -381,7 +419,27 @@ impl EngineView for Poller {
             "saf_queue": link.as_ref().map(|l| lock(l.saf()).count()).unwrap_or(0),
             "channels": rlock(&self.state).workers.len(),
             "devices": states,
+            "initial_scan_complete": self.ready_ms.get().is_some(),
+            "initial_scan_ms": self.ready_ms.get(),
         })
+    }
+
+    fn readiness(&self) -> Value {
+        self.check_ready();
+        let ready = self.ready_ms.get().is_some();
+        let waiting = if ready { Vec::new() } else { self.waiting_devices() };
+        if self.started_at.get().is_none() {
+            return json!({"ready": false, "waiting": waiting, "reason": "starting"});
+        }
+        json!({"ready": ready, "waiting": waiting})
+    }
+
+    fn about(&self) -> Value {
+        crate::support::about()
+    }
+
+    fn support(&self) -> Value {
+        crate::support::support_info(Some(opencap_core::config::config_revision(&self.config_dir)))
     }
 
     fn channels_summary(&self) -> Value {

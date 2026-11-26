@@ -230,3 +230,100 @@ async def test_refuses_a_public_bind_without_a_token(tmp_path):
     out, err = await asyncio.wait_for(proc.communicate(), 20)
     assert proc.returncode == 1
     assert "API bound to 192.0.2.10 without a token: set OPENCAP_NO_SUCH_TOKEN or bind to 127.0.0.1" in err.decode()
+
+
+# --- readiness, about, support, info (#194, the Rust half of #123; D-075) -------------------------
+
+async def test_about_matches_python_except_engine(tmp_path):
+    from opencap.core import support
+
+    config_dir = write_config(tmp_path, _devices(), mqtt_port=free_port(), api_port=free_port())
+    engine = RustEngine(config_dir, BIN, tmp_path / "rust")
+    await engine.start()
+    try:
+        async with httpx.AsyncClient(base_url=engine.base_url, timeout=10) as http:
+            rust = (await http.get("/api/v1/about")).json()               # open: no token
+            live = await http.get("/health/live")
+            support_resp = await http.get("/api/v1/support")
+        py = support.about()
+        assert rust.pop("engine") == "rust" and py.pop("engine") == "python"
+        assert rust == py
+        assert live.status_code == 200 and live.json() == {"status": "live"}
+        # open mode is read-only on loopback, and the support summary is viewer-readable there
+        assert support_resp.status_code == 200
+        from opencap.config.store import ConfigStore
+        assert support_resp.json()["config_revision"] == ConfigStore(config_dir).revision()
+    finally:
+        await engine.stop()
+
+
+async def test_ready_is_503_until_the_muted_device_is_offline(tmp_path):
+    """The Python twin is tests/integration/test_readiness.py: same devices, same answers."""
+    from tests.helpers.modbus_sim import start_sims, stop_sims
+
+    devices = make_sim_devices(2, 4, seed=5, scan_ms=100, timeout_ms=300)
+    devices = [d.model_copy(update={"retries": 0}) for d in devices]
+    sims = await start_sims(devices)
+    sims[1].mute = True                       # accepts the connection, never answers
+    muted = sims[1].device.id
+    try:
+        # A long connect timeout on the muted one is not needed: a mute Modbus device times out per read.
+        config_dir = write_config(tmp_path, [s.device for s in sims], mqtt_port=free_port(), api_port=free_port())
+        engine = RustEngine(config_dir, BIN, tmp_path / "rust")
+        await engine.start()
+        try:
+            async with httpx.AsyncClient(base_url=engine.base_url, timeout=10) as http:
+                seen = []
+                deadline = asyncio.get_running_loop().time() + 20
+                while True:
+                    r = await http.get("/health/ready")
+                    seen.append((r.status_code, r.json()))
+                    if r.status_code == 200:
+                        break
+                    assert r.status_code == 503 and r.json()["ready"] is False, r.json()
+                    assert asyncio.get_running_loop().time() < deadline, seen[-1]
+                    await asyncio.sleep(0.02)
+                health = (await http.get("/health")).json()
+        finally:
+            await engine.stop()
+    finally:
+        await stop_sims(sims)
+    assert any(code == 503 and body["waiting"] == [muted] for code, body in seen), seen[:5]
+    assert seen[-1][1] == {"ready": True, "waiting": []}
+    assert health["initial_scan_complete"] is True and health["initial_scan_ms"] > 0
+
+
+async def test_info_has_no_ip_host_or_secret(tmp_path, monkeypatch):
+    import json
+    import re
+    import subprocess
+
+    from tests.unit.test_no_private_data import IP_RE
+
+    secret = "s3cr3t-token-value"
+    monkeypatch.setenv("OPENCAP_MQTT_PASSWORD", secret)
+    devices = make_sim_devices(1, 2, seed=1)
+    devices[0] = devices[0].model_copy(update={"host": "192.0.2.17"})
+    config_dir = write_config(tmp_path, devices, poller={
+        "mqtt": {"host": "broker.plant-a.example.invalid", "username": "operator-bob"},
+        "opcua_server": {"enabled": True, "endpoint": "opc.tcp://198.51.100.9:4840/opencap",
+                         "username_env": "SECRET_ENV_NAME", "password_env": "SECRET_PW_ENV",
+                         "allow_insecure_remote": True},
+    })
+    for args in ([], ["--json"]):
+        out = subprocess.run([str(BIN), "info", "--config", str(config_dir), *args], capture_output=True,
+                             text=True, timeout=60)
+        assert out.returncode == 0, out.stderr
+        text = out.stdout
+        assert not IP_RE.findall(text), text
+        for forbidden in ("192.0.2.17", "198.51.100.9", "plant-a", "broker", "operator-bob", secret,
+                          "SECRET_ENV_NAME", "OPENCAP_MQTT_PASSWORD", str(tmp_path)):
+            assert forbidden not in text, (forbidden, text)
+        assert re.search(r"[0-9a-f]{16}", text), text                 # the config revision
+    info = json.loads(out.stdout)
+    from opencap.config.store import ConfigStore
+    assert info["engine"] == "rust" and info["config_revision"] == ConfigStore(config_dir).revision()
+    assert info["toolchain"]["rust"] and info["north_interfaces"] == ["mqtt", "api"]   # no OPC UA server in Rust yet
+    broken = subprocess.run([str(BIN), "info", "--config", str(tmp_path / "missing")], capture_output=True,
+                            text=True, timeout=60)
+    assert broken.returncode == 0 and "config revision: unknown" in broken.stdout

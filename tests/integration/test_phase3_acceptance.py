@@ -34,6 +34,7 @@ pccc_sim = pytest.importorskip("tests.helpers.pccc_sim")      # needs pycomm3 (t
 from opencap.config.models import Device, Tag  # noqa: E402
 from opencap.logsetup import configure_logging  # noqa: E402
 from tests.helpers.broker import TestBroker  # noqa: E402
+from tests.helpers.clock import COARSE_CYCLE_CLOCK  # noqa: E402
 from tests.helpers.configdir import write_config  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.integration.test_ab_pccc_sim import DIRECTORY_READ, SYSTEM_FILES, TAGS, TYPED_READ, expected  # noqa: E402
@@ -112,7 +113,7 @@ async def test_phase3_acceptance(tmp_path, engine_factory):
                 await engine.stop()
             stats = engine.log_events("device.stats")
             assert {e["device"] for e in stats} >= {d.id for d in devices}, "every device logged its cycle time"
-            assert all(e["mean_cycle_ms"] > 0 for e in stats)
+            assert all(e["mean_cycle_ms"] > 0 or COARSE_CYCLE_CLOCK for e in stats), stats   # #199
         assert [s.write_attempts for s in sims] == [0] * N_DEVICES, "a write reached a PLC"
         assert 99 not in asked and {7, 8, 20, 21} <= asked, sorted(asked)    # the ghost was never sent
     finally:

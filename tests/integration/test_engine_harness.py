@@ -6,12 +6,12 @@ right. The Rust cases skip when the binary has not been built (`cd engine && car
 from __future__ import annotations
 
 import asyncio
-import time
 import typing
 
 import pytest
 
 from tests.helpers.broker import TestBroker
+from tests.helpers.clock import COARSE_CYCLE_CLOCK
 from tests.helpers.configdir import write_config
 from tests.helpers import engine as harness
 from tests.helpers.engine import (
@@ -63,10 +63,9 @@ async def test_both_adapters_answer_the_same_queries(tmp_path, kind):
                 await _wait(lambda: {e["device"] for e in engine.log_events("device.stats")} >= {d.id for d in devices},
                             10, "a device.stats line per device")
                 stats = engine.log_events("device.stats")
-                # A fast local cycle can measure 0 ms where time.monotonic is coarse (~15.6 ms on
-                # Windows with Python 3.12, see #199); everywhere else it must be > 0.
-                coarse = time.get_clock_info("monotonic").resolution > 1e-3
-                assert all(e["event"] == "device.stats" and (e["mean_cycle_ms"] > 0 or coarse) for e in stats), stats
+                # A fast local cycle can measure 0 ms where the cycle clock is coarse (#199).
+                assert all(e["event"] == "device.stats" and (e["mean_cycle_ms"] > 0 or COARSE_CYCLE_CLOCK)
+                           for e in stats), stats
                 assert engine.log_events("no.such.event") == []
 
                 code, out = await engine.cli("read", dev, "--config", str(config_dir), cwd=tmp_path)

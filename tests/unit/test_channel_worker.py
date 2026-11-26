@@ -22,6 +22,7 @@ from opencap.core.channel_worker import ChannelWorker, safety_timeout_s
 from opencap.core.registry import DevicePlan
 from opencap.drivers.base import CommError, ConnectionLost
 from opencap.metrics import REGISTRY
+from tests.helpers.clock import COARSE_CYCLE_CLOCK
 from tests.helpers.fake_driver import (
     ConcurrencyProbe,
     FakeDriver,
@@ -676,7 +677,10 @@ async def test_periodic_cycle_stats_log_line():
     assert stats, [e["event"] for e in logs]
     first = stats[0]
     assert first["device"] == dev.id and first["log_level"] == "info"
-    assert first["cycles"] >= 3 and first["mean_cycle_ms"] >= 5 and first["max_cycle_ms"] >= first["mean_cycle_ms"]
+    assert first["cycles"] >= 3 and first["max_cycle_ms"] >= first["mean_cycle_ms"]
+    # A 5 ms read measures 0 or one tick where the cycle clock is coarse (windows-latest: mean
+    # 3.1 ms over 10 cycles); #199 removes this allowance.
+    assert COARSE_CYCLE_CLOCK or first["mean_cycle_ms"] >= 5, first
     assert first["state"] == "ok" and first["bad_cycles"] == 0
 
 

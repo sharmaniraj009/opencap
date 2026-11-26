@@ -2,7 +2,7 @@
 
     python deploy/windows/engine_service_smoke.py --engine engine\\target\\release\\opencap-engine.exe
 
-Run from the repository root with opencap and its test helpers installed (`pip install -e '.[dev]'`).
+Run from the repository root with opencap and its test helpers installed (`pip install -e '.[dev,all]'`).
 
 1. Starts a Modbus TCP simulator and the MQTT test broker from `tests/helpers` on 127.0.0.1, and
    writes a config directory for them.

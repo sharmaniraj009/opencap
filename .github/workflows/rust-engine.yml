@@ -189,7 +189,7 @@ jobs:
         working-directory: .
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,all]"          # the test broker needs aiomqtt/amqtt (north), the simulator pymodbus
       - name: Service smoke test (install, start, /health, stop, exit 0, uninstall)
         working-directory: .
         run: |

@@ -293,6 +293,42 @@ async def test_a_late_reply_is_never_taken_for_a_newer_request(sim, driver):
     assert (await driver.identity())["link_stats"]["unmatched"] == 1
 
 
+async def test_a_lost_frame_is_recovered_by_enq_within_a_1000_ms_attempt(sim):
+    """#68: with timeout_ms=1000 the old fixed 1000 ms ACK wait used the whole attempt ("ENQs 0").
+    The automatic ACK timeout (1000 / (enq_retries + 1) = 250 ms) leaves room for the ENQs."""
+    drv = AbDf1Driver(_device(sim.port, timeout_ms=1000, ack_timeout_ms=None))
+    await drv.connect()
+    try:
+        block = drv.plan([Tag(name="FLOW", address="F34:3", dtype="float32")]).blocks[0]
+        sim.set("F34:3", 4.5)
+        sim.lose_next = 1                                          # the first frame never reaches the PLC
+        assert (await drv.read(block))["FLOW"].value == 4.5
+        stats = (await drv.identity())["link_stats"]
+        assert stats["enqs_sent"] == 1 and stats["retransmissions"] == 1   # ENQ -> NAK -> sent again
+    finally:
+        await drv.close()
+
+
+async def test_a_late_ack_never_counts_for_the_next_frame(sim):
+    """#68: an ACK that reaches the line after its transaction ended used to ACK the next frame."""
+    drv = AbDf1Driver(_device(sim.port, ack_timeout_ms=150, enq_retries=1))
+    await drv.connect()
+    try:
+        block = drv.plan([Tag(name="FLOW", address="F34:3", dtype="float32")]).blocks[0]
+        sim.delay_acks, sim.ack_delay_s, sim.no_reply = 1, 1.3, 1    # ENQ says ACK; the ACK bytes come late
+        with pytest.raises(CommError, match="no reply within 1000 ms"):
+            await drv.read(block)
+        await asyncio.sleep(0.6)                                   # the late DLE ACK is now buffered
+        sim.mute = True                                            # the next frame gets no ACK at all
+        with pytest.raises(CommError, match=r"no ACK after 1 ENQ"):  # not "no reply ... ENQs 0"
+            await drv.read(block)
+        sim.mute = False
+        assert (await drv.read(block))["FLOW"].quality == "good"   # and the line recovers
+        assert (await drv.identity())["link_stats"]["stale_dropped"] == 1
+    finally:
+        await drv.close()
+
+
 async def test_point_to_point_plc_answers_from_its_own_station_number(sim):
     sim.answer_any_station = True                                  # PLC is station 1, we address 5
     drv = AbDf1Driver(_device(sim.port, station=5))

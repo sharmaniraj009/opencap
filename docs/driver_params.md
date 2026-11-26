@@ -162,7 +162,11 @@ parser, planner and decoder. Plus the serial keys above and:
 | `transport` | `tcp` \| `serial` \| `unmapped` | `tcp` | `tcp` = RTU frames on a TCP socket (gateway in transparent mode); RFC 2217 is not supported |
 | `inter_frame_ms` | number \| null | null | silence kept between frames on the line; null = 3.5 characters at `baudrate` (≥ 1.75 ms) |
 | `local_echo` | bool | false | drop the echo of our own request (2-wire RS-485 adapters that echo) |
-| `close_on_timeout` | bool | true | close the line after a timeout: RTU has no transaction id, so a late reply could otherwise be read as the next one's |
+| `close_on_timeout` | bool \| null | null | close the line after a timeout: RTU has no transaction id, so a late reply could otherwise be read as the next one's. Unset: true when the device is alone on its line, false on a multi-drop line (one silent unit must not reopen the line under the others; pymodbus skips replies from another unit or function code, #68). An explicit true or false always wins |
+
+Devices on one line (same `transport`, host and port, or the same local port) must agree on `baudrate`, `bytesize`,
+`parity`, `stopbits` and driver (`ab_df1`: also `error_check`); a mismatch between enabled devices is a config error
+at load time (#68).
 
 The importer does not create modbus_rtu devices (the migrated project has none); configure them by hand.
 
@@ -181,7 +185,7 @@ Addresses, block planning and decoding are `ab_pccc`'s, so `max_elements` (100),
 | `error_check` | `crc` \| `bcc` | `crc` | the DF1 driver's error-checking property (any `*df1.*ERROR_CHECK*`/`CHECKSUM` key; default CRC, flagged) |
 | `transport`, `com_port` | | `unmapped`, `COM<n>` | `servermain.CHANNEL_SERIAL_COMMUNICATIONS_COM_ID` |
 | `baudrate`, `bytesize`, `parity`, `stopbits` | | 19200 8N1 | `servermain.CHANNEL_SERIAL_COMMUNICATIONS_BAUD_RATE` / `_DATA_BITS` / `_PARITY` (ASCII code: 78 N, 69 E, 79 O) / `_STOP_BITS` |
-| `ack_timeout_ms` | int | 1000 | — (wait for DLE ACK/NAK after a frame; then DLE ENQ) |
+| `ack_timeout_ms` | int \| null | null (auto) | — (wait for DLE ACK/NAK after a frame; then DLE ENQ. Auto = `timeout_ms` / (`enq_retries` + 1), at most 1000, so every ENQ retry fits in one attempt; an explicit value that leaves no room for them is a load-time warning, #68) |
 | `nak_retries` | int | 3 | — (frame re-sent after a NAK) |
 | `enq_retries` | int | 3 | — (ENQs after an ACK timeout) |
 | `read_fnc` | `a2` \| `a1` | `a2` | — (protected typed logical read with 3 / 2 address fields) |

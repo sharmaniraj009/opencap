@@ -8,7 +8,7 @@
 # The image runs `opencap run` by default; any other subcommand works too:
 #   docker run --rm -v "$PWD/config:/opencap/config:ro" opencap check
 #
-# Build with other drivers: --build-arg EXTRAS=modbus,ab,north,s7
+# Build with other drivers: --build-arg EXTRAS=modbus,ab,north,serial,s7 (serial: local ports for modbus_rtu/ab_df1)
 # See docs/deployment.md (volumes, secrets, logs, API binding).
 
 # Pinned by digest: the multi-arch index, so amd64 and arm64 both resolve from it (#34). To move
@@ -18,7 +18,7 @@ ARG PYTHON_IMAGE=python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c659300939491
 
 # --- build: wheels for opencap and its dependencies -------------------------------------------
 FROM ${PYTHON_IMAGE} AS build
-ARG EXTRAS=modbus,ab,north
+ARG EXTRAS=modbus,ab,north,serial
 WORKDIR /src
 COPY pyproject.toml README.md LICENSE NOTICE ./
 COPY src ./src
@@ -26,7 +26,7 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[${EXTRAS}]"
 
 # --- runtime ----------------------------------------------------------------------------------
 FROM ${PYTHON_IMAGE}
-ARG EXTRAS=modbus,ab,north
+ARG EXTRAS=modbus,ab,north,serial
 
 LABEL org.opencontainers.image.title="opencap" \
       org.opencontainers.image.description="Open-source, read-only PLC connectivity server: polls PLCs and publishes to MQTT" \

@@ -29,7 +29,8 @@ Fault switches (each counts down per frame/reply): `mute` (never answer anything
 `drop_acks` (execute and reply, but the ACK is lost), `no_reply` (ACK, never reply),
 `corrupt_replies` (first transmission of a reply has a bad check), `duplicate_replies`
 (send each reply twice), `stale_reply` (send an old, unmatched reply first), `embed_ack`
-(put the DLE ACK inside the reply frame), `reply_delay_s` (reply this much later),
+(put the DLE ACK inside the reply frame), `reply_delay_s` (reply this much later), `delay_acks`
+(the ACK reaches the line `ack_delay_s` late; the PLC did send it, so a DLE ENQ is answered ACK),
 `answer_any_station` (point-to-point: the primary station answers every DST, from its own number).
 Counters: `frames_in`, `bad_frames_in`, `acks_in`, `naks_in`, `enqs_in`, `duplicates_in`,
 `acks_sent`, `naks_sent`, `replies_sent`, `retransmits`, `connections`; `commands` counts
@@ -193,6 +194,11 @@ class _Line:
         if sim.drop_acks:
             sim.drop_acks -= 1
             self.last_response = bytes([_DLE, _ACK])      # the PLC sent it; the line lost it
+        elif sim.delay_acks and not embed:
+            sim.delay_acks -= 1
+            self.last_response = bytes([_DLE, _ACK])
+            sim.acks_sent += 1
+            asyncio.get_running_loop().call_later(sim.ack_delay_s, self.send, bytes([_DLE, _ACK]))
         elif not embed:
             self.respond(True)
         if sim.no_reply:
@@ -251,6 +257,8 @@ class Df1Sim:
         self.corrupt_replies = self.duplicate_replies = self.stale_reply = 0
         self.embed_ack = False
         self.reply_delay_s = 0.0
+        self.delay_acks = 0
+        self.ack_delay_s = 0.0
         self.answer_any_station = False
         self.reset_counters()
 

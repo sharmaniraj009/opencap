@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from opencap.config.models import Scale
-from opencap.drivers import modbus_tcp
+from opencap.drivers import ab_df1, modbus_tcp
 from opencap.north import payload as payload_mod
 from tests.conformance import reference
 from tests.helpers import fins_sim
@@ -136,6 +136,9 @@ def _mutants() -> dict[str, tuple[str, Callable[[pytest.MonkeyPatch], None]]]:
         "FINS DM bit code = word code": (
             "omron_fins/addresses", lambda mp: mp.setitem(
                 fins_sim.AREAS, "D", dataclasses.replace(fins_sim.AREAS["D"], bit_code=0x82))),
+        "DF1 DLE not stuffed": ("ab_df1/frame", lambda mp: mp.setattr(ab_df1, "stuff", lambda app: bytes(app))),
+        "DF1 BCC as a plain sum": (
+            "ab_df1/frame", lambda mp: mp.setattr(ab_df1, "bcc", lambda data: sum(data) & 0xFF)),
         "-0.0 kept in the payload": (
             "payload", lambda mp: mp.setattr(
                 payload_mod, "clean_value",

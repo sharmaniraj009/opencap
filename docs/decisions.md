@@ -2105,3 +2105,35 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   server exists (#46); `os` uses Python's `platform.system()` names (Linux, Windows, Darwin) and `arch` Rust's.
 - **`config_revision`** is computed exactly as Python's `ConfigStore.revision()` (`opencap_core::config::config_revision`,
   SHA-256 via `ring`, already in the tree); a unit test pins it to the Python value for the same directory.
+
+### D-096 Serial follow-ups from #62 (#68)
+- **Non-blocking serial writes.** `SerialTransport` hands the tty what it takes now. The rest is queued and
+  written by the event loop's writer callback when the port becomes writable; it never sleeps on the loop. If the
+  queue does not empty within `write_stall_s` (1 s), the line is lost ("output buffer stays full"), as before. The
+  non-POSIX path (pyserial without a file descriptor) is unchanged.
+- **Late DF1 ACK/NAK.** At the start of each transaction, the link decodes whatever the line delivered since the
+  last one and drops stale DLE ACK/NAK symbols (`link_stats.stale_dropped`): they belong to an older frame.
+  Late frames and ENQs are **not** dropped. DF1 requires the receiver to ACK every good frame, or the PLC
+  retransmits it, so the loop still ACKs a late reply and counts it as unmatched or duplicate. The issue asked to
+  clear everything; dropping only the symbols fixes the bug without leaving frames unacknowledged.
+- **DF1 ACK timeout.** `ack_timeout_ms` now defaults to **auto**: `timeout_ms / (enq_retries + 1)`, at most
+  1000 ms (with `timeout_ms: 1000`, 250 ms). The old fixed 1000 ms used the whole attempt, so a lost frame
+  failed with "ENQs 0". An explicit value that leaves no room for the ENQ retries is a load-time warning. It is
+  not clamped, so a slow line can keep a long ACK wait on purpose.
+- **One setting per line.** Enabled devices that share a port or gateway (same `Endpoint.key`) must agree on the
+  driver, `baudrate`, `bytesize`, `parity`, `stopbits` and, for `ab_df1`, `error_check`. A mismatch is a load-time
+  config error (`_serial.check_shared_lines`). Before, the second device's connect failed at run time (DF1) or
+  silently used the first device's settings (RTU).
+- **Multi-drop RTU.** With `close_on_timeout` unset, a timeout on a line that several units share no longer
+  closes the line for every unit. pymodbus 3.16 clears its receive buffer before each request, skips a reply
+  whose unit id or function code differs from the request's, and waits out a cancelled request's late reply before
+  it reuses that unit and function code. A unit alone on its line, or an explicit `close_on_timeout: true`,
+  closes as before (D-036).
+- **Container.** The default image includes the `serial` extra (pyserial, BSD-3-Clause, already an allowed
+  dependency). `docs/deployment.md` shows `--device` and `--group-add` for local ports.
+- **Vectors.** Four format-1 areas, `ab_df1/frame`, `receive`, `request` and `values`
+  (`scripts/gen_conformance_df1.py`), take the directed cases of `tests/unit/test_df1_frame.py` plus seeded
+  mixes. Two mutants (DLE not stuffed, BCC as a plain sum) prove the frame vectors catch encoding bugs. The Rust
+  port (#53) consumes them.
+- **Rust:** the Rust Modbus RTU driver (#149, D-070) should get the same shared-line check and the
+  multi-drop timeout rule. That belongs in its loader and driver, not in this PR.

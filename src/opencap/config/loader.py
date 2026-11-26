@@ -230,6 +230,15 @@ def is_v2(config_dir: Path) -> bool:
     return (Path(config_dir) / PROJECT_FILE).exists()
 
 
+def _serial_line_checks(channels: list[Channel]) -> list[str]:
+    """Serial devices that will run: one setting per shared line (ValueError), and DF1 ACK/ENQ timing
+    that cannot work (warnings). #68."""
+    from opencap.drivers._serial import check_shared_lines
+    from opencap.drivers.ab_df1 import timing_warning
+
+    running = [d for c in channels if c.enabled for d in c.devices if d.enabled and d.driver in SERIAL_DRIVERS]
+    check_shared_lines(running, SERIAL_DRIVERS)
+    return [w for d in running if d.driver == "ab_df1" and (w := timing_warning(d)) is not None]
 def sparkplug_device_id(poller: PollerConfig, device: Device) -> str:
     """The Sparkplug device id of an opencap device: `sparkplug.devices`, else `<channel>.<device>`."""
     return poller.sparkplug.devices.get(device.id, f"{device.channel}.{device.name}")
@@ -369,6 +378,8 @@ def load_v1(config_dir: Path, *, for_project: bool = False) -> LoadedConfig:
         warnings += [f"{DEVICES_FILE}: {text}; names starting with '_' are reserved for system tags"
                      for text in underscore_names(channels)]
         warnings += [f"{DEVICES_FILE}: {text}" for _, text in name_rule_problems(channels)]
+    if not for_project:               # a project v2 runs them in finalize_project
+        warnings += _serial_line_checks(channels)
 
     warnings.extend(_sparkplug_checks(poller, channels))
 
@@ -455,6 +466,7 @@ def finalize_project(project: ProjectV2, node: PollerConfig, warnings: list[str]
         warnings.append(f"{len(unmapped)} device(s) without SubDeviceId (publish.sub_device_id unset in "
                         f"{PROJECT_FILE}): {_ids(unmapped)}")
     warnings += _duplicate_warnings(all_devices)
+    warnings += _serial_line_checks(channels)
     warnings += _sparkplug_checks(node, channels)
     validated = ProjectV2(revision=project.revision, generated_from=project.generated_from,
                           generated_at=project.generated_at, name=project.name, title=project.title,

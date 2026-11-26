@@ -31,12 +31,18 @@ tests/conformance/
   s7/decode/*.json         S7 block bytes to values (byte order, BCD timers and counters, strings)
   s7/frame/*.json          S7 connection request, setup communication, read var (split by the negotiated PDU) and SZL frames as python-snap7 builds them (needs python-snap7)
   s7/reply/*.json          S7 read var replies: data, item return codes, header errors, malformed replies
+
+  ab_df1/frame/*.json    DF1 frames: DLE stuffing, BCC, CRC-16 (#68)
+  ab_df1/receive/*.json  the DF1 receiver: frames, ACK/NAK/ENQ symbols, noise, bad and split frames
+  ab_df1/request/*.json  PCCC typed reads (FNC A2/A1) for planned DF1 blocks
+  ab_df1/values/*.json   DF1 reply bytes to pycomm3-shaped values and decoded tags
   config/              config model fixtures: an older, separate format, see config/compare.py
   simulator/vectors.json  simulator driver address grammar and values (D-071); see simulator/README.md
 ```
 
 Generator: [`scripts/gen_conformance.py`](../../scripts/gen_conformance.py) (Allen-Bradley inputs
-in [`scripts/gen_conformance_ab.py`](../../scripts/gen_conformance_ab.py)).
+in [`scripts/gen_conformance_ab.py`](../../scripts/gen_conformance_ab.py), DF1 inputs in
+[`scripts/gen_conformance_df1.py`](../../scripts/gen_conformance_df1.py)).
 Python checks: [`tests/unit/test_conformance_vectors.py`](../unit/test_conformance_vectors.py) (every
 vector, every area) and [`tests/unit/test_conformance_ab.py`](../unit/test_conformance_ab.py).
 
@@ -359,6 +365,39 @@ files equal it.
 - reply `input`: `{"pdu": hex, "word_len", "count"}` (an S7 reply PDU to a one-item read var); `expected`:
   `{"return_code", "data": hex}` (an item return code other than 0xFF has no data), `{"header_error", "message"}` or
   `{"bad_reply": reason}`.
+
+### `ab_df1/frame`
+
+DF1 full-duplex framing (`ab_df1` driver, D-037). Bytes are lower-case hex pairs separated by spaces.
+
+- `input`: `{"check": "crc" | "bcc", "app": "<hex>"}` (the application bytes: DST SRC CMD STS TNS ...).
+- `expected`: `{"frame": "<hex>"}`: `10 02`, the application bytes with every `10` doubled, `10 03`, then the
+  BCC (two's complement of the byte sum) or the CRC-16/ARC over the unstuffed bytes plus ETX, low byte first,
+  never stuffed. `{"error": "reason"}` for an unknown check.
+
+### `ab_df1/receive`
+
+- `input`: `{"check", "chunks": ["<hex>", ...]}`: one receiver fed the chunks in order; a frame may span chunks.
+- `expected`: `{"events": [{"kind", "data", "reason"}], "noise": n}`. `kind` is `ack`, `nak`, `enq` (a DLE
+  response symbol, inside or outside a frame), `frame` (`data` = the unstuffed application bytes) or `bad`
+  (`reason` says why: check mismatch, DLE STX restart, invalid DLE pair, too short, too long; `data` = the bytes
+  of a frame that failed its check). `noise` counts the bytes skipped outside frames. Or `{"error"}`.
+
+### `ab_df1/request`
+
+- `input`: `{"params", "tags"}` as for `ab_pccc/plan` (`ab_df1` plans with ab_pccc's planner); `params` may
+  set `read_fnc` (`a2`, default, or `a1`).
+- `expected`: `{"requests": [{"address", "tags", "fnc"}], "invalid"}`: per block, the PCCC function code and
+  function data of the protected typed logical read (`fnc`, hex: FNC, byte count, file number, file type code,
+  element, and the sub-element unless FNC A1 is allowed). `{"error"}` when the params are refused.
+
+### `ab_df1/values`
+
+- `input`: `{"params", "tags", "reply": "<hex>"}`. The tags plan to exactly one block; `reply` is the reply's
+  data bytes.
+- `expected`: `{"raw": <value>, "values": {"TAG": <value>}}`: `raw` is what pycomm3 returns for the block's
+  address (a scalar, a list for several elements, or none), `values` each tag decoded from it as in
+  `ab_pccc/decode`.
 
 ## Regenerating
 

@@ -15,6 +15,7 @@ simulator yet (follow-up issue linked from #12).
 from __future__ import annotations
 
 import asyncio
+import math
 import socket
 import threading
 from datetime import datetime
@@ -26,6 +27,7 @@ import pytest
 from opencap.config.models import Device, Tag
 from opencap.drivers.simulator import SimParams, compute, parse_address
 from opencap.logsetup import configure_logging
+from opencap.north.publisher import Publisher
 from tests.helpers.broker import TestBroker
 from tests.helpers.configdir import write_config
 from tests.helpers.engine import PythonEngine
@@ -39,6 +41,7 @@ INTERVAL_MS = 1000
 # stale and its payload had DataValid false (seen on #177 and #208). 1.5 s absorbs the scheduling
 # delay; the publish cadence (INTERVAL_MS) and the formula checks are unchanged.
 SCAN_MS = 500
+GAP_SLACK_S = 0.1            # one publish call's own time, on top of the measured timer lag
 API_TOKEN = "simulator-integration-token"
 
 # (name, address, dtype); K1 is set per device through params.memory
@@ -139,6 +142,7 @@ async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch,
     devices = [sim_device(i) for i in range(N_DEVICES)]
     faults = fault_devices()
     api_port = free_port()
+    sent = _record_publishes(monkeypatch)
     async with asyncio.timeout(90), TestBroker() as broker:
         config_dir = write_config(tmp_path, devices + faults, mqtt_port=broker.port, api_port=api_port,
                                   publish={"interval_ms": INTERVAL_MS})
@@ -149,7 +153,7 @@ async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch,
             try:
                 loaded = {d.id: d for c in engine.loaded.channels for d in c.devices}
                 topics = {d.id: loaded[d.id].publish.topic for d in devices}
-                await _check_publishing(col, topics)
+                await _check_publishing(sent, col, topics)
                 await _check_values_match_the_formulas(engine, devices)
                 await _check_api_and_faults(engine, api_port, devices)
             finally:
@@ -159,12 +163,59 @@ async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch,
     assert outbound and not stray, f"sockets to something other than the broker or the API: {stray}"
 
 
-async def _check_publishing(col, topics) -> None:
+def _record_publishes(monkeypatch) -> dict[str, list[float]]:
+    """When (event loop clock) the engine's publisher sends each device's payload. A wrapper only:
+    the publish itself is unchanged."""
+    sent: dict[str, list[float]] = {}
+    original = Publisher._publish_data
+
+    async def recorded(self, dev, snapshot):
+        sent.setdefault(dev.id, []).append(asyncio.get_running_loop().time())
+        return await original(self, dev, snapshot)
+
+    monkeypatch.setattr(Publisher, "_publish_data", recorded)
+    return sent
+
+
+async def _timer_lag(out: list[float], step: float = 0.05) -> None:
+    """How late this event loop fires its timers: the oversleep of each short sleep."""
+    loop = asyncio.get_running_loop()
+    while True:
+        t = loop.time()
+        await asyncio.sleep(step)
+        out.append(loop.time() - t - step)
+
+
+async def _check_publishing(sent, col, topics) -> None:
     await _wait(lambda: all(len(col.topic(t)) >= 2 for t in topics.values()), 20, "2 messages per device")
-    start = {t: len(col.topic(t)) for t in topics.values()}
-    await asyncio.sleep(3 * INTERVAL_MS / 1000)
-    for dev_id, t in topics.items():
-        assert abs(len(col.topic(t)) - start[t] - 3) <= 1, (dev_id, len(col.topic(t)) - start[t])
+    # One publish per interval per device, with no gaps (#223). The publisher keeps a fixed grid:
+    # a publish its timer fires late is followed by an on-time one, and one later than a whole
+    # interval is skipped, never burst. So a window's count moves by the slots that the loop's
+    # measured timer lag can shift, and no more. The times are the publisher's sends, over a
+    # measured window: arrival times also include the in-process broker's read and fan-out, which
+    # bunch up on a starved loop, and the sleep overshoots a nominal window. Delivery itself is
+    # checked above (every device's messages arrive) and below (their content).
+    loop = asyncio.get_running_loop()
+    period = INTERVAL_MS / 1000
+    lags: list[float] = []
+    probe = asyncio.create_task(_timer_lag(lags))
+    began = loop.time()
+    await asyncio.sleep(4 * period)
+    ended = loop.time()
+    probe.cancel()
+    window, lag = ended - began, max(lags, default=0.0)
+    skips = 1 if lag > period else 0            # a send later than a whole interval skips its slot
+    low, high = math.floor(window / period) - 1 - skips, math.ceil(window / period) + 1
+    for dev_id in topics:
+        times = [at for at in sent.get(dev_id, []) if began <= at < ended]
+        assert low <= len(times) <= high, (dev_id, len(times), round(window, 2), round(lag, 3))
+        # the mean period: a late send moves only the two end points, so its effect divides by the gaps
+        gaps = len(times) - 1
+        mean = (times[-1] - times[0]) / gaps
+        assert abs(mean - period) <= (lag + skips * period) / gaps + GAP_SLACK_S, (dev_id, round(mean, 3), round(lag, 3))
+        # and no gap: a payload at least once per interval, give or take the measured lag
+        longest = max(b - a for a, b in zip(times, times[1:], strict=False))
+        assert longest <= period + lag + GAP_SLACK_S, (dev_id, round(longest, 2), round(lag, 3))
     for i, t in enumerate(topics.values()):
         msg = col.last(t).json()
         assert msg["DataValid"] is True, msg

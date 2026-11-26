@@ -424,46 +424,81 @@ OpcUaServerPolicy = Literal[
 ]
 
 
+class OpcUaUserCfg(_Model):
+    """One OPC UA user name/password, both read from the environment variables named here."""
+
+    username_env: str
+    password_env: str
+
+
 class OpcUaServerCfg(_Model):
-    """Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046): the cache as a
+    """Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046, D-088): the cache as a
     read-only, KEPServer-style address space. Off by default."""
 
     enabled: bool = False
-    endpoint: str = "opc.tcp://127.0.0.1:4840/opencap"   # bind address and advertised URL
+    endpoint: str = "opc.tcp://127.0.0.1:4840/opencap"   # bind address (and advertised URL by default)
+    advertised_endpoint: str | None = None  # the URL GetEndpoints returns (NAT, containers); bind = endpoint
     server_name: str = "opencap"
     application_uri: str = "urn:opencap:server"
     namespace_uri: str = "urn:opencap"                    # registered first, so it is ns=2
+    kepserverex_namespace_index: bool = True   # the tag namespace must be ns=2, as in KEPServerEX
     security_policies: list[OpcUaServerPolicy] = Field(default_factory=lambda: ["None"])
+    pki_dir: str | None = None             # own/ trusted/ issuers/ crl/ rejected/ users/ (D-088)
     certificate: str | None = None         # server certificate (DER/PEM); generated if missing with the key
     private_key: str | None = None
     trusted_certs_dir: str | None = None   # when set, only client certificates found here are accepted
     anonymous: bool = False                # anonymous clients only when set (D-046)
     username_env: str | None = None        # env var NAMES; the values are never in a file
     password_env: str | None = None
+    users: list[OpcUaUserCfg] = Field(default_factory=list)   # more users, same env-var rule
+    x509_users: bool = False               # X.509 user tokens for certificates in <pki_dir>/users/
     update_ms: int = 250                   # how often cache changes are copied into the address space
     allow_insecure_remote: bool = False    # offer policy None on a non-loopback endpoint (plaintext)
+    max_sessions: int = 100                # more: CreateSession gets BadTooManySessions
+    max_subscriptions_per_session: int = 50
+    max_monitored_items: int = 100_000     # server-wide
+    min_publishing_interval_ms: int = 100  # faster requests are revised up to these
+    min_sampling_interval_ms: int = 100
+    max_references_per_browse: int = 1000  # more references: a continuation point (BrowseNext)
 
     @model_validator(mode="after")
     def _check(self) -> "OpcUaServerCfg":
         if not self.endpoint.startswith("opc.tcp://"):
             raise ValueError(f"opcua_server.endpoint {self.endpoint!r} must start with opc.tcp://")
+        if self.advertised_endpoint is not None and not self.advertised_endpoint.startswith("opc.tcp://"):
+            raise ValueError(f"opcua_server.advertised_endpoint {self.advertised_endpoint!r} must start with "
+                             "opc.tcp://")
         if not self.security_policies:
             raise ValueError("opcua_server.security_policies must not be empty")
-        if any(p != "None" for p in self.security_policies) and not (self.certificate and self.private_key):
-            raise ValueError("opcua_server: secure security_policies need certificate and private_key paths")
+        if any(p != "None" for p in self.security_policies) and not (self.certificate and self.private_key) \
+                and not self.pki_dir:
+            raise ValueError("opcua_server: secure security_policies need certificate and private_key paths "
+                             "(or pki_dir)")
+        if self.pki_dir and self.trusted_certs_dir:
+            raise ValueError("opcua_server: set pki_dir or trusted_certs_dir, not both (pki_dir has trusted/)")
         if bool(self.username_env) != bool(self.password_env):
             raise ValueError("opcua_server: set both username_env and password_env, or neither")
+        if self.x509_users and not (self.pki_dir and any(p != "None" for p in self.security_policies)):
+            raise ValueError("opcua_server: x509_users needs pki_dir (users/) and a Sign or SignAndEncrypt policy")
         if self.update_ms < 10:
             raise ValueError("opcua_server.update_ms must be >= 10")
+        for name in ("max_sessions", "max_subscriptions_per_session", "max_monitored_items",
+                     "max_references_per_browse"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"opcua_server.{name} must be >= 1")
+        for name in ("min_publishing_interval_ms", "min_sampling_interval_ms"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"opcua_server.{name} must be >= 0")
         if "None" in self.security_policies and not self.allow_insecure_remote \
                 and not _is_loopback_host(self.endpoint_host()):
             raise ValueError(
                 f"opcua_server: security policy None on {self.endpoint!r} would serve plaintext beyond this "
                 "computer: offer only Sign/SignAndEncrypt policies, bind to 127.0.0.1, or set "
                 "allow_insecure_remote: true")
-        if self.enabled and not self.anonymous and not self.username_env:
+        if self.enabled and not self.anonymous and not self.username_env and not self.users \
+                and not self.x509_users:
             raise ValueError("opcua_server: anonymous is off and no user is configured: set "
-                             "username_env/password_env, or anonymous: true")
+                             "username_env/password_env, users, x509_users, or anonymous: true")
         return self
 
     def endpoint_host(self) -> str:

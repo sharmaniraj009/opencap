@@ -16,15 +16,26 @@ def import_kep_cmd(
     project: Path = typer.Argument(..., exists=True, dir_okay=False, help="KEPServer project.json export"),
     config_dir: Path = CONFIG_OPT,
     reports_dir: Path = typer.Option(Path("reports"), "--reports", help="Where to write review reports"),
+    fmt: str = typer.Option("v1", "--format", help="v1: devices.json + layered files; v2: project.json + node.yaml"),
 ) -> None:
     """Import a KEPServer project.json into config/devices.json (+ reports)."""
     from opencap.config.kep_import import import_kep, write_outputs
+    from opencap.config.loader import PROJECT_FILE, is_v2
 
+    if fmt not in ("v1", "v2"):
+        typer.echo(f"--format must be v1 or v2, got {fmt!r}", err=True)
+        raise typer.Exit(2)
+    if is_v2(config_dir):
+        typer.echo(f"{config_dir / PROJECT_FILE} exists: re-importing into a project v2 (a three-way merge) is "
+                   "not supported yet; import into an empty directory", err=True)
+        raise typer.Exit(1)
     result = import_kep(project)
     written = write_outputs(result, config_dir=config_dir, reports_dir=reports_dir)
     typer.echo(result.summary_text())
     for path in written:
         typer.echo(f"wrote {path}")
+    if fmt == "v2":
+        _migrate_and_report(config_dir, dry_run=False)
 
 
 @app.command("check")
@@ -253,6 +264,39 @@ def browse_cmd(
     if out is not None:
         typer.echo(f"wrote {len(report.tags)} tags to {out}", err=True)
     raise typer.Exit(3 if report.invalid else 0)
+
+
+config_app = typer.Typer(no_args_is_help=True, help="Config directory tools (project v2, ADR-0013).")
+app.add_typer(config_app, name="config")
+
+
+def _migrate_and_report(config_dir: Path, *, dry_run: bool) -> None:
+    from opencap.config.loader import NODE_FILE, PROJECT_FILE
+    from opencap.config.migrate import MigrationError, migrate
+
+    try:
+        m = migrate(config_dir, dry_run=dry_run)
+    except MigrationError as exc:
+        typer.echo(f"migration failed, nothing written: {exc}", err=True)
+        raise typer.Exit(1) from None
+    for line in m.summary_lines():
+        typer.echo(line)
+    if dry_run:
+        typer.echo(f"dry run: would write {config_dir / PROJECT_FILE} and {config_dir / NODE_FILE}")
+        return
+    typer.echo(f"wrote {config_dir / NODE_FILE}")
+    typer.echo(f"wrote {config_dir / PROJECT_FILE}")
+    for moved in m.moved:
+        typer.echo(f"moved {moved}")
+
+
+@config_app.command("migrate")
+def config_migrate_cmd(
+    config_dir: Path = CONFIG_OPT,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Check and report; write nothing"),
+) -> None:
+    """Write project.json + node.yaml from the v1 files; the loaded devices stay identical."""
+    _migrate_and_report(config_dir, dry_run=dry_run)
 
 
 def main() -> None:

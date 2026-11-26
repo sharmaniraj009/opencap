@@ -387,6 +387,13 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "inter_device_delay_ms": {
+            "default": 0,
+            "maximum": 60000,
+            "minimum": 0,
+            "title": "Inter Device Delay Ms",
+            "type": "integer"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -413,6 +420,13 @@
             "default": true,
             "title": "Enabled",
             "type": "boolean"
+          },
+          "inter_device_delay_ms": {
+            "default": 0,
+            "maximum": 60000,
+            "minimum": 0,
+            "title": "Inter Device Delay Ms",
+            "type": "integer"
           },
           "name": {
             "title": "Name",
@@ -474,6 +488,20 @@
             "title": "Channel",
             "type": "string"
           },
+          "connect_timeout_ms": {
+            "anyOf": [
+              {
+                "maximum": 30000,
+                "minimum": 1000,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Connect Timeout Ms"
+          },
           "demote_after": {
             "default": 3,
             "title": "Demote After",
@@ -511,6 +539,13 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "inter_request_delay_ms": {
+            "default": 0,
+            "maximum": 300000,
+            "minimum": 0,
+            "title": "Inter Request Delay Ms",
+            "type": "integer"
           },
           "min_scan_ms": {
             "default": 1000,
@@ -581,6 +616,20 @@
             "title": "Channel",
             "type": "string"
           },
+          "connect_timeout_ms": {
+            "anyOf": [
+              {
+                "maximum": 30000,
+                "minimum": 1000,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Connect Timeout Ms"
+          },
           "demote_after": {
             "default": 3,
             "title": "Demote After",
@@ -618,6 +667,13 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "inter_request_delay_ms": {
+            "default": 0,
+            "maximum": 300000,
+            "minimum": 0,
+            "title": "Inter Request Delay Ms",
+            "type": "integer"
           },
           "min_scan_ms": {
             "default": 1000,
@@ -1150,6 +1206,27 @@
               }
             ]
           },
+          "connect_timeout_ms": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "maximum": 30000,
+                    "minimum": 1000,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Connect Timeout Ms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "demote_after": {
             "anyOf": [
               {
@@ -1224,6 +1301,20 @@
               {
                 "title": "Id",
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inter_request_delay_ms": {
+            "anyOf": [
+              {
+                "default": 0,
+                "maximum": 300000,
+                "minimum": 0,
+                "title": "Inter Request Delay Ms",
+                "type": "integer"
               },
               {
                 "type": "null"
@@ -1359,6 +1450,20 @@
             "title": "Channel",
             "type": "string"
           },
+          "connect_timeout_ms": {
+            "anyOf": [
+              {
+                "maximum": 30000,
+                "minimum": 1000,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Connect Timeout Ms"
+          },
           "demote_after": {
             "default": 3,
             "title": "Demote After",
@@ -1396,6 +1501,13 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "inter_request_delay_ms": {
+            "default": 0,
+            "maximum": 300000,
+            "minimum": 0,
+            "title": "Inter Request Delay Ms",
+            "type": "integer"
           },
           "min_scan_ms": {
             "default": 1000,
@@ -2197,6 +2309,18 @@
             "additionalProperties": true,
             "title": "Device",
             "type": "object"
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective"
           },
           "map_entry": {
             "anyOf": [

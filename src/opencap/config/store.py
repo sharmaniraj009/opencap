@@ -525,6 +525,20 @@ def _device_summary(dev: dict[str, Any], dmap: dict[str, Any], ov: dict[str, Any
     }
 
 
+def _effective(dev: dict[str, Any], state: Any) -> dict[str, Any]:
+    """Values the engine derives for a device (GET /devices/{id}, `effective`): what bounds a connect."""
+    from opencap.core.registry import effective_connect_timeout_ms   # noqa: PLC0415 - core imports the config
+
+    ov = (state.overrides.get("devices") or {}).get(dev.get("id")) or {}
+    try:
+        merged = {**dev, **{k: v for k, v in ov.items() if k in ("timeout_ms", "params") and v is not None}}
+        if "params" in ov:
+            merged["params"] = {**dev.get("params", {}), **ov["params"]}
+        return {"connect_timeout_ms": effective_connect_timeout_ms(Device.model_validate(merged))}
+    except Exception:   # noqa: BLE001 - a half-edited device must still be readable
+        return {}
+
+
 def _changed_tags(old: list[dict[str, Any]], new: list[dict[str, Any]]) -> set[str]:
     """Enabled tags that are new or whose address/dtype/enabled changed: these must plan."""
     before = {t["name"]: t for t in old}
@@ -827,6 +841,7 @@ class ConfigStore:
                 if d["id"] == dev_id:
                     return {"device": d, "map_entry": (state.dmap.get("devices") or {}).get(dev_id),
                             "override": (state.overrides.get("devices") or {}).get(dev_id),
+                            "effective": _effective(d, state),
                             "revision": state.revision}
         raise NotFound(f"unknown device {dev_id!r}")
 

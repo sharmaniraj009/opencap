@@ -1872,3 +1872,31 @@ produced once the outbox drains, then every frozen message must reach the subscr
   reload keep working. The revision is then a hash of `project.json` and `node.yaml`.
 - **Rust:** its loader reads v1 only. Follow-up #186: load `project.json` + `node.yaml` with the same finalize
   steps, and the shared config fixtures for the `project` and `node` documents.
+### D-088 Inter-device delay, connect timeout and inter-request delay are core pacing (#105)
+- **Expected:** KEPServerEX's CH-05, DEV-16 and DEV-17 settings, applied without touching drivers, and the
+  one-request-per-channel rule (D-015) intact.
+- **Done (Python engine):** `Channel.inter_device_delay_ms` (0..60000, default 0), `Device.connect_timeout_ms`
+  (1000..30000, default null) and `Device.inter_request_delay_ms` (0..300000, default 0), additive in
+  `devices.json` (schema regenerated, fixtures `valid/devices_timing.json` and four out-of-range ones).
+  `WireLock.request()` is how a device takes the wire: after getting the lock it sleeps until the line has been
+  idle for the inter-device delay (only when the previous request was another device's) and until the device's
+  own previous request ended the inter-request delay ago (the longer of the two), then yields; the wait is
+  inside the lock, so it also holds back the other devices of the channel. A close is not a request: it takes
+  the lock without waiting but still counts as the latest activity. The wait is outside the driver call's
+  safety timeout.
+- **Connect timeout, without changing drivers:** drivers bound their connect by `device.timeout_ms`. When
+  `connect_timeout_ms` is set, the worker gives the driver a copy of the device with that `timeout_ms` for the
+  connect only (restored afterwards, so reads keep `timeout_ms`), and caps the attempt at `1.25 x value + 0.1 s`
+  like every other driver call. A driver whose connect is several waits (s7: TCP, COTP, setup) is capped as a
+  whole. Absent: today's behaviour. UDP (`melsec_mc` with `protocol: udp`) has no connect, so the value changes nothing.
+- **Effective value:** `GET /api/v1/devices/{id}` has `effective.connect_timeout_ms`: the explicit value, else the
+  driver's own budget (`Driver.connect_timeout_s`, e.g. s7 = 3 x timeout + 1 s), else `timeout_ms`; null for UDP.
+- **`opencap check`:** each request costs `est_rtt_ms + inter_request_delay_ms`, plus the channel's inter-device
+  delay on a channel with more than one enabled device. That is an upper bound (it counts every request as a
+  switch between devices) and the output says so.
+- **import-kep:** `servermain.DEVICE_CONNECTION_TIMEOUT_SECONDS`, `servermain.DEVICE_INTER_REQUEST_DELAY_MILLISECONDS`
+  and `servermain.CHANNEL_INTER_DEVICE_DELAY_MILLISECONDS`. **Assumed names:** they follow the pattern of the
+  properties we have seen (`DEVICE_REQUEST_TIMEOUT_MILLISECONDS`) but no export in hand contains them; a project
+  that spells them differently imports with the defaults. Values outside the ranges are clamped with a note in
+  the import report.
+- **Not done:** per-device overrides in `overrides.yaml` for the new device fields.

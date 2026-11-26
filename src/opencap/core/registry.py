@@ -50,13 +50,35 @@ class DevicePlan:
             out.update(g.plan.invalid)
         return out
 
-    def est_cycle_ms(self, rtt_ms: float) -> float:
-        """Time for one sequential pass over every rate group."""
-        return self.wire_requests * rtt_ms
+    def est_cycle_ms(self, rtt_ms: float, delay_ms: float = 0.0) -> float:
+        """Time for one sequential pass over every rate group. `delay_ms` is the idle time the
+        channel keeps around each request (`request_delay_ms`)."""
+        return self.wire_requests * (rtt_ms + delay_ms)
 
-    def est_load(self, rtt_ms: float) -> float:
+    def est_load(self, rtt_ms: float, delay_ms: float = 0.0) -> float:
         """Fraction of wall time the channel spends on the wire for this device (1.0 = saturated)."""
-        return sum(g.plan.wire_requests * rtt_ms / g.rate_ms for g in self.groups)
+        return sum(g.plan.wire_requests * (rtt_ms + delay_ms) / g.rate_ms for g in self.groups)
+
+    def request_delay_ms(self, inter_device_delay_ms: int = 0, shared_channel: bool = False) -> float:
+        """Idle time per request: the device's inter-request delay, plus the channel's inter-device
+        delay when other devices share the channel (an upper bound: it counts every request as
+        a switch between devices, which is what a busy channel does)."""
+        return self.device.inter_request_delay_ms + (inter_device_delay_ms if shared_channel else 0)
+
+
+def effective_connect_timeout_ms(device: Device) -> int | None:
+    """What bounds one connect attempt of this device: the explicit `connect_timeout_ms`, else the
+    driver's own budget (`Driver.connect_timeout_s`), else `timeout_ms`. None for a driver without a
+    connection to open (melsec_mc over UDP) or one that is not available."""
+    if device.driver == "melsec_mc" and str(device.params.get("protocol", "tcp")).lower() == "udp":
+        return None
+    if device.connect_timeout_ms is not None:
+        return device.connect_timeout_ms
+    try:
+        budget_s = get_driver_class(device.driver)(device).connect_timeout_s()
+    except Exception:   # noqa: BLE001 - missing library or bad params: fall back to the plain timeout
+        budget_s = None
+    return round(budget_s * 1000) if budget_s else device.timeout_ms
 
 
 def plan_device(device: Device) -> DevicePlan:

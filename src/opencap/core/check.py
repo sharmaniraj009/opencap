@@ -49,6 +49,8 @@ def run_check(config_dir: Path, site: str | None = None, verbose: bool = False) 
     for channel in channels:
         site_req = 0
         site_load = 0.0
+        site_cost_ms = 0.0
+        shared = sum(1 for d in channel.devices if d.enabled) > 1
         if not channel.enabled:
             echo(f"{channel.name}  (channel disabled)")
             continue
@@ -59,14 +61,16 @@ def run_check(config_dir: Path, site: str | None = None, verbose: bool = False) 
             if not dp.ok:
                 echo(f"{label:<44} {device.driver:<13} {len(device.tags):>5}  -- no plan: {dp.error}")
                 continue
-            load = dp.est_load(rtt)
+            delay = dp.request_delay_ms(channel.inter_device_delay_ms, shared)
+            load = dp.est_load(rtt, delay)
             if device.enabled:
                 site_req += dp.wire_requests
                 site_load += load
+                site_cost_ms += dp.est_cycle_ms(rtt, delay)
             echo(
                 f"{label[:44]:<44} {device.driver:<13} {dp.enabled_tags:>5} {len(dp.invalid):>4} "
                 f"{_fmt_rates(dp):<9} {dp.blocks:>4} {dp.wire_requests:>4} "
-                f"{dp.est_cycle_ms(rtt):>6.0f}ms {load:>6.0%}"
+                f"{dp.est_cycle_ms(rtt, delay):>6.0f}ms {load:>6.0%}"
             )
             if verbose:
                 for g in dp.groups:
@@ -76,7 +80,7 @@ def run_check(config_dir: Path, site: str | None = None, verbose: bool = False) 
                     echo(f"      bad_config {name}: {reason}")
         if len(channel.devices) > 1:
             echo(f"{'  = site total':<44} {'':<13} {'':>5} {'':>4} {'':<9} {'':>4} {site_req:>4} "
-                 f"{site_req * rtt:>6.0f}ms {site_load:>6.0%}")
+                 f"{site_cost_ms:>6.0f}ms {site_load:>6.0%}")
         if site_load > 1.0:
             overloaded.append(channel.name)
 
@@ -86,6 +90,9 @@ def run_check(config_dir: Path, site: str | None = None, verbose: bool = False) 
     echo("")
     echo(f"channels: {len(channels)}   devices: {len(plans)}   excluded at import: {len(loaded.excluded)}")
     echo(f"assumed round trip per request: {rtt:.0f} ms (poller.yaml check.est_rtt_ms)")
+    if any(c.inter_device_delay_ms or any(d.inter_request_delay_ms for d in c.devices) for c in channels):
+        echo("cycle and load include the inter-request delay of each device and, on a channel with several "
+             "devices, the inter-device delay for every request (an upper bound)")
     for driver in sorted(by_driver):
         echo(f"  {driver:<13} devices {by_driver[driver]:>3}   with block plan {planned[driver]:>3}")
     echo(

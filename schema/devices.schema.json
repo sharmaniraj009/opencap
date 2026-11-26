@@ -15,6 +15,13 @@
           "title": "Enabled",
           "type": "boolean"
         },
+        "inter_device_delay_ms": {
+          "default": 0,
+          "maximum": 60000,
+          "minimum": 0,
+          "title": "Inter Device Delay Ms",
+          "type": "integer"
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -33,6 +40,20 @@
         "channel": {
           "title": "Channel",
           "type": "string"
+        },
+        "connect_timeout_ms": {
+          "anyOf": [
+            {
+              "maximum": 30000,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connect Timeout Ms"
         },
         "demote_after": {
           "default": 3,
@@ -71,6 +92,13 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "inter_request_delay_ms": {
+          "default": 0,
+          "maximum": 300000,
+          "minimum": 0,
+          "title": "Inter Request Delay Ms",
+          "type": "integer"
         },
         "min_scan_ms": {
           "default": 1000,

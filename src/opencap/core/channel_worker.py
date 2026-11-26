@@ -42,6 +42,7 @@ Faults (health rules and the "failed cycle" definition are in core/health.py)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import time
 from collections.abc import Callable, Iterable
@@ -179,12 +180,40 @@ class CycleStats:
 
 class WireLock(asyncio.Lock):
     """The channel's FIFO wire lock, counting the requests that hold it: `in_flight` now and
-    `max_in_flight` since the worker started (system tags `_PendingReads`, `_MaxPendingReads`)."""
+    `max_in_flight` since the worker started (system tags `_PendingReads`, `_MaxPendingReads`).
+
+    `request()` is the way a device takes it: it also keeps the pacing state for the inter-device
+    delay (CH-05) and the inter-request delay (DEV-17), which are waited out while holding the lock."""
 
     def __init__(self) -> None:
         super().__init__()
         self.in_flight = 0
         self.max_in_flight = 0
+        self.last_device: str | None = None         # device of the latest request that held the lock
+        self.last_end = 0.0                          # when it let go (monotonic)
+        self.device_end: dict[str, float] = {}       # per device: when its latest request ended
+
+    def pace_s(self, device_id: str, inter_device_s: float, inter_request_s: float, now: float) -> float:
+        """How long the line must still stay idle before `device_id` may send."""
+        wait = 0.0
+        if inter_device_s > 0 and self.last_device is not None and self.last_device != device_id:
+            wait = self.last_end + inter_device_s - now
+        end = self.device_end.get(device_id)
+        if inter_request_s > 0 and end is not None:
+            wait = max(wait, end + inter_request_s - now)
+        return max(wait, 0.0)
+
+    @contextlib.asynccontextmanager
+    async def request(self, device_id: str, *, inter_device_s: float = 0.0, inter_request_s: float = 0.0):
+        async with self:
+            wait = self.pace_s(device_id, inter_device_s, inter_request_s, _mono())
+            try:
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                yield
+            finally:
+                self.last_device = device_id
+                self.last_end = self.device_end[device_id] = _mono()
 
     async def acquire(self) -> bool:
         await super().acquire()
@@ -286,6 +315,15 @@ class _DeviceRunner:
                 self.read_at = dict.fromkeys(self.tags, self.w.clock())
         return self.driver
 
+    def wire(self, *, paced: bool = True):
+        """The channel's wire lock for one request of this device, with the channel's inter-device
+        delay and the device's inter-request delay (`paced=False`: a close, which is not a request)."""
+        if not paced:
+            return self.w.wire.request(self.id)
+        return self.w.wire.request(
+            self.id, inter_device_s=self.w.channel.inter_device_delay_ms / 1000,
+            inter_request_s=self.device.inter_request_delay_ms / 1000)
+
     async def connect(self, *, force: bool) -> str | None:
         """One connect attempt. Returns None when connected, else the reason."""
         now = _mono()
@@ -293,9 +331,17 @@ class _DeviceRunner:
             return f"{self.connect_error or 'connect failed'} (next attempt in {self.backoff.remaining(now):.1f} s)"
         drv = self.ensure_driver()
         t0 = _perf()
+        explicit = self.device.connect_timeout_ms
+        if explicit is not None:
+            # Drivers bound their connect by `device.timeout_ms`: give the connect, and only the
+            # connect, the explicit budget (restored below). The outer cap is the usual safety net.
+            budget = safety_timeout_s(explicit)
+            drv.device = self.device.model_copy(update={"timeout_ms": explicit})
+        else:
+            budget = drv.connect_timeout_s() or self.safety_s
         try:
-            async with self.w.wire:
-                await asyncio.wait_for(drv.connect(), drv.connect_timeout_s() or self.safety_s)
+            async with self.wire():
+                await asyncio.wait_for(drv.connect(), budget)
         except asyncio.CancelledError:
             raise
         except NotImplementedError as exc:
@@ -313,6 +359,9 @@ class _DeviceRunner:
                 self.link_up = False
                 self.log.info("device.disconnected", error=reason)
             return self.connect_error
+        finally:
+            if explicit is not None:
+                drv.device = self.device
         self.connected = True
         self.last_connect_failed = False
         self.connect_error = None
@@ -336,7 +385,7 @@ class _DeviceRunner:
         if drv is None:
             return
         try:
-            async with self.w.wire:
+            async with self.wire(paced=False):
                 await asyncio.wait_for(drv.close(), self.safety_s)
         except asyncio.CancelledError:
             raise
@@ -373,7 +422,7 @@ class _DeviceRunner:
             assert self.driver is not None
             t0 = _perf()
             try:
-                async with self.w.wire:
+                async with self.wire():
                     values = await asyncio.wait_for(self.driver.read(block), self.read_budget_s(block))
             except asyncio.CancelledError:
                 raise
@@ -726,7 +775,7 @@ class ChannelWorker:
         drv = r.driver
         if self._stopped or drv is None or not r.connected or not drv.connected:
             return None
-        async with self.wire:
+        async with r.wire():
             return await asyncio.wait_for(drv.identity(), r.safety_s)
 
     def health(self, device_id: str) -> DeviceHealth:

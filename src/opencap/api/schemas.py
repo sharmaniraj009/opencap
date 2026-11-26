@@ -262,6 +262,9 @@ class DeviceResource(Revisioned):
     device: Obj
     map_entry: Obj | None = None
     override: Obj | None = None
+    # derived by the engine: `connect_timeout_ms` is what bounds one connect (explicit, the driver's own
+    # budget, or timeout_ms; null for a driver without a connection)
+    effective: Obj | None = None
 
 
 class TagList(Paged):

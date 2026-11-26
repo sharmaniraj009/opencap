@@ -251,6 +251,9 @@ connections.
 | Scan mode "Request data no faster than" | device `min_scan_ms` |
 | Scan mode "Request all data at scan rate" | device `scan_ms`; tag rates dropped |
 | Request timeout | `timeout_ms` |
+| Connect timeout (seconds) | `connect_timeout_ms` (1000..30000 ms; absent: the driver's own budget) |
+| Inter-request delay | device `inter_request_delay_ms` (0..300000 ms) |
+| Inter-device delay | channel `inter_device_delay_ms` (0..60000 ms) |
 | Retry attempts | `retries` = attempts − 1 (KEPServerEX counts the first request) |
 | Auto-demotion | `demote_after` (failed cycles), `demote_for_ms` |
 | Tag scaling (linear, square root, clamps, negate) | `scale` |

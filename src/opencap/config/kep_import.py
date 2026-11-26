@@ -73,6 +73,11 @@ K_SCAN_MODE = "servermain.DEVICE_SCAN_MODE"
 K_SCAN_RATE = "servermain.DEVICE_SCAN_MODE_RATE_MS"
 K_TIMEOUT = "servermain.DEVICE_REQUEST_TIMEOUT_MILLISECONDS"
 K_ATTEMPTS = "servermain.DEVICE_RETRY_ATTEMPTS"
+# Timing properties added in #105. Names follow the pattern of K_TIMEOUT; not seen in a real export
+# yet (D-088), so a project that spells them differently imports with the defaults.
+K_CONNECT_TIMEOUT_S = "servermain.DEVICE_CONNECTION_TIMEOUT_SECONDS"
+K_INTER_REQUEST_MS = "servermain.DEVICE_INTER_REQUEST_DELAY_MILLISECONDS"
+K_INTER_DEVICE_MS = "servermain.CHANNEL_INTER_DEVICE_DELAY_MILLISECONDS"
 K_DEMOTE_ON = "servermain.DEVICE_AUTO_DEMOTION_ENABLE_ON_COMMUNICATIONS_FAILURES"
 K_DEMOTE_AFTER = "servermain.DEVICE_AUTO_DEMOTION_DEMOTE_AFTER_SUCCESSIVE_TIMEOUTS"
 K_DEMOTE_MS = "servermain.DEVICE_AUTO_DEMOTION_PERIOD_MS"
@@ -355,6 +360,17 @@ def _int(value: Any, default: int | None = None) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _bounded(value: int | None, lo: int, hi: int, what: str, where: str, problems: list[str]) -> int | None:
+    """`value` clamped to lo..hi (with a note in the import report), or None when absent."""
+    if value is None:
+        return None
+    if lo <= value <= hi:
+        return value
+    clamped = min(max(value, lo), hi)
+    problems.append(f"{where}: {what} {value} is outside {lo}..{hi}; imported as {clamped}")
+    return clamped
 
 
 def _get(d: dict[str, Any], key: str, default: Any) -> Any:
@@ -909,6 +925,11 @@ def _build_device(
         scan_ms=scan_ms,
         min_scan_ms=min_scan_ms,
         timeout_ms=_int(dev.get(K_TIMEOUT), defaults.timeout_ms),
+        connect_timeout_ms=_bounded(
+            None if _int(dev.get(K_CONNECT_TIMEOUT_S)) is None else _int(dev.get(K_CONNECT_TIMEOUT_S)) * 1000,
+            1000, 30_000, "connect timeout (ms)", dev_id, problems),
+        inter_request_delay_ms=_bounded(_int(dev.get(K_INTER_REQUEST_MS)), 0, 300_000,
+                                        "inter-request delay (ms)", dev_id, problems) or 0,
         retries=max(attempts - 1, 0) if attempts is not None else defaults.retries,
         demote_after=_int(dev.get(K_DEMOTE_AFTER), defaults.demote_after) if demote_on else defaults.demote_after,
         demote_for_ms=_int(dev.get(K_DEMOTE_MS), defaults.demote_for_ms) if demote_on else defaults.demote_for_ms,
@@ -1009,7 +1030,10 @@ def import_kep(project_path: Path, defaults: DeviceDefaults | None = None) -> Im
             included_devices.append(device)
             same_address.extend(_same_address_rows(channel_name, device_name, dev, included=True))
         if included_devices:
-            channels.append(Channel(name=channel_name, devices=included_devices))
+            channels.append(Channel(
+                name=channel_name, devices=included_devices,
+                inter_device_delay_ms=_bounded(_int(ch.get(K_INTER_DEVICE_MS)), 0, 60_000,
+                                               "inter-device delay (ms)", f"channel {channel_name!r}", problems) or 0))
 
     devices_file = DevicesFile(
         generated_from=project_path.name,

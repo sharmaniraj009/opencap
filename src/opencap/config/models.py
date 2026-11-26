@@ -170,6 +170,12 @@ class Device(_Model):
     scan_ms: int = 1000
     min_scan_ms: int = 1000        # "request data no faster than"
     timeout_ms: int = 3000
+    # KEPServerEX "Connect timeout" (DEV-16): bounds each connect attempt; null = the driver's own
+    # budget, derived from timeout_ms. Ignored by drivers without a connect (UDP).
+    connect_timeout_ms: int | None = Field(default=None, ge=1000, le=30_000)
+    # KEPServerEX "Inter-request delay" (DEV-17): the worker waits this long after the device's
+    # previous request ended before the next one, holding the channel's wire.
+    inter_request_delay_ms: int = Field(default=0, ge=0, le=300_000)
     retries: int = 2
     demote_after: int = 3          # consecutive failed cycles
     demote_for_ms: int = 30_000
@@ -211,6 +217,9 @@ class Device(_Model):
 class Channel(_Model):
     name: str                      # KEPServer channel name = site
     enabled: bool = True
+    # KEPServerEX "Inter-device delay" (CH-05): the line stays idle this long when the next request
+    # goes to a different device than the previous one.
+    inter_device_delay_ms: int = Field(default=0, ge=0, le=60_000)
     devices: list[Device]
 
     @field_validator("name")

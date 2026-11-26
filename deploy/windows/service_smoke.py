@@ -9,9 +9,11 @@ Run from the repository root with opencap and its test helpers installed (`pip i
    only the four paths change (this interpreter instead of the venv's python.exe, a temporary
    config, working and log directory). Everything else in the XML is used as shipped.
 3. `install`, `start`, then waits for `/health`: MQTT connected and the device polled (`ok`).
-4. `stop` (WinSW sends Ctrl+C and waits), then checks for a clean shutdown: `poller_stopped` in
-   the service's stdout log, and WinSW's own record of the exit code, "Child process [...]
-   terminated with 0", in the Application event log.
+4. `stop`, then waits for `status` to say `Stopped` (WinSW 2.12's `stop` can return before the
+   service has even entered "stop pending", and `status` prints `Started` for anything but
+   Stopped). Then checks for a clean shutdown: `poller_stopped` in the service's stdout log, and
+   WinSW's own record of the exit code, "Child process [...] terminated with 0", in the
+   Application event log.
 5. `uninstall`, always. On failure it prints the service logs.
 
 Nothing here touches a real device: the simulator and the broker are local and ephemeral.
@@ -62,6 +64,17 @@ def service_xml(config_dir: Path, workdir: Path, logdir: Path) -> str:
             .replace(SHIPPED["config"], f'--config "{config_dir}"')
             .replace(SHIPPED["workdir"], f"<workingdirectory>{workdir}</workingdirectory>")
             .replace(SHIPPED["logs"], f"<logpath>{logdir}</logpath>"))
+
+
+def wait_stopped(exe: Path, timeout: float = 60.0) -> bool:
+    """Poll `status` until the service is Stopped. Longer than <stoptimeout> (30 s): after that
+    WinSW kills the child, and the service stops either way."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if winsw(exe, "status", check=False) == "Stopped":
+            return True
+        time.sleep(1)
+    return False
 
 
 def winsw(exe: Path, *args: str, check: bool = True) -> str:
@@ -142,8 +155,11 @@ async def main(winsw_exe: Path) -> None:
                 log(f"/health: {health}")
                 assert winsw(exe, "status") == "Started"
 
-                winsw(exe, "stop")                       # Ctrl+C to python.exe, waits for Stopped
-                assert winsw(exe, "status") == "Stopped"
+                winsw(exe, "stop")                       # WinSW sends Ctrl+C to python.exe
+                stop_started = time.monotonic()
+                if not await asyncio.to_thread(wait_stopped, exe):
+                    raise SystemExit("the service did not reach Stopped within 60 s")
+                log(f"Stopped after {time.monotonic() - stop_started:.1f} s")
                 out_log = (logdir / f"{SERVICE_ID}.out.log").read_text(encoding="utf-8", errors="replace")
                 stopped = [json.loads(line) for line in out_log.splitlines()
                            if line.startswith("{") and '"poller_stopped"' in line]
@@ -160,7 +176,9 @@ async def main(winsw_exe: Path) -> None:
                 raise
             finally:
                 if installed:
-                    winsw(exe, "stop", check=False)
+                    if winsw(exe, "status", check=False) != "Stopped":
+                        winsw(exe, "stop", check=False)
+                        await asyncio.to_thread(wait_stopped, exe)
                     winsw(exe, "uninstall", check=False)
         finally:
             await stop_sims(sims)

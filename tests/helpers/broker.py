@@ -1,4 +1,4 @@
-"""In-process MQTT broker and collecting subscriber for tests (amqtt broker, aiomqtt client).
+"""In-process MQTT broker and collecting subscriber for tests (amqtt broker, paho client).
 
 Quick start::
 
@@ -53,7 +53,6 @@ API summary
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import itertools
 import json
 import logging
@@ -64,7 +63,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-import aiomqtt
+import paho.mqtt.client as paho
 import pytest
 
 with warnings.catch_warnings():
@@ -332,7 +331,14 @@ class TestBroker:
 
 
 class Collector:
-    """A real MQTT subscriber (QoS 1) that records every message and reconnects by itself."""
+    """A real MQTT subscriber (QoS 1) that records every message and reconnects by itself.
+
+    It records each message in paho's `on_message`, which paho runs *before* it sends the PUBACK,
+    so a message the broker counts as delivered has always been recorded (#220). It ran on
+    aiomqtt's message iterator before; that iterator takes a message off its queue in a separate
+    task and drops it when the reader is cancelled or disconnected in the same instant, after the
+    PUBACK (D-083). paho's network thread runs it, independent of the test's event loop.
+    """
 
     __test__ = False
 
@@ -340,14 +346,22 @@ class Collector:
         self.broker = broker
         self.topics = tuple(topics)
         self.client_id = client_id
-        self.messages: list[Msg] = []
+        self.messages: list[Msg] = []                    # appended from paho's network thread
         self.connects = 0
         self._ready_gen = 0
-        self._task: asyncio.Task | None = None
+        self._client: paho.Client | None = None
 
     async def __aenter__(self) -> Collector:
         self.broker._collectors.add(self)                                # noqa: SLF001
-        self._task = asyncio.create_task(self._run(), name=f"collector:{self.client_id}")
+        client = paho.Client(paho.CallbackAPIVersion.VERSION2, client_id=self.client_id)
+        client.on_connect = self._on_connect
+        client.on_subscribe = self._on_subscribe
+        client.on_message = self._on_message
+        client.on_disconnect = self._on_disconnect
+        client.reconnect_delay_set(min_delay=0.05, max_delay=0.5)       # broker restarts: back fast
+        client.connect_async(self.broker.host, self.broker.port, keepalive=10)
+        client.loop_start()
+        self._client = client
         await self.wait_ready()
         return self
 
@@ -356,11 +370,11 @@ class Collector:
 
     async def close(self) -> None:
         self.broker._collectors.discard(self)                            # noqa: SLF001
-        if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._task
-            self._task = None
+        client, self._client = self._client, None
+        if client is not None:
+            client.disconnect()
+            await asyncio.to_thread(client.loop_stop)
+        self._ready_gen = 0
 
     @property
     def ready(self) -> bool:
@@ -373,40 +387,33 @@ class Collector:
                 raise AssertionError(f"collector {self.client_id} not subscribed within {timeout}s")
             await asyncio.sleep(0.01)
 
-    def _record(self, m: aiomqtt.Message) -> None:
-        payload = m.payload if isinstance(m.payload, (bytes, bytearray)) else str(m.payload or "").encode()
-        self.messages.append(Msg(str(m.topic), bytes(payload), m.qos, bool(m.retain)))
+    # --- paho callbacks (its network thread)
+    def _on_connect(self, client: paho.Client, userdata: object, flags: object, reason_code: Any,
+                    properties: object) -> None:
+        if not reason_code.is_failure:
+            client.subscribe([(t, 1) for t in self.topics])
 
-    async def _run(self) -> None:
-        while True:
-            client = aiomqtt.Client(self.broker.host, self.broker.port, identifier=self.client_id,
-                                    keepalive=10, timeout=3)
-            try:
-                async with client:
-                    for t in self.topics:
-                        await client.subscribe(t, qos=1)
-                    self._ready_gen = self.broker.generation
-                    self.connects += 1
-                    async for m in client.messages:
-                        self._record(m)
-            except aiomqtt.MqttError:
-                pass
-            finally:
-                self._ready_gen = 0
-                queue = getattr(client, "_queue", None)                  # messages read before the drop
-                while queue is not None and not queue.empty():
-                    self._record(queue.get_nowait())
-            await asyncio.sleep(0.05)
+    def _on_subscribe(self, client: paho.Client, userdata: object, mid: int, reason_codes: Any,
+                      properties: object) -> None:
+        self._ready_gen = self.broker.generation
+        self.connects += 1
+
+    def _on_disconnect(self, client: paho.Client, userdata: object, flags: object, reason_code: Any,
+                       properties: object) -> None:
+        self._ready_gen = 0
+
+    def _on_message(self, client: paho.Client, userdata: object, m: paho.MQTTMessage) -> None:
+        self.messages.append(Msg(m.topic, bytes(m.payload), m.qos, bool(m.retain)))
 
     # ------------------------------------------------------------------ queries
     def topic(self, topic: str) -> list[Msg]:
-        return [m for m in self.messages if m.topic == topic]
+        return [m for m in list(self.messages) if m.topic == topic]
 
     def payloads(self, topic: str) -> list[bytes]:
-        return [m.payload for m in self.messages if m.topic == topic]
+        return [m.payload for m in list(self.messages) if m.topic == topic]
 
     def last(self, topic: str) -> Msg | None:
-        for m in reversed(self.messages):
+        for m in reversed(list(self.messages)):
             if m.topic == topic:
                 return m
         return None
@@ -416,7 +423,7 @@ class Collector:
 
     def summary(self) -> str:
         counts: dict[str, int] = {}
-        for m in self.messages:
+        for m in list(self.messages):
             counts[m.topic] = counts.get(m.topic, 0) + 1
         return ", ".join(f"{t}: {n}" for t, n in sorted(counts.items())) or "nothing"
 
@@ -433,7 +440,7 @@ class Collector:
 
     async def wait_payload(self, topic: str, payload: bytes, timeout: float = 5.0) -> Msg:
         await self.wait_for(lambda: payload in self.payloads(topic), timeout, f"{payload!r} on {topic}")
-        return next(m for m in self.messages if m.topic == topic and m.payload == payload)
+        return next(m for m in list(self.messages) if m.topic == topic and m.payload == payload)
 
 
 @pytest.fixture

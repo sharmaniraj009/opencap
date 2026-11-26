@@ -69,6 +69,23 @@ def inter_frame_s(settings: SerialSettings, inter_frame_ms: Any) -> float:
     return inter_frame_ms / 1000.0
 
 
+async def wait_until(deadline: float, clock: Callable[[], float] = time.monotonic,
+                     sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep) -> None:
+    """Return once `clock()` has reached `deadline`, never earlier.
+
+    asyncio runs a timer that is due within one clock resolution of now, so one `sleep` can end
+    up to a tick early (~15.6 ms with Python 3.12 on Windows) and the silence between frames
+    would be shorter than configured (#219). The rest is waited out; each extra sleep lasts at
+    least one clock resolution, so it does not spin.
+    """
+    resolution = time.get_clock_info("monotonic").resolution
+    while True:
+        left = deadline - clock()
+        if left <= 0:
+            return
+        await sleep(max(left, resolution))
+
+
 @dataclass(eq=False)
 class _RtuLine:
     """The pymodbus client of one line, shared by its units."""
@@ -209,9 +226,7 @@ class ModbusRtuDriver(ModbusTcpDriver):
             raise ConnectionLost(f"{self._where}: not connected")
         line: _RtuLine = lease.conn
         async with line.io_lock:
-            wait = line.last_io + self.gap_s - time.monotonic()
-            if wait > 0:
-                await asyncio.sleep(wait)
+            await wait_until(line.last_io + self.gap_s)
             try:
                 return await super()._request(make, what, close_on_timeout=close_on_timeout)
             finally:

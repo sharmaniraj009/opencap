@@ -89,7 +89,7 @@ policy-level summary, reconciled with it after #64.
 | OPC UA client, L1 SCADA suite | asyncua 2.1 (the `opcua` extra) | LGPL-3.0-or-later | Test-only use of a dependency already adopted above (#29) |
 | Sparkplug conformance | Eclipse Sparkplug TCK, Eclipse Tahu | EPL-2.0 | Test-only |
 | MQTT broker with persistence | Eclipse Mosquitto | EPL-2.0 or EDL-1.0 | Test-only (and recommended in production) |
-| BACnet device simulator | bacpypes3 0.1.0 | MIT declared in [pyproject@v0.1.0](https://github.com/JoelBender/BACpypes3/blob/v0.1.0/pyproject.toml); **no licence file shipped** (classifier says BSD) | Test-only, pending the lead's confirmation (#15, spike §6 Q1) |
+| BACnet device simulator | bacpypes3 0.1.0 | MIT declared in [pyproject@v0.1.0](https://github.com/JoelBender/BACpypes3/blob/v0.1.0/pyproject.toml); **no licence file shipped** (classifier says BSD) | Test-only; the lead accepted the declared MIT in its pyproject metadata for a test-only dependency (#15, spike §6 Q1) |
 | ADS test server | pyads (testserver) | MIT (*verify*) | Test-only |
 | SNMP agent simulator | snmpsim | BSD-2-Clause (*verify*) | Test-only |
 | IEC 104 test peer | c104 (Python, wraps lib60870) | GPL-3.0 (*verify*) | Test-only: installed in CI, never vendored or shipped |

@@ -15,6 +15,7 @@ simulator yet (follow-up issue linked from #12).
 from __future__ import annotations
 
 import asyncio
+import math
 import socket
 import threading
 from datetime import datetime
@@ -161,10 +162,17 @@ async def test_fifty_simulator_devices_through_the_poller(tmp_path, monkeypatch,
 
 async def _check_publishing(col, topics) -> None:
     await _wait(lambda: all(len(col.topic(t)) >= 2 for t in topics.values()), 20, "2 messages per device")
+    # One message per interval: count over a measured window, not a nominal one. Under load the
+    # sleep overshoots, and a fixed "3 ± 1" then failed a correct engine (#223). ±1 covers the
+    # window's two ends cutting an interval.
+    loop = asyncio.get_running_loop()
     start = {t: len(col.topic(t)) for t in topics.values()}
+    began = loop.time()
     await asyncio.sleep(3 * INTERVAL_MS / 1000)
+    intervals = (loop.time() - began) / (INTERVAL_MS / 1000)
     for dev_id, t in topics.items():
-        assert abs(len(col.topic(t)) - start[t] - 3) <= 1, (dev_id, len(col.topic(t)) - start[t])
+        got = len(col.topic(t)) - start[t]
+        assert math.floor(intervals) - 1 <= got <= math.ceil(intervals) + 1, (dev_id, got, round(intervals, 2))
     for i, t in enumerate(topics.values()):
         msg = col.last(t).json()
         assert msg["DataValid"] is True, msg

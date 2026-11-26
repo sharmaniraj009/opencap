@@ -42,7 +42,7 @@ from opencap.core import support
 if TYPE_CHECKING:
     from opencap.core.runtime import Poller
 
-API_VERSION = "1.2.0"     # the contract in api/openapi.json; additive changes bump the minor
+API_VERSION = "1.3.0"     # the contract in api/openapi.json; additive changes bump the minor
 LIVE_PATH = "/api/v1/ws"
 UI_DIR = Path(__file__).parent / "ui"
 # The UI has no inline script or style; Alpine.js runs as its CSP build (no eval).

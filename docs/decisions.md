@@ -1476,4 +1476,4 @@ reader of the KEPServerEX manual would expect:
   versions, the driver names, the enabled north interfaces and the config revision, and no IP address, host name,
   path, user name or environment variable name. `opencap info` falls back to the build facts when the config cannot
   be loaded. `version` is the package version (`0.1.0`), not `FIRM_VERSION` (`opencap-0.1.0`).
-- `info.version` of the OpenAPI contract moved to 1.2.0 (additive).
+- `info.version` of the OpenAPI contract moved to 1.3.0 (additive).

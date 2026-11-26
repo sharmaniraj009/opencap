@@ -1501,3 +1501,18 @@ reader would expect:
   export, so a re-export of an imported file keeps the "device rate" meaning.
 - **CLI:** `opencap tags export <device-id> out.csv` and `opencap tags import in.csv --driver <name> --out tags.json
   [--default-type <dtype>]`. Wiring the JSON into a project waits for project v2 (ADR-0013).
+
+### D-074 Reserved system-tag names in config validation (#128)
+- **Expected:** one rule for every `_` name. Spec 3.2 lists errors for the folder names and a warning (v1) for
+  any other name segment starting with `_`.
+- **Done:** errors in the Python and Rust models for a channel named `_System`, a device named `_System` or
+  `_Statistics`, and a tag whose first dot segment is `_System` or `_Statistics` (all case-insensitive; the
+  message names the field and the reserved word). `_Statistics` is allowed as a channel name, as the spec only
+  reserves `_System` there. The loader adds one warning per other name with a `_` segment, after all other
+  warnings, only for `devices.json` v1. The REST API refuses names that would add such a name (422) and still
+  edits a file that already has one; it compares the names before and after, so existing names never block an
+  unrelated write. The KEPServerEX importer skips a reserved tag or channel and excludes a reserved device,
+  each with a line in the import problems, and keeps other `_` names with a note. Not done: the `_North`
+  and `_Redundancy` agent-name errors (poller.yaml agents; separate follow-up).
+- **Why:** no I/O name may collide with a system-tag folder (PRJ-13, LOG-07), and a project that already
+  has such names must still load, be edited and import.

@@ -27,6 +27,7 @@ opencap-north = { path = "crates/opencap-north" }
 opencap-api = { path = "crates/opencap-api" }
 opencap-serial = { path = "crates/opencap-serial" }
 opencap-driver-modbus-tcp = { path = "drivers/modbus_tcp" }
+opencap-driver-ab-logix = { path = "drivers/ab_logix" }
 
 anyhow = "1"
 async-trait = "0.1"

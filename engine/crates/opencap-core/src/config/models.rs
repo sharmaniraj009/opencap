@@ -202,6 +202,14 @@ pub enum PublishMode {
     OnChange,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublishFormat {
+    #[default]
+    SubdeviceJson,
+    IotgwJson,
+}
+
 fn d_env() -> String {
     "prod".into()
 }
@@ -229,6 +237,9 @@ pub struct PublishCfg {
     pub heartbeat_ms: i64,
     #[serde(default)]
     pub deadband: f64,
+    /// Message body format (D-072). Accepted and kept; the MQTT plugin does not dispatch on it yet (#170).
+    #[serde(default)]
+    pub format: PublishFormat,
 }
 
 impl Default for PublishCfg {
@@ -241,13 +252,14 @@ impl Default for PublishCfg {
             interval_ms: d_interval(),
             heartbeat_ms: d_heartbeat(),
             deadband: 0.0,
+            format: PublishFormat::SubdeviceJson,
         }
     }
 }
 
 /// The publish settings' field names (Python `PublishCfg.model_fields`).
-pub const PUBLISH_FIELDS: [&str; 7] =
-    ["sub_device_id", "topic", "env", "mode", "interval_ms", "heartbeat_ms", "deadband"];
+pub const PUBLISH_FIELDS: [&str; 8] =
+    ["sub_device_id", "topic", "env", "mode", "interval_ms", "heartbeat_ms", "deadband", "format"];
 
 fn d_1000() -> i64 {
     1000

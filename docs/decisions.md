@@ -443,8 +443,11 @@ the shipped `opencap-service.xml` installs, starts, answers `/health` with MQTT 
   reset (WebSocket 1006 before 1009); `socket.socketpair()` is a loopback TCP connect; text-mode
   writes turn `\r\n` into `\r\r\n`. Tests that need a POSIX pty skip with a reason.
 - **Python 3.12 on Windows:** `time.monotonic` ticks every ~15.6 ms and asyncio may run a timer
-  that early. Timing tests allow the clock's resolution. Cycle-time metrics are quantised to that
-  tick (a fast cycle reads 0 ms): #199 measures durations with `perf_counter`.
+  that early. Timing tests allow the clock's resolution. One product fix came out of it: the
+  system-tag tick (spec §2.1) fired up to ~22 ms before its UTC second, so `_System._DateTime`
+  read `19.978` for second 20 and second 19 was ticked twice; the task now waits out a wake that
+  is less than 250 ms early (a clock stepped back is not waited out). Cycle-time metrics are
+  quantised to that tick (a fast cycle reads 0 ms): #199 measures durations with `perf_counter`.
 - **WinSW 2.12 quirks:** `stop` can return before the service enters "stop pending", and
   `status` prints `Started` for anything but Stopped, so the smoke test polls `status`. Logs are
   named after the executable (`opencap-service.out.log`), not the service id.

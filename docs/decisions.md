@@ -1973,3 +1973,28 @@ Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo,
   (acceptance, Rust only, skipped on the Python engine) power-cycles the simulator and checks demotion and resume.
 - **Still to check on hardware:** KEPServerEX's word order for 32-bit values (`first_word_low`), the reply port in
   static/table mode, and whether a real CPU answers a multi-read item error like the simulator.
+
+### D-095 System tags cost what changed, not O(devices²) (#238)
+- **Counters:** `opencap.metrics` keeps plain per-device totals beside the Prometheus counters.
+  Code counts through `count_request`, `count_failed_read`, `count_overrun`, `count_published`
+  and `count_saf_dropped`, never `.inc()` on those metrics (a test scans the source). The system
+  tags read the totals. `REGISTRY.get_sample_value` collected the whole registry on every call,
+  seven calls per device per step, so a step was O(devices²). That was 77 % of the CPU at 10k
+  tags.
+- **Not the workers' own counters:** the values stay process-lifetime, like the counters, so
+  they survive a reload that builds new workers and stay equal to `/metrics` (a test compares
+  them).
+- **Steps:** a device event recomputes that device and its channel. It uses fresh entries for
+  the notified devices and the cached entries of their siblings. Node and agent tags of the
+  `event` class follow at the next tick, within spec §2.1's 1 s bound (spec note under §2.1).
+  The tick and config steps still compute every tag. Once every path is registered, a tick
+  compares first and splits and writes only what changed. Enabled-tag counts are taken once per
+  config object.
+- **Values unchanged:** `evaluate()` and the vectors in `tests/conformance/system_tags/` are
+  untouched. Tests check that event and tick steps write exactly what `evaluate` gives for the
+  whole state.
+- **Result** (4-vCPU container, `bench/README.md`): 10k tags at 33–34 % of one core (99 %
+  before), 25k keeps up at 89 %, 50k reaches 19.7k tag updates/s against 21.6k without system
+  tags.
+- **Rust (#56):** it has no system tags yet. When it gets them it should do the same: atomic
+  per-device counters, and per-device event updates rather than a node-wide recomputation.

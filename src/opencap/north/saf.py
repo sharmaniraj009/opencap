@@ -33,7 +33,7 @@ from pathlib import Path
 
 import structlog
 
-from opencap.metrics import SAF_DROPPED, SAF_QUEUE
+from opencap.metrics import SAF_QUEUE, count_saf_dropped
 
 log = structlog.get_logger("opencap.north.saf")
 
@@ -129,7 +129,7 @@ class StoreAndForward:
                 db.execute("DELETE FROM outbox WHERE id <= ?", (cutoff,))
         self._count -= dropped
         self._bytes -= freed
-        SAF_DROPPED.inc(dropped)
+        count_saf_dropped(dropped)
         # At the cap every put() drops a row or two: log a summary at most once a minute.
         self._dropped_unlogged += dropped
         now = time.monotonic()

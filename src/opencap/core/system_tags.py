@@ -17,7 +17,7 @@ import asyncio
 import math
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,11 +26,13 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
-from opencap import __version__
+from opencap import __version__, metrics
 from opencap.core.cache import TagValue
 from opencap.core.health import iso_utc
 
 if TYPE_CHECKING:
+    from opencap.config.models import Channel, Device
+    from opencap.core.channel_worker import ChannelWorker
     from opencap.core.runtime import Poller
 
 log = structlog.get_logger("opencap.system_tags")
@@ -432,12 +434,6 @@ def evaluate(state: dict[str, Any]) -> dict[str, tuple[str, Any]]:
 
 # --- the state of the running engine ---------------------------------------------------------
 
-def _metric(name: str, **labels: str) -> int:
-    from opencap.metrics import REGISTRY
-
-    return int(REGISTRY.get_sample_value(name, labels) or 0)
-
-
 # status of an enabled device that has no worker (yet): spec §9, "no cycle counted yet"
 _NOT_POLLED: dict[str, Any] = {
     "state": "offline", "consecutive_failures": 0, "error_since": None, "last_good": None, "errors": 0,
@@ -445,11 +441,11 @@ _NOT_POLLED: dict[str, Any] = {
 
 
 def device_counters(device_id: str) -> dict[str, int]:
-    """The process-lifetime counters behind `/metrics` for one device (spec §8.3)."""
-    out = {key: _metric("poll_requests_total", device=device_id, result=key)
-           for key in ("ok", "timeout", "conn_error", "bad_config", "error")}
-    out["failed_reads"] = _metric("poll_failed_reads_total", device=device_id)
-    out["overruns"] = _metric("poll_overrun_total", device=device_id)
+    """The process-lifetime counters behind `/metrics` for one device (spec §8.3), from the plain
+    totals kept beside them (`opencap.metrics.device_counts`, #238), not from the registry."""
+    counts = metrics.device_counts(device_id)
+    out = {key: counts.get(key, 0) for key in ("ok", "timeout", "conn_error", "bad_config", "error",
+                                                "failed_reads", "overruns")}
     out["rx_bytes"] = out["tx_bytes"] = 0          # drivers do not count bytes yet (#130)
     return out
 
@@ -468,7 +464,7 @@ def _outbox(poller: Poller) -> dict[str, Any] | None:
             oldest = iso_ms(datetime.fromtimestamp(float(row[0]), UTC))
     return {"messages": messages, "bytes": nbytes, "oldest": oldest, "max_bytes": saf.max_bytes,
             "full": available and nbytes >= saf.max_bytes, "disk_free_bytes": None, "disk_low": False,
-            "available": available, "dropped": _metric("saf_dropped_total"), "forward_mode": None}
+            "available": available, "dropped": metrics.total("saf_dropped"), "forward_mode": None}
 
 
 def opc_sessions(poller: Poller) -> list[dict[str, str]]:
@@ -484,42 +480,76 @@ def opc_sessions(poller: Poller) -> list[dict[str, str]]:
             for s in sessions if getattr(s, "is_activated", True)]
 
 
+def polled_channels(poller: Poller) -> Iterator[Channel]:
+    """The channels of the configuration this engine runs (all of them, or the `--only` ones)."""
+    for ch in poller.loaded.channels:
+        if poller._only is None or ch.name in poller._only:
+            yield ch
+
+
+# id(Device) -> (the Device, its enabled tag count). The config objects do not change after a load
+# (a reload builds new ones), so the count is computed once per object instead of per step (#238).
+_enabled_tags: dict[int, tuple[Device, int]] = {}
+
+
+def _tags_enabled(dev: Device) -> int:
+    hit = _enabled_tags.get(id(dev))
+    if hit is None or hit[0] is not dev:
+        if len(_enabled_tags) > 100_000:            # old configs: drop them all, they are recounted
+            _enabled_tags.clear()
+        hit = _enabled_tags[id(dev)] = (dev, sum(1 for t in dev.tags if t.enabled))
+    return hit[1]
+
+
+def device_entry(worker: ChannelWorker | None, ch: Channel, dev: Device) -> dict[str, Any]:
+    """One device of the snapshot: its configuration, status and counters."""
+    polled = worker is not None and ch.enabled and dev.enabled
+    return {
+        "name": dev.name, "enabled": dev.enabled, "driver": dev.driver, "host": dev.host,
+        "port": dev.port, "params": dev.params, "scan_ms": dev.scan_ms, "timeout_ms": dev.timeout_ms,
+        "retries": dev.retries, "demote_after": dev.demote_after, "demote_for_ms": dev.demote_for_ms,
+        "description": None, "tags_enabled": _tags_enabled(dev),
+        "tags_scanned": worker.scanned_tags(dev.id) if polled else 0, "counts_bytes": False,   # type: ignore[union-attr]
+        "status": worker.device_status(dev.id) if polled else dict(_NOT_POLLED),             # type: ignore[union-attr]
+        "counters": device_counters(dev.id)}
+
+
+def channel_entry(ch: Channel, worker: ChannelWorker | None, devices: list[dict[str, Any]],
+                  max_in_flight: dict[str, int] | None = None) -> dict[str, Any]:
+    """One channel of the snapshot, around its device entries."""
+    return {
+        "name": ch.name, "enabled": ch.enabled, "description": None,
+        "in_flight": worker.in_flight if worker else 0,
+        "max_in_flight": max((max_in_flight or {}).get(ch.name, 0), worker.max_in_flight if worker else 0),
+        "devices": devices}
+
+
 def snapshot(poller: Poller, now: datetime | None = None, *, revision: str | None = None,
-             max_in_flight: dict[str, int] | None = None) -> dict[str, Any]:
-    """The engine state at one instant, in the shape `evaluate` takes."""
+             max_in_flight: dict[str, int] | None = None,
+             entries: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The engine state at one instant, in the shape `evaluate` takes. `entries`, when given,
+    receives each device's entry by device id (the task reuses them in event steps)."""
     now = now or datetime.now(UTC)
     cfg = poller.loaded.poller
     sessions = opc_sessions(poller)
     link = poller.link
     north: list[dict[str, Any]] = [{
         "name": "mqtt", "kind": "mqtt", "enabled": True, "connected": bool(link and link.connected),
-        "published": _metric("mqtt_published_total"), "last_error": None, "outbox": _outbox(poller)}]
+        "published": metrics.total("mqtt_published"), "last_error": None, "outbox": _outbox(poller)}]
     if cfg.opcua_server.enabled:
         north.append({"name": "opcua_server", "kind": "opcua_server", "enabled": True,
                       "running": poller.opcua is not None, "clients": len(sessions),
                       "last_error": poller._opcua_error})
     channels = []
-    for ch in poller.loaded.channels:
-        if poller._only is not None and ch.name not in poller._only:
-            continue
+    for ch in polled_channels(poller):
         worker = poller.workers.get(ch.name)
         devices = []
         for dev in ch.devices:
-            polled = worker is not None and ch.enabled and dev.enabled
-            enabled_tags = sum(1 for t in dev.tags if t.enabled)
-            devices.append({
-                "name": dev.name, "enabled": dev.enabled, "driver": dev.driver, "host": dev.host,
-                "port": dev.port, "params": dev.params, "scan_ms": dev.scan_ms, "timeout_ms": dev.timeout_ms,
-                "retries": dev.retries, "demote_after": dev.demote_after, "demote_for_ms": dev.demote_for_ms,
-                "description": None, "tags_enabled": enabled_tags,
-                "tags_scanned": worker.scanned_tags(dev.id) if polled else 0, "counts_bytes": False,
-                "status": worker.device_status(dev.id) if polled else dict(_NOT_POLLED),
-                "counters": device_counters(dev.id)})
-        channels.append({
-            "name": ch.name, "enabled": ch.enabled, "description": None,
-            "in_flight": worker.in_flight if worker else 0,
-            "max_in_flight": max((max_in_flight or {}).get(ch.name, 0), worker.max_in_flight if worker else 0),
-            "devices": devices})
+            entry = device_entry(worker, ch, dev)
+            if entries is not None:
+                entries[dev.id] = entry
+            devices.append(entry)
+        channels.append(channel_entry(ch, worker, devices, max_in_flight))
     return {
         "now": iso_ms(now),
         "node": {"product_version": __version__, "engine": ENGINE, "instance": cfg.instance,
@@ -574,9 +604,13 @@ class SystemTagTask:
     """Recomputes the system tags and writes the changed ones into the poller's `ValueCache`.
 
     Update classes (spec §2.1): `event` (a device finished a cycle, `notify()`), `tick` (every
-    second, aligned to the UTC second) and `config` (`reconfigure()` after a load or reload). One
-    computation serves all three, and only values that changed are written, so the `source_ts` of
-    a tag is the time of its last change.
+    second, aligned to the UTC second) and `config` (`reconfigure()` after a load or reload). Only
+    values that changed are written, so the `source_ts` of a tag is the time of its last change.
+
+    Cost (#238): a tick or config step computes every tag, once per second. An event step computes
+    only the devices that notified since the last step and their channels, reusing the other
+    devices' entries of the last full step; node and agent tags wait for the next tick (≤ 1 s,
+    spec §2.1). So the work after each device cycle does not grow with the number of devices.
     """
 
     def __init__(self, poller: Poller, *, clock: Callable[[], datetime] | None = None,
@@ -592,12 +626,18 @@ class SystemTagTask:
         self._task: asyncio.Task | None = None
         self.writes = 0                                # values written, for tests
         self._tick_second = 0                          # UTC second of the last tick step
+        self._dirty: set[str] = set()                  # devices that notified since the last step
+        self._full = True                              # the next step must compute everything
+        self._entries: dict[str, dict[str, Any]] = {}  # device id -> its snapshot entry
+        self._paths: set[str] | None = None            # every registered path, after a full step
 
     # --- lifecycle
     async def start(self) -> None:
         self.reconfigure()
         self.step()
         self._wake.clear()
+        self._dirty.clear()
+        self._full = False
         self._tick_second = int(time.time())
         self._task = asyncio.create_task(self._run(), name="system-tags")
 
@@ -610,9 +650,17 @@ class SystemTagTask:
             self.poller.cache.unregister(device_id)
         self._registered.clear()
         self._last.clear()
+        self._entries.clear()
+        self._paths = None
+        self._dirty.clear()
+        self._full = True
 
     # --- triggers
     def notify(self, device_id: str | None = None) -> None:     # event class
+        if device_id is None:
+            self._full = True
+        else:
+            self._dirty.add(device_id)
         self._wake.set()
 
     def reconfigure(self) -> None:                               # config class
@@ -621,34 +669,49 @@ class SystemTagTask:
                 self._revision = self._revision_fn()
             except Exception as exc:       # noqa: BLE001 - a diagnostic must not break the engine
                 log.warning("system_tags.revision_failed", error=str(exc))
+        self._full = True
         self._wake.set()
 
     # --- one computation
-    def step(self, now: datetime | None = None, *, tick: bool = True) -> int:
+    def step(self, now: datetime | None = None, *, tick: bool = True,
+             devices: Collection[str] | None = None) -> int:
         """Compute the tags at `now` and write the changed ones; returns how many were written.
         A `tick` step covers every class; an event or config step leaves the `tick` class tags alone
-        (the clock would otherwise be rewritten at every device cycle)."""
+        (the clock would otherwise be rewritten at every device cycle). `devices` (an event step)
+        limits the computation to those devices and their channels; None computes every tag."""
         now = now or self._clock()
         for name, worker in self.poller.workers.items():
             self._max_in_flight[name] = max(self._max_in_flight.get(name, 0), worker.max_in_flight)
-        state = snapshot(self.poller, now, revision=self._revision, max_in_flight=self._max_in_flight)
-        tags = evaluate(state)
+        if devices is None:
+            self._entries = {}
+            state = snapshot(self.poller, now, revision=self._revision, max_in_flight=self._max_in_flight,
+                             entries=self._entries)
+            tags = evaluate(state)
+        else:
+            tags = self._evaluate_devices(now, devices)
         cache = self.poller.cache
+        if devices is None and self._paths is not None and tags.keys() == self._paths:
+            written = self._write_changed(tags, now, tick=tick)
+            self.writes += written
+            return written
         by_device: dict[str, dict[str, Any]] = {}
         for path, (_, value) in tags.items():
             device_id, name = split_path(path)
             by_device.setdefault(device_id, {})[name] = value
-        for device_id in set(self._registered) - set(by_device):
-            cache.unregister(device_id)
-            del self._registered[device_id]
-            for path in [p for p in self._last if split_path(p)[0] == device_id]:
-                del self._last[path]
+        if devices is None:
+            for device_id in set(self._registered) - set(by_device):
+                cache.unregister(device_id)
+                del self._registered[device_id]
+                for path in [p for p in self._last if split_path(p)[0] == device_id]:
+                    del self._last[path]
         written = 0
+        registered = False
         for device_id, values in by_device.items():
             names = set(values)
             if self._registered.get(device_id) != names:
                 cache.register(VirtualDevice(device_id, [_VirtualTag(n) for n in sorted(names)]))   # type: ignore[arg-type]
                 self._registered[device_id] = names
+                registered = True
                 for name in names:
                     self._last.pop(f"{device_id}.{name}", None)
             changed = {}
@@ -662,8 +725,55 @@ class SystemTagTask:
             if changed:
                 cache.update(device_id, changed)
                 written += len(changed)
+        # the registered paths now equal `tags` only after a full step; a partial one that
+        # (re)registered leaves the next full step to the path above, which checks everything
+        self._paths = set(tags) if devices is None else self._paths if not registered else None
         self.writes += written
         return written
+
+    def _write_changed(self, tags: dict[str, tuple[str, Any]], now: datetime, *, tick: bool) -> int:
+        """`step`'s writes when every path is already registered: most values are unchanged, so
+        compare first and split only the paths that changed."""
+        last = self._last
+        changed: dict[str, dict[str, TagValue]] = {}
+        for path, (_, value) in tags.items():
+            old = last[path]
+            if old == value and type(old) is type(value):
+                continue
+            device_id, name = split_path(path)
+            if not tick and name in TICK_TAGS:
+                continue
+            last[path] = value
+            changed.setdefault(device_id, {})[name] = TagValue(value, "good", now)
+        for device_id, values in changed.items():
+            self.poller.cache.update(device_id, values)
+        return sum(len(v) for v in changed.values())
+
+    def _evaluate_devices(self, now: datetime, device_ids: Collection[str]) -> dict[str, tuple[str, Any]]:
+        """The device and channel tags of `device_ids`: the same values `evaluate` gives for them,
+        computed from fresh entries of those devices and the cached entries of their siblings."""
+        out: dict[str, tuple[str, Any]] = {}
+        wanted = set(device_ids)
+        if not wanted:
+            return out
+        for ch in polled_channels(self.poller):
+            hit = [dev for dev in ch.devices if dev.id in wanted]
+            if not hit:
+                continue
+            worker = self.poller.workers.get(ch.name)
+            for dev in hit:
+                self._entries[dev.id] = device_entry(worker, ch, dev)
+            entries = []
+            for dev in ch.devices:
+                entry = self._entries.get(dev.id)
+                if entry is None:                        # new since the last full step
+                    entry = self._entries[dev.id] = device_entry(worker, ch, dev)
+                entries.append(entry)
+            channel = channel_entry(ch, worker, entries, self._max_in_flight)
+            _channel(channel, out)
+            for dev in hit:
+                _device(channel, self._entries[dev.id], now, out)
+        return out
 
     # --- the loop
     @staticmethod
@@ -686,8 +796,10 @@ class SystemTagTask:
             second = int(time.time())
             if second > self._tick_second:               # an event step that crossed the boundary is a tick too
                 tick, self._tick_second = True, second
+            dirty, self._dirty = self._dirty, set()
+            full, self._full = self._full or tick, False
             try:
-                self.step(tick=tick)
+                self.step(tick=tick, devices=None if full else dirty)
             except asyncio.CancelledError:
                 raise
             except Exception:                            # a diagnostic must never stop the poller

@@ -42,7 +42,7 @@ import structlog
 
 from opencap.config.loader import slug
 from opencap.config.models import DEFAULT_TOPIC_PREFIX, MqttCfg
-from opencap.metrics import MQTT_PUBLISHED
+from opencap.metrics import count_published
 from opencap.north.saf import OutMsg, StoreAndForward
 
 log = structlog.get_logger("opencap.north.mqtt")
@@ -240,7 +240,7 @@ class MqttLink:
                 self._saf.ack(acked)
                 published = sum(1 for t in tasks if t.done() and not t.cancelled()
                                 and t.exception() is None and t.result())
-                MQTT_PUBLISHED.inc(published)
+                count_published(published)
 
     async def _publish_one(self, client: aiomqtt.Client, m: OutMsg) -> bool:
         """True = acknowledged by the broker; False = rejected locally and discarded."""

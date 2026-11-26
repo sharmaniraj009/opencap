@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from opencap.core.runtime import Poller
 from opencap.core import system_tags
+from opencap.core.runtime import Poller
 from opencap.core.system_tags import TICK_TAGS, SystemTagTask, split_path
 from tests.helpers.configdir import write_config
 from tests.helpers.modbus_sim import make_sim_devices
@@ -284,8 +284,16 @@ def test_event_steps_give_the_values_of_a_full_computation(tmp_path):
 
 
 def test_the_plain_totals_match_the_registry():
-    from opencap.metrics import (REGISTRY, count_failed_read, count_overrun, count_published, count_request,
-                                 count_saf_dropped, device_counts, total)
+    from opencap.metrics import (
+        REGISTRY,
+        count_failed_read,
+        count_overrun,
+        count_published,
+        count_request,
+        count_saf_dropped,
+        device_counts,
+        total,
+    )
 
     dev = "Totals/Check"
     for result in ("ok", "ok", "timeout", "conn_error", "bad_config", "error"):
@@ -312,3 +320,24 @@ def test_the_counted_metrics_are_only_incremented_in_opencap_metrics():
     hits = [f"{p.relative_to(src)}:{n}" for p in src.rglob("*.py") if p.name != "metrics.py"
             for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if pattern.search(line)]
     assert not hits, hits
+
+
+def test_tick_steps_on_the_compare_first_path_give_the_values_of_a_full_computation(tmp_path, monkeypatch):
+    """After the first full step every path is registered, so a tick only compares and writes what
+    changed (`_write_changed`). Its result is still every value `evaluate` gives, tick class included."""
+    from opencap.metrics import count_request
+
+    poller = make_poller(tmp_path, devices=6)
+    task = SystemTagTask(poller)
+    task.step(T0)
+    fast = _count_calls(monkeypatch, "split_path")
+    dev = poller.loaded.channels[1].devices[0]
+    for i in range(1, 4):
+        count_request(dev.id, "ok")
+        when = T0 + timedelta(seconds=i)
+        fast.clear()
+        written = task.step(when)
+        want = system_tags.evaluate(system_tags.snapshot(poller, when, max_in_flight=task._max_in_flight))
+        assert len(fast) == written < len(want)           # only the changed paths were split
+        for path, (_, expected) in want.items():
+            assert value(poller, path).value == expected, path

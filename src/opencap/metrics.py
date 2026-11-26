@@ -11,7 +11,13 @@ import threading
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import (
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 REGISTRY = CollectorRegistry(auto_describe=True)
 

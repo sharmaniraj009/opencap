@@ -487,6 +487,20 @@ def polled_channels(poller: Poller) -> Iterator[Channel]:
             yield ch
 
 
+# id(Device) -> (the Device, its enabled tag count). The config objects do not change after a load
+# (a reload builds new ones), so the count is computed once per object instead of per step (#238).
+_enabled_tags: dict[int, tuple[Device, int]] = {}
+
+
+def _tags_enabled(dev: Device) -> int:
+    hit = _enabled_tags.get(id(dev))
+    if hit is None or hit[0] is not dev:
+        if len(_enabled_tags) > 100_000:            # old configs: drop them all, they are recounted
+            _enabled_tags.clear()
+        hit = _enabled_tags[id(dev)] = (dev, sum(1 for t in dev.tags if t.enabled))
+    return hit[1]
+
+
 def device_entry(worker: ChannelWorker | None, ch: Channel, dev: Device) -> dict[str, Any]:
     """One device of the snapshot: its configuration, status and counters."""
     polled = worker is not None and ch.enabled and dev.enabled
@@ -494,7 +508,7 @@ def device_entry(worker: ChannelWorker | None, ch: Channel, dev: Device) -> dict
         "name": dev.name, "enabled": dev.enabled, "driver": dev.driver, "host": dev.host,
         "port": dev.port, "params": dev.params, "scan_ms": dev.scan_ms, "timeout_ms": dev.timeout_ms,
         "retries": dev.retries, "demote_after": dev.demote_after, "demote_for_ms": dev.demote_for_ms,
-        "description": None, "tags_enabled": sum(1 for t in dev.tags if t.enabled),
+        "description": None, "tags_enabled": _tags_enabled(dev),
         "tags_scanned": worker.scanned_tags(dev.id) if polled else 0, "counts_bytes": False,   # type: ignore[union-attr]
         "status": worker.device_status(dev.id) if polled else dict(_NOT_POLLED),             # type: ignore[union-attr]
         "counters": device_counters(dev.id)}
@@ -614,6 +628,7 @@ class SystemTagTask:
         self._dirty: set[str] = set()                  # devices that notified since the last step
         self._full = True                              # the next step must compute everything
         self._entries: dict[str, dict[str, Any]] = {}  # device id -> its snapshot entry
+        self._paths: set[str] | None = None            # every registered path, after a full step
 
     # --- lifecycle
     async def start(self) -> None:
@@ -635,6 +650,7 @@ class SystemTagTask:
         self._registered.clear()
         self._last.clear()
         self._entries.clear()
+        self._paths = None
         self._dirty.clear()
         self._full = True
 
@@ -673,6 +689,10 @@ class SystemTagTask:
         else:
             tags = self._evaluate_devices(now, devices)
         cache = self.poller.cache
+        if devices is None and self._paths is not None and tags.keys() == self._paths:
+            written = self._write_changed(tags, now, tick=tick)
+            self.writes += written
+            return written
         by_device: dict[str, dict[str, Any]] = {}
         for path, (_, value) in tags.items():
             device_id, name = split_path(path)
@@ -684,11 +704,13 @@ class SystemTagTask:
                 for path in [p for p in self._last if split_path(p)[0] == device_id]:
                     del self._last[path]
         written = 0
+        registered = False
         for device_id, values in by_device.items():
             names = set(values)
             if self._registered.get(device_id) != names:
                 cache.register(VirtualDevice(device_id, [_VirtualTag(n) for n in sorted(names)]))   # type: ignore[arg-type]
                 self._registered[device_id] = names
+                registered = True
                 for name in names:
                     self._last.pop(f"{device_id}.{name}", None)
             changed = {}
@@ -702,8 +724,29 @@ class SystemTagTask:
             if changed:
                 cache.update(device_id, changed)
                 written += len(changed)
+        # the registered paths now equal `tags` only after a full step; a partial one that
+        # (re)registered leaves the next full step to the path above, which checks everything
+        self._paths = set(tags) if devices is None else self._paths if not registered else None
         self.writes += written
         return written
+
+    def _write_changed(self, tags: dict[str, tuple[str, Any]], now: datetime, *, tick: bool) -> int:
+        """`step`'s writes when every path is already registered: most values are unchanged, so
+        compare first and split only the paths that changed."""
+        last = self._last
+        changed: dict[str, dict[str, TagValue]] = {}
+        for path, (_, value) in tags.items():
+            old = last[path]
+            if old == value and type(old) is type(value):
+                continue
+            device_id, name = split_path(path)
+            if not tick and name in TICK_TAGS:
+                continue
+            last[path] = value
+            changed.setdefault(device_id, {})[name] = TagValue(value, "good", now)
+        for device_id, values in changed.items():
+            self.poller.cache.update(device_id, values)
+        return sum(len(v) for v in changed.values())
 
     def _evaluate_devices(self, now: datetime, device_ids: Collection[str]) -> dict[str, tuple[str, Any]]:
         """The device and channel tags of `device_ids`: the same values `evaluate` gives for them,

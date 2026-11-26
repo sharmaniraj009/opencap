@@ -29,7 +29,7 @@ from opencap.logsetup import configure_logging
 from tests.helpers.broker import TestBroker
 from tests.helpers.cip_sim import CipSim, make_logix_tags
 from tests.helpers.configdir import write_config
-from tests.helpers.modbus_sim import free_port
+from tests.helpers.netcut import stable_port
 from tests.integration.test_ab_logix_sim import expected, oo_tags
 
 pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("ab_logix")]
@@ -76,7 +76,7 @@ async def test_phase2_acceptance(tmp_path, engine_factory):
                    for i, (sim, (kind, _b)) in enumerate(zip(sims, specs))]
         async with asyncio.timeout(240), TestBroker() as broker, broker.collector("opencap/#") as col:
             await col.wait_ready()
-            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=free_port(),
+            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=stable_port(),
                                       poller={"stats_interval_s": 3, "log_level": "INFO"},
                                       publish={"interval_ms": INTERVAL_MS})
             poller = engine_factory(config_dir)     # the Python Poller, or the Rust engine (--engine=rust)

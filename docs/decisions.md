@@ -1635,4 +1635,51 @@ reader would expect:
   is taken, `revision` on `config_reloaded`, and `engine`, `instance`, `revision` on `poller_started`.
 - **Secrets test.** `tests/unit/test_api_events.py` and `tests/integration/test_api_events_runtime.py` run the API with
   known token and broker-password values and fail if any captured event or audit line contains them.
+### D-080 melsec_mc in the Rust engine: a native MC 3E binary client, read commands only (#45)
+- **Decision:** `engine/drivers/melsec_mc` (`opencap-driver-melsec-mc`, feature `driver-melsec-mc`)
+  ports the Python driver (D-053 to D-057) with its own client instead of pymcprotocol (no Rust
+  crate exists; the framing is a 15-byte header plus a device spec). The address parser, planner,
+  decoder, params validation and error texts are the Python ones; conformance areas
+  `melsec_mc/plan`, `decode`, `frame` and `reply` (1,048 vectors generated from Python, request
+  bytes taken from pymcprotocol itself) pass in `opencap-conformance`.
+- **Whole frames (D-053):** a TCP reply is read as the 9-byte header and then exactly the bytes it
+  announces; the reply must carry exactly the words asked for, else `Comm` and the socket is
+  dropped. A reply split across segments reads correctly (unit test and the simulator's
+  `split_replies`). 3E has no sequence number, so a timeout also drops the socket.
+- **Read-only:** `frame.rs` can build only 0401/0000, 0401/0002 (iQ-R) and 0101/0000;
+  `check_read_only` runs before every send. Tests assert 0x1401/0x1402/remote run/stop and the
+  rest of the write list are refused and never named elsewhere in the sources.
+- **Error mapping (D-056):** same end-code classes: `BlockConfig` for 0xC051-0xC054, 0xC056,
+  0xC059, 0xC05B, 0xC05C, 0xC060, 0x4030, 0x4031, `Comm` otherwise; the socket stays open.
+- **Not ported:** ASCII frames and 4E (as in Python). Message text for OS errors differs from
+  Python's exception text. Untested on real PLCs, like the Python driver.
+- **Licence:** no new dependency; `deny.toml` unchanged.
+### D-081 Driver catalogue, params schemas, collection queries (#129)
+
+- **Schemas live next to each driver** as `Driver.params_schema` (JSON Schema draft 2020-12, built with
+  `drivers/_schema.py`), with `transport`, `dtypes`, `address_examples` and `supports_browse`; `supports_identity` is
+  true when the driver overrides `identity()`. `GET /api/v1/drivers[/{name}]` serves them (viewer role). The schemas
+  state types, ranges and enums; cross-key rules (OPC UA security policy needs a certificate, a Logix path with an odd
+  number of segments) stay in the driver and still surface at plan time.
+- **Lenient on purpose.** Unknown keys are allowed (drivers ignore them and the importer keeps provenance keys), and a
+  `null` value means the default, as in every driver. Booleans must be `true`/`false` and numbers numbers: the 0/1 and
+  string spellings some drivers still tolerate in hand-written YAML are not accepted on an API write. A `PATCH` that
+  leaves such a value in place therefore gets a 422 until it is corrected.
+- **Only API writes are checked** (device create, update, and channel create with devices). Loading files from disk,
+  `opencap check` and import are unchanged, so existing configs keep loading. The 422 `loc` of a bad param is now
+  `["params", "<key>"]` instead of `["params"]`; the message no longer comes from the driver constructor.
+  This tightens request validation inside `/api/v1`, which `api/README.md` calls a v2 matter; the issue asks for it
+  and the project is pre-release, so the contract moved to 1.4.0 (additive routes and parameters).
+- **Own validator, no new dependency.** `validate_params` implements `type`, `enum`, `minimum`, `maximum`,
+  `minLength`, `items` and `required`; tests run every schema through `jsonschema` (a dev dependency) and compare.
+- **Collections.** `q` matches `name` and `description` (channels and devices have no description, so only the name);
+  `sort` offers a documented field list per collection (channels: name, enabled, devices; devices: id, channel, name,
+  driver, host, port, enabled, tags; tags: name, address, dtype, scan_ms, enabled, description). Strings sort naturally
+  without case (`A2` before `A10`), numbers numerically; an item without a value goes last in both directions. Without
+  `limit` the whole collection is returned and `limit` is `null`; `total` counts after filtering. `/channels/{c}/devices`
+  is unchanged.
+- **Rust engine** (API-35, #140): serve the same `/drivers` entries (the schemas are data; generate a JSON file per driver
+  from the Python classes into the shared fixtures so both engines return identical documents), run the same schema check on
+  device writes with `loc` `["params", key]`, and add `q`, `sort`, `order`, `limit`, `offset` to the three list routes with
+  the natural-order comparison above (case-folded text split into digit and non-digit runs).
 

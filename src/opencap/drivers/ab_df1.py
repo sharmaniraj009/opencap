@@ -62,6 +62,7 @@ import structlog
 
 from opencap.config.models import Device, Tag
 from opencap.core.cache import TagValue
+from opencap.drivers import _schema as sc
 from opencap.drivers._serial import (
     ByteTransport,
     Endpoint,
@@ -71,8 +72,10 @@ from opencap.drivers._serial import (
     endpoint_for,
     link_pool,
     make_transport,
+    serial_properties,
 )
 from opencap.drivers.ab_pccc import (
+    PCCC_PROPERTIES,
     CONFIG_EXT_STS,
     CONFIG_STS,
     EXT_STS_FOLLOWS,
@@ -591,6 +594,21 @@ class AbDf1Driver(Driver):
 
     name: ClassVar[str] = "ab_df1"
     is_async: ClassVar[bool] = True
+    transport: ClassVar[str] = "serial, tcp, rfc2217"
+    address_examples: ClassVar[tuple[str, ...]] = ("N7:0", "F8:3", "B3:0/5", "T4:0.ACC", "ST10:0")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("ab_df1 params", {
+        **PCCC_PROPERTIES,
+        **serial_properties(("tcp", "serial", "rfc2217", "unmapped")),
+        "station": sc.integer("destination station of the PLC on the link", 1, minimum=0, maximum=MAX_STATION),
+        "src_station": sc.integer("our own station number on the link", 0, minimum=0, maximum=MAX_STATION),
+        "error_check": sc.string("frame check: crc or bcc", "crc", enum=ERROR_CHECKS),
+        "ack_timeout_ms": sc.integer("wait for the link-level ACK", 1000, minimum=1, maximum=60_000),
+        "nak_retries": sc.integer("resends after a NAK", 3, minimum=0, maximum=20),
+        "enq_retries": sc.integer("ENQs sent when no ACK arrives", 3, minimum=0, maximum=20),
+        "read_fnc": sc.string("typed read function: a2 (default) or a1", "a2", enum=("a2", "a1")),
+        "duplicate_detect": sc.boolean("drop a retransmitted reply with the same TNS", True),
+        "close_on_timeout": sc.boolean("close the line after a timeout", False),
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)

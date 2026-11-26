@@ -166,7 +166,7 @@ def test_validation_error_has_field_location_and_writes_nothing(store: ConfigSto
 def test_driver_rejects_params_and_addresses(store: ConfigStore):
     with pytest.raises(Invalid) as exc:
         store.update_device(DEV, {"params": {"unit_id": 999}}, partial=True)
-    assert exc.value.errors[0]["loc"] == ["params"] and "0..255" in exc.value.errors[0]["msg"]
+    assert exc.value.errors[0]["loc"] == ["params", "unit_id"] and "<= 255" in exc.value.errors[0]["msg"]   # schema (#129)
     with pytest.raises(Invalid) as exc:
         store.create_tags(DEV, {"name": "X", "address": "999999", "dtype": "float32"})
     assert exc.value.errors[0]["loc"] == ["address"] and exc.value.errors[0]["type"] == "bad_config"

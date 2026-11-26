@@ -15,7 +15,7 @@ from typing import Any
 from opencap.config.models import Device, PayloadCfg, Scale, Tag
 from opencap.core.cache import TagValue
 from opencap.core.channel_worker import scale_value
-from opencap.drivers import ab_logix, ab_pccc
+from opencap.drivers import ab_logix, ab_pccc, melsec_mc
 from opencap.drivers.modbus_tcp import ModbusBlock, ModbusTcpDriver
 from opencap.north import payload as payload_mod
 from opencap.north import payload_iotgw as payload_iotgw_mod
@@ -258,6 +258,95 @@ def omron_fins_addresses(inp: dict[str, Any]) -> dict[str, Any]:
     return {"area_code": f"0x{code:02X}", "word": word, "bit": a.bit, "kind": a.kind, "dims": list(a.dims),
             "str_len": a.str_len, "str_order": a.str_order, "bcd": a.bcd,
             "words": a.words(dtype if dtype not in ("bool", "string") else None)}
+def _mc_driver(inp: dict[str, Any]) -> tuple[melsec_mc.MelsecMcDriver, list[Tag]]:
+    device, tags = _device("melsec_mc", 5000, inp)
+    return melsec_mc.MelsecMcDriver(device), tags      # ValueError on bad params
+
+
+def melsec_mc_plan(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags} -> {blocks: [{device, start, count, head_number, last_number, describe, tags,
+    items}], invalid}, or {error} when the params are refused (the driver cannot be built)."""
+    try:
+        driver, tags = _mc_driver(inp)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    plan = driver.plan(tags)
+    blocks = []
+    for b in plan.blocks:
+        assert isinstance(b, melsec_mc.McBlock)
+        blocks.append({
+            "device": b.device, "start": b.start, "count": b.count,
+            "head_number": b.head_number, "last_number": b.last_number, "describe": b.describe(),
+            "tags": list(b.tags),
+            "items": [{"names": list(it.names), "offset": it.offset, "text": it.addr.text, "dtype": it.addr.dtype,
+                       "words": it.addr.words, "bit": it.addr.bit, "dims": list(it.addr.dims),
+                       "str_len": it.addr.str_len, "str_order": it.addr.str_order} for it in b.items],
+        })
+    return {"blocks": blocks, "invalid": dict(plan.invalid)}
+
+
+def melsec_mc_decode(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags, reply: {words: [u16...]}} -> {values: {tag: value}}. The tags plan to
+    exactly one block; `words` are the reply's words, unsigned, lowest device number first."""
+    driver, tags = _mc_driver(inp)
+    block = _one_block(driver.plan(tags), melsec_mc.McBlock)
+    decoded = driver.decode(block, inp["reply"]["words"])
+    return {"values": {name: encode_value(decoded[name]) for name in sorted(decoded)}}
+
+
+def melsec_mc_frame(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags, timeout_ms} -> {requests: [hex per block], cpu_model: hex}: the request frame
+    pymcprotocol (through the driver's subclass) puts on the wire for each planned block, and for
+    "read CPU model". Needs pymcprotocol."""
+    driver, tags = _mc_driver(inp)
+    p = driver.params
+    timer = melsec_mc.monitoring_timer(inp["timeout_ms"])
+
+    class _Sent(Exception):
+        pass
+
+    def captured(call: Callable[[Any], Any]) -> str:
+        client = melsec_mc.mc_client_class()(p.plc_type)
+        client.oo_configure(protocol=p.protocol, timeout_s=1.0, timer=timer, network=p.network, pc=p.pc,
+                            dest_moduleio=p.dest_moduleio, dest_modulesta=p.dest_modulesta)
+        sent: list[bytes] = []
+
+        def send(data: bytes) -> None:
+            sent.append(bytes(data))
+            raise _Sent
+
+        client._send = send              # type: ignore[method-assign]
+        try:
+            call(client)
+        except _Sent:
+            pass
+        return sent[0].hex()
+
+    plan = driver.plan(tags)
+    requests = []
+    for b in plan.blocks:
+        assert isinstance(b, melsec_mc.McBlock)
+        requests.append(captured(lambda c, b=b: c.oo_read_words(b.head, b.count)))
+    return {"requests": requests, "cpu_model": captured(lambda c: c.oo_read_cpu_model())}
+
+
+def melsec_mc_reply(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {frame: hex, words: n} -> {frame_error} (not a well-formed 3E reply, or not carrying exactly
+    `words` words), {end_code, kind, message} (an error end code: kind "config" is a BlockConfigError,
+    "comm" a CommError) or {words: [u16...]}."""
+    frame = bytes.fromhex(inp["frame"])
+    try:
+        melsec_mc.check_reply_frame(frame)
+    except melsec_mc.McFrameError as exc:
+        return {"frame_error": str(exc)}
+    code = int.from_bytes(frame[melsec_mc.REPLY_HEADER_LEN:melsec_mc.REPLY_HEADER_LEN + melsec_mc.END_CODE_LEN], "little")
+    if code:
+        kind = "config" if code in melsec_mc.CONFIG_END_CODES else "comm"
+        return {"end_code": code, "kind": kind, "message": melsec_mc.end_code_text(code)}
+    data = frame[melsec_mc.REPLY_HEADER_LEN + melsec_mc.END_CODE_LEN:]
+    if len(data) != 2 * inp["words"]:
+        return {"frame_error": f"reply carries {len(data)} data bytes for {inp['words']} words"}
+    return {"words": [int.from_bytes(data[i:i + 2], "little") for i in range(0, len(data), 2)]}
 
 
 ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
@@ -272,6 +361,10 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "ab_pccc/decode": ab_pccc_decode,
     "system_tags": system_tags,
     "omron_fins/addresses": omron_fins_addresses,
+    "melsec_mc/plan": melsec_mc_plan,
+    "melsec_mc/decode": melsec_mc_decode,
+    "melsec_mc/frame": melsec_mc_frame,
+    "melsec_mc/reply": melsec_mc_reply,
 }
 
 

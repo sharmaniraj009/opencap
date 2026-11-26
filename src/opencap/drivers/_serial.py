@@ -43,6 +43,7 @@ from typing import Any
 import structlog
 
 from opencap.config.models import Device
+from opencap.drivers import _schema as sc
 from opencap.drivers.base import ConnectionLost
 
 _log = structlog.get_logger("opencap.drivers.serial")
@@ -55,6 +56,22 @@ BYTESIZES = (5, 6, 7, 8)
 STOPBITS = (1, 1.5, 2)
 POLL_INTERVAL_S = 0.002          # read polling where the OS cannot wake us (Windows, RFC 2217)
 READ_CHUNK = 4096
+
+
+def serial_properties(transports: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    """Schema of the line params shared by modbus_rtu and ab_df1 (docs/driver_params.md)."""
+    return {
+        "transport": sc.string("how the line is reached: tcp = a serial-over-TCP gateway at host:port; "
+                               "serial = a local port (host is the device path); rfc2217 = a COM-port server; "
+                               "unmapped = a KEPServerEX COM port not mapped yet (the device stays disabled)",
+                               "tcp", enum=transports),
+        "baudrate": sc.integer("line speed (serial and rfc2217)", 19200, minimum=50, maximum=4_000_000),
+        "bytesize": sc.integer("data bits", 8, enum=BYTESIZES),
+        "parity": sc.string("none, even, odd, mark or space (or N, E, O, M, S)", "N"),
+        "stopbits": sc.number("stop bits", 1, enum=STOPBITS),
+        "com_port": sc.string("the KEPServerEX COM port this device used (COM3), for the serial_ports mapping",
+                              nullable=True),
+    }
 
 
 class TransportClosed(ConnectionLost):

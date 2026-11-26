@@ -27,7 +27,6 @@ import pytest
 from opencap.config.models import Device, Tag
 from opencap.logsetup import configure_logging
 from tests.helpers.broker import TestBroker
-from tests.helpers.clock import COARSE_CYCLE_CLOCK
 from tests.helpers.cip_sim import CipSim, make_logix_tags
 from tests.helpers.configdir import write_config
 from tests.helpers.netcut import stable_port
@@ -88,7 +87,7 @@ async def test_phase2_acceptance(tmp_path, engine_factory):
                 await poller.stop()
             stats = poller.log_events("device.stats")
             assert {e["device"] for e in stats} >= {d.id for d in devices}, "every device logged its cycle time"
-            assert all(e["mean_cycle_ms"] > 0 or COARSE_CYCLE_CLOCK for e in stats), stats   # #199
+            assert all(e["mean_cycle_ms"] > 0 for e in stats), stats
     finally:
         await asyncio.gather(*(s.stop() for s in sims), return_exceptions=True)
 

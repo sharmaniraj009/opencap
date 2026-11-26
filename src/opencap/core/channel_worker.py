@@ -62,14 +62,23 @@ from opencap.core.health import (
     EV_RESUMED,
     Backoff,
     DeviceHealth,
+    iso_utc,
 )
 from opencap.core.registry import DevicePlan
 from opencap.core.scheduler import START_JITTER, DeviceSchedule
 from opencap.drivers.base import Block, BlockConfigError, CommError, ConnectionLost, DecodeError, Driver
-from opencap.metrics import DEVICE_STATE, DEVICE_STATE_CODES, POLL_CYCLE, POLL_OVERRUN, POLL_REQUESTS
+from opencap.metrics import (
+    DEVICE_STATE,
+    DEVICE_STATE_CODES,
+    POLL_CYCLE,
+    POLL_FAILED_READS,
+    POLL_OVERRUN,
+    POLL_REQUESTS,
+)
 
 _log = structlog.get_logger("opencap.core.channel_worker")
-_mono = time.monotonic
+_mono = time.monotonic          # scheduling: lines up with loop.time()
+_perf = time.perf_counter       # durations only: monotonic ticks ~15.6 ms on Windows with Python 3.12 (#199)
 
 SAFETY_FACTOR = 1.25
 SAFETY_MARGIN_S = 0.1
@@ -168,6 +177,26 @@ class CycleStats:
         return out
 
 
+class WireLock(asyncio.Lock):
+    """The channel's FIFO wire lock, counting the requests that hold it: `in_flight` now and
+    `max_in_flight` since the worker started (system tags `_PendingReads`, `_MaxPendingReads`)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.in_flight = 0
+        self.max_in_flight = 0
+
+    async def acquire(self) -> bool:
+        await super().acquire()
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        return True
+
+    def release(self) -> None:
+        self.in_flight -= 1
+        super().release()
+
+
 class _DeviceRunner:
     """Polling state of one device. Internal to ChannelWorker."""
 
@@ -185,7 +214,9 @@ class _DeviceRunner:
         self.link_up = False                  # operator view, for INFO connected/disconnected lines
         self.last_error: str | None = None
         self.connect_error: str | None = None
+        self.last_connect_failed = False      # the latest connect attempt failed (system tag _FailedConnection)
         self.cycle_ms: float | None = None
+        self.first_cycle_done = False         # one poll cycle finished, whatever its outcome (readiness)
         self.stats = CycleStats()             # summary for the periodic INFO `device.stats` line
         self.unsupported: str | None = None
         self.registered = False
@@ -261,7 +292,7 @@ class _DeviceRunner:
         if not force and self.backoff.pending(now):
             return f"{self.connect_error or 'connect failed'} (next attempt in {self.backoff.remaining(now):.1f} s)"
         drv = self.ensure_driver()
-        t0 = _mono()
+        t0 = _perf()
         try:
             async with self.w.wire:
                 await asyncio.wait_for(drv.connect(), drv.connect_timeout_s() or self.safety_s)
@@ -272,19 +303,21 @@ class _DeviceRunner:
         except Exception as exc:
             reason = "no answer within the safety timeout" if isinstance(exc, TimeoutError) else _describe(exc)
             self.connect_error = f"connect failed: {reason}"
+            self.last_connect_failed = True
             POLL_REQUESTS.labels(self.id, "conn_error").inc()
             delay = self.backoff.failure(_mono())
             await self.close_driver()
             self.log.debug("device.connect_failed", error=reason, retry_in_s=round(delay, 3),
-                           ms=round((_mono() - t0) * 1000, 1))
+                           ms=round((_perf() - t0) * 1000, 1))
             if self.link_up:
                 self.link_up = False
                 self.log.info("device.disconnected", error=reason)
             return self.connect_error
         self.connected = True
+        self.last_connect_failed = False
         self.connect_error = None
         self.backoff.reset()
-        ms = round((_mono() - t0) * 1000, 1)
+        ms = round((_perf() - t0) * 1000, 1)
         if not self.link_up:
             self.link_up = True
             self.log.info("device.connected", host=self.device.host, port=self.device.port, ms=ms)
@@ -315,7 +348,7 @@ class _DeviceRunner:
     def _count(self, result: str, block: Block, t0: float, attempt: int, error: str | None = None) -> None:
         POLL_REQUESTS.labels(self.id, result).inc()
         self.log.debug("device.request", block=block.describe(), result=result, attempt=attempt + 1,
-                       ms=round((_mono() - t0) * 1000, 1), error=error)
+                       ms=round((_perf() - t0) * 1000, 1), error=error)
 
     async def read_block(self, block: Block, *, force_connect: bool) -> _BlockResult:
         attempts = max(self.device.retries, 0) + 1
@@ -338,7 +371,7 @@ class _DeviceRunner:
                     return _BlockResult(_CONN_DOWN, error=err)
                 fresh = True
             assert self.driver is not None
-            t0 = _mono()
+            t0 = _perf()
             try:
                 async with self.w.wire:
                     values = await asyncio.wait_for(self.driver.read(block), self.read_budget_s(block))
@@ -422,6 +455,7 @@ class _DeviceRunner:
                 self.log.warning("device.block_rejected", block=block.describe(), error=res.error)
             else:
                 comm_failed = True
+                POLL_FAILED_READS.labels(self.id).inc()
                 errors.append(res.error or "communication failed")
                 abort = res.kind == _CONN_DOWN or (probe and not any_ok)
                 for b in blocks[i:] if abort else [block]:
@@ -439,7 +473,7 @@ class _DeviceRunner:
         if any_ok:
             outcome, event = "good", self.health.record_good(now, self.w.clock())
         elif comm_failed:
-            outcome, event = "failed", self.health.record_failure(now)
+            outcome, event = "failed", self.health.record_failure(now, self.w.clock())
         else:
             outcome, event = "neutral", None
         if errors:
@@ -519,10 +553,13 @@ class _DeviceRunner:
                 return           # a read_once() demoted the device while we waited
             probe = self.health.state == "demoted"
             started = _mono()
+            t0 = _perf()
             await self.cycle(list(self.groups[slot.index]), probe=probe, force_connect=False)
+            took = _perf() - t0
             ended = _mono()
-        self.cycle_ms = round((ended - started) * 1000, 1)
-        POLL_CYCLE.labels(self.id).observe(ended - started)
+        self.cycle_ms = round(took * 1000, 1)
+        self.first_cycle_done = True
+        POLL_CYCLE.labels(self.id).observe(took)
         overrun = sched.complete(slot, started, ended)
         self.stats.add(self.cycle_ms, overrun=overrun, good=self.health.state == "ok")
         if overrun:
@@ -584,7 +621,7 @@ class ChannelWorker:
         self.rng = rng
         self.stats_interval_s = stats_interval_s
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"opencap-{_slug(channel.name)}")
-        self.wire = asyncio.Lock()
+        self.wire = WireLock()
         self.log = _log.bind(channel=channel.name)
         self._runners: dict[str, _DeviceRunner] = {
             d.id: _DeviceRunner(self, d, plans.get(d.id)) for d in channel.devices
@@ -695,10 +732,36 @@ class ChannelWorker:
     def health(self, device_id: str) -> DeviceHealth:
         return self._runner(device_id).health
 
+    def awaiting_first_cycle(self, device_id: str) -> bool:
+        """True while the device is polled but has not finished a cycle (and is not demoted):
+        what `/health/ready` waits for. A device that is not polled never waits."""
+        r = self._runner(device_id)
+        return (r.not_polled_reason() is None and not r.first_cycle_done
+                and r.health.state != "demoted")
+
+    def scanned_tags(self, device_id: str) -> int:
+        """Enabled tags the device currently scans: in a block of its plan that no `BlockConfigError`
+        has disabled (system tag `_ActiveTagCount`, spec §5.3). 0 for a device that is not polled."""
+        r = self._runner(device_id)
+        if r.not_polled_reason() is not None:
+            return 0
+        return len({name for group in r.groups for block in group for name in block.tags})
+
+    @property
+    def in_flight(self) -> int:
+        return self.wire.in_flight
+
+    @property
+    def max_in_flight(self) -> int:
+        return self.wire.max_in_flight
+
     def device_status(self, device_id: str) -> dict:
         r = self._runner(device_id)
         status = r.health.status()
         status["cycle_ms"] = r.cycle_ms
+        status["consecutive_failures"] = r.health.consecutive_failures
+        status["error_since"] = iso_utc(r.health.error_since)
+        status["last_connect_failed"] = r.last_connect_failed
         status["last_error"] = r.last_error if r.last_error is not None else r.not_polled_reason()
         status["connected"] = r.connected and r.driver is not None and r.driver.connected
         return status

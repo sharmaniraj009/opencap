@@ -54,6 +54,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from tests.helpers.netcut import stable_port
+
 SIM_HOST = "127.0.0.1"
 DEFAULT_NODE = 10                     # the CPU's FINS node number (DA1 of requests)
 DEFAULT_MODEL = "CJ1H-CPU66H"
@@ -267,12 +269,20 @@ class FinsSim:
         return len(self._writers)
 
     async def _listen(self) -> None:
+        # With no port given, candidates come from stable_port(): random, below the ephemeral range.
+        # Taking an ephemeral TCP port and then UDP on the same number failed 20 times in a row on
+        # Windows, where ephemeral ports are handed out close together ("no port free", #216).
         loop = asyncio.get_running_loop()
         for _ in range(20):
             server = None
-            port = self.port
+            port = self.port or stable_port(self.host)
             if self.tcp:
-                server = await asyncio.start_server(self._serve_tcp, self.host, self.port, reuse_address=True)
+                try:
+                    server = await asyncio.start_server(self._serve_tcp, self.host, port, reuse_address=True)
+                except OSError:
+                    if self.port:
+                        raise
+                    continue
                 port = server.sockets[0].getsockname()[1]
             if self.udp:
                 try:
@@ -761,57 +771,70 @@ def _limits(area: str, model: str) -> tuple[range, ...]:
     }.get(area, (range(32768),))                          # EM banks and the current bank
 
 
+class AddressError(ValueError):
+    """An address KEPServerEX would refuse. `reason`: "syntax" (not the grammar), "range" (a number,
+    bank, bit, string length or extent outside what the model has) or "unsupported" (a combination
+    KEPServerEX does not allow: a bit on a timer, the 'D' suffix on a Float, a 16-bit IR, ...)."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 def parse_address(address: str, dtype: str | None = None, *, model: str = "CJ1") -> Address:
     """KEPServerEX Omron FINS address -> Address. `dtype` (opencap name) is checked against the
-    area's range (a 32-bit value needs two words). Raises ValueError for text KEPServerEX does
-    not accept on `model`."""
+    area's range (a 32-bit value needs two words). Raises AddressError (a ValueError) with a
+    `reason` of "syntax", "range" or "unsupported" for text KEPServerEX does not accept on `model`."""
     if model not in MODELS:
         raise ValueError(f"fins sim: model {model!r} not modelled")
     text = address.strip().upper()
     m = _ADDR.match(text)
     if not m:
-        raise ValueError(f"fins sim: cannot parse {address!r}")
+        raise AddressError("syntax", f"fins sim: cannot parse {address!r}")
     raw, number = m["area"], int(m["num"])
     dims = tuple(int(x) for x in re.findall(r"\d+", m["dims"]))
     sfx = int(m["sfx"]) if m["sfx"] is not None else None
     order, bcd = m["order"], m["bcd"] is not None
     if m["bank"] is not None:
         if raw != "E":
-            raise ValueError(f"fins sim: {address!r}: only EM takes a bank")
+            raise AddressError("syntax", f"fins sim: {address!r}: only EM takes a bank")
         bank = int(m["bank"])
         if bank > (24 if model == "CJ2" else 12):
-            raise ValueError(f"fins sim: {address!r}: no EM bank {bank} on {model}")
+            raise AddressError("range", f"fins sim: {address!r}: no EM bank {bank} on {model}")
         area = f"E{bank:X}"
     else:
         area = raw
     if dims and (len(dims) > 2 or 0 in dims):
-        raise ValueError(f"fins sim: bad array dimensions in {address!r}")
+        raise AddressError("unsupported", f"fins sim: bad array dimensions in {address!r}")
     if raw in ("TS", "CS", "TK"):                          # completion and task flags
         if sfx is not None or bcd or dims:
-            raise ValueError(f"fins sim: {address!r}: a flag has no bit, suffix or array")
+            raise AddressError("unsupported", f"fins sim: {address!r}: a flag has no bit, suffix or array")
         area = {"TS": "T", "CS": "C", "TK": "TK"}[raw]
         _check(area, number, 1, address, model)
         return Address(area, number, None, "flag")
     if order is not None:                                  # string: <word>.<length>H|L|D|E
         assert sfx is not None
         two_per_word = order in "HL"
-        if dims or raw in ("T", "C", "IR", "DR") or not (2 <= sfx <= 512 and sfx % 2 == 0 if two_per_word
-                                                          else 1 <= sfx <= 256):
-            raise ValueError(f"fins sim: bad string address {address!r}")
+        if dims or raw in ("T", "C", "IR", "DR") or (two_per_word and sfx % 2):
+            raise AddressError("unsupported", f"fins sim: bad string address {address!r}")
+        if not (2 <= sfx <= 512 if two_per_word else 1 <= sfx <= 256):
+            raise AddressError("range", f"fins sim: string length out of range in {address!r}")
         a = Address(area, number, None, "string", (), sfx, order)
         _check(area, number, a.words(), address, model)
         return a
     if sfx is not None:                                    # bit
-        if sfx > 15 or dims or raw in ("T", "C", "IR", "DR"):
-            raise ValueError(f"fins sim: bad bit address {address!r}")
+        if dims or raw in ("T", "C", "IR", "DR"):
+            raise AddressError("unsupported", f"fins sim: bad bit address {address!r}")
+        if sfx > 15:
+            raise AddressError("range", f"fins sim: bit above 15 in {address!r}")
         _check(area, number, 1, address, model)
         return Address(area, number, sfx, "bit")
     if dtype in ("bool", "string"):
-        raise ValueError(f"fins sim: {address!r}: {dtype} needs a bit or string address")
+        raise AddressError("unsupported", f"fins sim: {address!r}: {dtype} needs a bit or string address")
     if bcd and (raw in ("T", "C") or dtype in ("bcd16", "bcd32", "float32")):
-        raise ValueError(f"fins sim: {address!r}: 'D' suffix not allowed with {dtype or 'a BCD default'}")
+        raise AddressError("unsupported", f"fins sim: {address!r}: 'D' suffix not allowed with {dtype or 'a BCD default'}")
     if raw == "IR" and dtype in ("uint16", "int16", "bcd16"):
-        raise ValueError(f"fins sim: {address!r}: index registers are 32-bit")
+        raise AddressError("unsupported", f"fins sim: {address!r}: index registers are 32-bit")
     a = Address(area, number, None, "word", dims, bcd=bcd)
     _check(area, number, a.words(dtype), address, model)
     return a
@@ -821,7 +844,7 @@ def _check(area: str, number: int, extent: int, address: str, model: str) -> Non
     for r in _limits("E" if area.startswith("E") else area, model):
         if number in r and number + extent - 1 in r:
             return
-    raise ValueError(f"fins sim: {address!r} is outside {area} on {model}")
+    raise AddressError("range", f"fins sim: {address!r} is outside {area} on {model}")
 
 
 def _string_words(raw: bytes, order: str) -> list[int]:

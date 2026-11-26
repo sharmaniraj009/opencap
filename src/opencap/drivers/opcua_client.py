@@ -51,6 +51,7 @@ import structlog
 
 from opencap.config.models import Device, Quality, Tag
 from opencap.core.cache import TagValue
+from opencap.drivers import _schema as sc
 from opencap.drivers.base import Block, ConnectionLost, DecodeError, Driver, Plan
 
 _log = structlog.get_logger("opencap.drivers.opcua_client")
@@ -579,6 +580,35 @@ class OpcUaClientDriver(Driver):
     name: ClassVar[str] = "opcua_client"
     is_async: ClassVar[bool] = True
     stale_by_read_time: ClassVar[bool] = True
+    transport: ClassVar[str] = "tcp (opc.tcp)"
+    address_examples: ClassVar[tuple[str, ...]] = (
+        "ns=2;s=Pump1.Speed", "i=2258", "ns=4;g=09087e75-8e5e-499b-954f-f2a9603db28a",
+        "nsu=urn:example:plant;s=Tank1.Level")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("opcua_client params", {
+        "endpoint": sc.string("server endpoint URL (default: opc.tcp://<host>:<port>)", non_empty=True),
+        "security_policy": sc.string("security policy; anything but None needs certificate and private_key",
+                                     "None", enum=tuple(SECURITY_POLICIES)),
+        "message_mode": sc.string("message security mode", "None", enum=MESSAGE_MODES),
+        "username_env": sc.string("NAME of the environment variable holding the user name", nullable=True,
+                                  non_empty=True),
+        "password_env": sc.string("NAME of the environment variable holding the password (never the "
+                                  "password itself)", nullable=True, non_empty=True),
+        "publishing_interval_ms": sc.integer("subscription publishing interval (null: the fastest rate group)",
+                                             minimum=1, nullable=True),
+        "sampling_interval_ms": sc.integer("monitored item sampling interval (null: each tag's rate)",
+                                           minimum=0, nullable=True),
+        "certificate": sc.string("client certificate path, DER or PEM", nullable=True, non_empty=True),
+        "private_key": sc.string("client private key path", nullable=True, non_empty=True),
+        "private_key_password_env": sc.string("NAME of the environment variable holding the key password",
+                                              nullable=True, non_empty=True),
+        "server_certificate": sc.string("pin the server certificate (null: take it from GetEndpoints)",
+                                        nullable=True, non_empty=True),
+        "application_uri": sc.string("must match the client certificate's URI", "urn:opencap:client",
+                                     non_empty=True),
+        "max_items": sc.integer("monitored items per request, nodes per read, tags per block", 100, minimum=1),
+        "session_timeout_ms": sc.integer("requested session timeout", 60_000, minimum=1000),
+        "allow_insecure_password": sc.boolean("send a user name and password over security policy None", False),
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)

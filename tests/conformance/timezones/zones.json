@@ -1,0 +1,24 @@
+{
+  "description": "Zone names both engines must accept (valid) or refuse (invalid) for payload.timezone (LOG-21). Used by tests/unit/test_name_rules.py and engine/crates/opencap-core/tests/config_conformance.rs.",
+  "valid": [
+    "Asia/Kolkata",
+    "Asia/Calcutta",
+    "UTC",
+    "Etc/UTC",
+    "Europe/Berlin",
+    "America/New_York",
+    "America/Argentina/Buenos_Aires",
+    "Australia/Lord_Howe",
+    "Pacific/Chatham",
+    "Etc/GMT+5"
+  ],
+  "invalid": [
+    "Mars/Olympus",
+    "",
+    "IST",
+    "Europe/Atlantis",
+    "../etc/passwd",
+    " UTC",
+    "Asia/Kolkata "
+  ]
+}

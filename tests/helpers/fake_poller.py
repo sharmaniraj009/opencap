@@ -31,6 +31,7 @@ class ConfigPoller:
         self.identities: dict[str, dict[str, Any]] = {}
         self.states: dict[str, str] = {}
         self.mqtt_connected = True
+        self.waiting: set[str] = set()      # devices /health/ready still waits for
         self.saf_queue = 7
         self.live_versions: dict[str, int] = {}
 
@@ -62,6 +63,10 @@ class ConfigPoller:
         return {"status": "ok", "version": FIRM_VERSION, "instance": self.loaded.poller.instance,
                 "mqtt_connected": self.mqtt_connected, "saf_queue": self.saf_queue,
                 "channels": len(self._active()), "devices": states}
+
+    def readiness(self) -> dict[str, Any]:
+        waiting = sorted(self.waiting)
+        return {"ready": not waiting, "waiting": waiting}
 
     def _status(self, dev_id: str) -> dict[str, Any]:
         dp = self.registry.plans[dev_id]

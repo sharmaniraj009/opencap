@@ -21,17 +21,25 @@ import asyncio
 import contextlib
 import importlib.util
 import os
-import pty
 import socket
+import sys
 import threading
-import tty
 from typing import Any
 
 import pytest
 
+try:                                   # POSIX only: `pty` needs `termios`, which Windows lacks
+    import pty
+    import tty
+except ImportError:
+    pty = tty = None                   # type: ignore[assignment]
+
 # Local serial ports and RFC 2217 go through pyserial (the optional extra `serial`).
 needs_pyserial = pytest.mark.skipif(importlib.util.find_spec("serial") is None,
                                     reason="pyserial not installed (pip install -e '.[serial]')")
+# A pty stands in for a local serial port. Windows has no pseudo-terminals; there the same
+# simulators still run over TCP (serial-over-TCP gateway), only the local-tty leg is skipped.
+needs_pty = pytest.mark.skipif(pty is None, reason=f"needs a POSIX pty, none on {sys.platform}")
 
 
 class PtyBridge:

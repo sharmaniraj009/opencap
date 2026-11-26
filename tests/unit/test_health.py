@@ -108,3 +108,36 @@ def test_backoff_pending_window_and_reset():
     b.reset()
     assert b.failures == 0 and not b.pending(103.0)
     assert b.failure(200.0) == 1.0                 # starts again at the base
+
+
+# --- error_since (system tags, spec section 9) --------------------------------------------------
+
+def test_error_since_is_the_first_failed_cycle_of_the_run_and_a_good_cycle_clears_it():
+    t1, t2, t3 = AT + timedelta(seconds=1), AT + timedelta(seconds=2), AT + timedelta(seconds=3)
+    h = DeviceHealth(demote_after=0)
+    assert h.error_since is None
+    h.record_failure(1.0, t1)
+    h.record_failure(2.0, t2)                      # the run is already open
+    assert h.error_since == t1 and h.consecutive_failures == 2
+    h.record_good(3.0, t3)
+    assert h.error_since is None
+    h.record_failure(4.0, t3)
+    assert h.error_since == t3                     # a new run
+
+
+def test_error_since_survives_demotion_and_failed_probes_and_is_not_in_status():
+    t = [AT + timedelta(seconds=i) for i in range(6)]
+    h = DeviceHealth(demote_after=2, demote_for_ms=1000)
+    h.record_failure(1.0, t[1])
+    assert h.record_failure(2.0, t[2]) == "demoted"
+    assert h.record_failure(3.0, t[3]) == "redemoted"       # failed probe
+    assert h.error_since == t[1]
+    assert h.record_good(4.0, t[4]) == "resumed"
+    assert h.error_since is None
+    assert set(h.status()) == {"state", "last_good", "errors"}      # the MQTT status payload is unchanged
+
+
+def test_record_failure_without_a_time_still_works():
+    h = DeviceHealth()
+    h.record_failure(1.0)
+    assert h.consecutive_failures == 1 and h.error_since is None

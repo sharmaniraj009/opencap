@@ -1,0 +1,130 @@
+# Documentation site (#9): mkdocs-material, published to GitHub Pages by .github/workflows/docs.yml.
+# Build locally:
+#   python -m venv .docs-venv && .docs-venv/bin/pip install -r docs/requirements.txt
+#   .docs-venv/bin/mkdocs serve          # or: mkdocs build --strict (what CI runs)
+# Pages only include or link existing files (README.md, CONTRIBUTING.md, docs/): nothing is
+# copied by hand. Links to repository files outside docs/ go to GitHub (scripts/mkdocs_hooks.py).
+
+site_name: opencap
+site_description: Open-source, read-only industrial connectivity server; a KEPServerEX alternative
+site_url: https://sharmaniraj009.github.io/opencap/
+repo_url: https://github.com/sharmaniraj009/opencap
+repo_name: sharmaniraj009/opencap
+edit_uri: edit/main/docs/
+copyright: Copyright the opencap contributors. Apache License 2.0.
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/brightness-7, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/brightness-4, name: Light mode }
+
+plugins:
+  - search
+  - include-markdown        # pages pull sections of README.md, CONTRIBUTING.md, driver_params.md
+
+hooks:
+  - scripts/mkdocs_hooks.py
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid       # ```mermaid blocks render as diagrams (docs/architecture/02-high-level-design.md)
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+# --strict turns every warning into an error: a link to a missing page or file fails the build.
+validation:
+  omitted_files: info   # a page missing from nav still builds and is linkable; add it to nav below
+  not_found: warn
+  absolute_links: info
+  unrecognized_links: warn
+  anchors: warn
+
+not_in_nav: |
+  /driver_params.md
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Quick start: getting-started/index.md
+      - How it works: how-it-works/index.md
+      - Configuration: configuration/index.md
+      - Deployment: deployment.md
+      - Admin API, metrics, web UI: api/index.md
+  - Import from KEPServerEX: import/index.md
+  - Commissioning: commissioning/index.md
+  - Drivers:
+      - Overview: drivers/index.md
+      - Modbus TCP: drivers/modbus-tcp/index.md
+      - Allen-Bradley Logix: drivers/ab-logix/index.md
+      - Allen-Bradley PCCC: drivers/ab-pccc/index.md
+      - Siemens S7: drivers/s7/index.md
+      - Mitsubishi MC: drivers/melsec-mc/index.md
+      - OPC UA client: drivers/opcua-client/index.md
+      - Serial lines: drivers/serial/index.md
+      - Modbus RTU: drivers/modbus-rtu/index.md
+      - Allen-Bradley DF1: drivers/ab-df1/index.md
+      - "Protocol notes: Omron FINS": protocols/omron-fins.md
+  - Northbound:
+      - MQTT and store-and-forward: northbound/index.md
+      - OPC UA server for SCADA: northbound/opcua-server/index.md
+      - SCADA compatibility: architecture/scada-compatibility.md
+  - Architecture:
+      - Overview: architecture/README.md
+      - Requirements: architecture/01-requirements.md
+      - High-level design: architecture/02-high-level-design.md
+      - Deep dive: architecture/03-deep-dive.md
+      - Scale and reliability: architecture/04-scale-reliability.md
+      - Trade-offs: architecture/05-tradeoffs.md
+      - Roadmap and migration: architecture/06-roadmap-and-migration.md
+      - Build vs reuse (licences): architecture/oss-reuse.md
+      - Phase 1 contracts: phase1_contracts.md
+      - Phase 2 contracts: phase2_contracts.md
+      - Phase 3 contracts: phase3_contracts.md
+      - "RFC 0001: Rust engine": rfc/0001-rust-engine.md
+      - Specs: spec/README.md
+      - "Spec: system and diagnostic tags": spec/system-tags.md
+      - "Spec: IoT Gateway JSON payload": spec/payload-iotgw-json.md
+      - "Spike: DNP3": spikes/dnp3.md
+      - "Spike: BACnet/IP": spikes/bacnet.md
+      - "Spike: IEC 60870-5-104": spikes/iec104.md
+  # A new ADR also gets a line here (it is reachable from the ADR index either way).
+  - ADRs:
+      - Overview: adr/README.md
+      - "0001 Record architecture decisions": adr/0001-record-architecture-decisions.md
+      - "0002 Rust engine, Python reference": adr/0002-rust-engine-python-reference.md
+      - "0003 Shared config schema": adr/0003-shared-config-schema.md
+      - "0004 Driver contract and plugins": adr/0004-driver-contract-and-plugin-model.md
+      - "0005 North plugins, tag store, event bus": adr/0005-north-plugins-tag-store-event-bus.md
+      - "0006 Quality and timestamps": adr/0006-quality-and-timestamps.md
+      - "0007 OSS licence policy": adr/0007-oss-licence-policy.md
+      - "0008 Read-only by default": adr/0008-read-only-by-default.md
+      - "0009 SCADA connectivity": adr/0009-scada-connectivity-strategy.md
+      - "0010 One UI, web and Tauri": adr/0010-one-ui-web-and-tauri.md
+      - "0011 Store-and-forward outbox": adr/0011-store-and-forward-outbox-per-agent.md
+      - "0012 Redundancy, warm standby": adr/0012-redundancy-warm-standby.md
+      - "0013 Project file v2": adr/0013-project-file-v2.md
+      - "0014 Conformance by simulators and vectors": adr/0014-conformance-by-simulators-and-vectors.md
+      - "0015 DNP3 native Rust subset": adr/0015-dnp3-native-rust-subset.md
+      - "0016 BACnet/IP native Rust client": adr/0016-bacnet-native-rust-client.md
+      - "0017 IEC 104 native Rust subset": adr/0017-iec104-native-rust-subset.md
+  - Decisions log: decisions.md
+  - Releases: release.md
+  - Contributing: contributing/index.md
+  - Board: BOARD.md

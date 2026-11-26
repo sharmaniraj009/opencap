@@ -12,7 +12,7 @@ Status: first vertical slice (milestone M2). Modbus TCP, MQTT with store-and-for
 admin API and `check`/`read` pass the Python Phase 1 acceptance suite. Every other driver is
 reported as "not implemented yet in the Rust engine" (or "not compiled in" when its crate
 exists but its Cargo feature is off) and its devices are skipped, never polled. Modbus RTU (serial
-line and RTU over TCP) passes the Python RTU simulator suite (`tests/integration/test_rust_engine_rtu.py`). The engine is **read-only** toward PLCs: the driver trait has no write method.
+line and RTU over TCP) passes the Python RTU simulator suite (`tests/integration/test_rust_engine_rtu.py`). Siemens S7 passes the Python S7 simulator checks (`tests/integration/test_rust_engine_s7.py`). Mitsubishi MELSEC MC 3E passes the Python MC simulator checks (`tests/integration/test_rust_engine_melsec.py`). The engine is **read-only** toward PLCs: the driver trait has no write method.
 
 ## Build and run
 
@@ -43,8 +43,12 @@ requests to `localhost` (D-062).
 | `opencap-serial` | serial lines: line settings, endpoints (`transport`), shared lines, local echo, TCP and local serial streams (tokio-serial) |
 | `drivers/modbus_tcp` (`opencap-driver-modbus-tcp`) | Modbus TCP: address parser, block planner, decoder, tokio-modbus I/O |
 | `drivers/modbus_rtu` (`opencap-driver-modbus-rtu`) | Modbus RTU on a serial line or RTU over TCP: the Modbus TCP planner/decoder, tokio-modbus RTU framing |
+| `drivers/ab_logix` (`opencap-driver-ab-logix`) | Allen-Bradley Logix / Micro800 symbolic tags: native EtherNet/IP + CIP client (read services only), tag-list upload and cache, Multiple Service Packet packing and the Micro800 batching probe |
+| `drivers/melsec_mc` (`opencap-driver-melsec-mc`) | Mitsubishi MELSEC MC protocol, 3E binary frame over TCP or UDP: Kepware Q Series address parser, planner, decoder, native read-only client (batch read in word units, read CPU model); whole-frame reads |
+| `drivers/s7` (`opencap-driver-s7`) | Siemens S7-300/400/1200/1500 over ISO-on-TCP: Kepware address parser, planner, decoder, native S7comm read subset (COTP connect with rack/slot TSAPs, setup communication, read var, SZL read for identity); blocks split to the negotiated PDU |
 | `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
+| `opencap-conformance` | test harness for the shared vectors in `tests/conformance` (ADR-0014): vector loader, value codec, structural diff, `run_area`; the adapters for Modbus, scaling and payload are in its `tests/` |
 | `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity`, `drivers` |
 
 ## Drivers and Cargo features
@@ -63,7 +67,7 @@ polled. A Modbus-only build: `cargo build -p opencap-engine --no-default-feature
    feature `driver-<name> = ["dep:opencap-driver-<name>"]`, and add it to `default`.
 4. `crates/opencap-drivers/src/lib.rs`: one `DriverEntry` in `DRIVERS` (`#[cfg(feature = ...)]` on `create`).
 5. `crates/opencap-engine/Cargo.toml`: `driver-<name> = ["opencap-drivers/driver-<name>"]`, add it to `default`.
-6. Tests: unit tests in `drivers/<name>/tests/`; conformance vectors in `../tests/conformance/<driver>/`;
+6. Tests: unit tests in `drivers/<name>/tests/`; conformance vectors in `../tests/conformance/<driver>/`, run by adding an adapter to `crates/opencap-conformance/tests/` (`run_area("<area>", |input| ...)`);
    the simulator in `../tests/helpers/<proto>_sim.py`, driven against the binary by `../tests/integration/`.
 7. `cargo test -p opencap-drivers` (with and without `--no-default-features`) checks the table against the features.
 
@@ -80,6 +84,12 @@ Benchmarks of the tag store and event bus (numbers in
 ```bash
 cargo bench -p opencap-core --bench store         # Criterion micro-benchmarks
 cargo bench -p opencap-core --bench store_load    # 250k tags, 8 writers, 4 subscribers (one slow), p99
+```
+
+Conformance vectors (Modbus plan and decode, scaling, payload; every failing vector is listed with its key and description):
+
+```bash
+cargo test -p opencap-conformance
 ```
 
 Conformance against the Python reference (from the repository root, after `cargo build`):

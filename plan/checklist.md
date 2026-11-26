@@ -18,13 +18,13 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 | [07 Tag management and system tags](features/07-tag-management-and-system-tags.md) | 13 | 0 | 0 | 11 | 0 | 2 |
 | [08 Communications management: modems, phonebook, auto-dial](features/08-communications-management.md) | 4 | 0 | 0 | 3 | 0 | 1 |
 | [09 Administration and security](features/09-administration-and-security.md) | 23 | 8 | 0 | 10 | 3 | 2 |
-| [10 Configuration API](features/10-configuration-api.md) | 35 | 14 | 0 | 19 | 0 | 2 |
+| [10 Configuration API](features/10-configuration-api.md) | 35 | 18 | 0 | 15 | 0 | 2 |
 | [11 Store and forward](features/11-store-and-forward.md) | 20 | 10 | 0 | 9 | 0 | 1 |
 | [12 Diagnostics](features/12-diagnostics.md) | 13 | 3 | 0 | 6 | 3 | 1 |
 | [13 iFIX](features/13-ifix.md) | 12 | 2 | 0 | 5 | 3 | 2 |
 | [14 UI and tools](features/14-ui-and-tools.md) | 20 | 7 | 0 | 9 | 2 | 2 |
-| [15 Event log messages](features/15-event-log-messages.md) | 54 | 10 | 0 | 31 | 4 | 9 |
-| **Total** | **297** | **98** | **0** | **146** | **19** | **34** |
+| [15 Event log messages](features/15-event-log-messages.md) | 54 | 15 | 0 | 26 | 4 | 9 |
+| **Total** | **297** | **107** | **0** | **137** | **19** | **34** |
 
 ## [01 Runtime and process modes](features/01-runtime-and-process-modes.md)
 
@@ -211,11 +211,11 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - ~~API-11 Force update flag~~ (Out of scope · Out of scope)
 - [ ] **API-12** Event log retrieval (Defer · Planned (#136) · #136 · M5)
 - [x] **API-13** Transaction log of configuration changes (audit) (Adapt · Done · #63 · M1)
-- [ ] **API-14** Records of refused requests (Adapt · Planned (#135) · #135 · M5)
+- [x] **API-14** Records of refused requests (Adapt · Done (Python, #135) · #135 · M5)
 - [x] **API-15** Content retrieval: response shapes and definitions (Adapt · Done · #63 · M1)
-- [ ] **API-16** Driver catalogue (Adapt · Planned (#129) · #129 · M3)
-- [ ] **API-17** Filtering and sorting collections (Adapt · Planned (#129) · #129 · M3)
-- [ ] **API-18** Paging collections (Adapt · Planned (#129) · #129 · M3)
+- [x] **API-16** Driver catalogue (Adapt · Done (Python, #129) · #129 · M3)
+- [x] **API-17** Filtering and sorting collections (Adapt · Done (Python, #129) · #129 · M3)
+- [x] **API-18** Paging collections (Adapt · Done (Python, #129) · #129 · M3)
 - ~~API-19 Localised responses~~ (Out of scope · Out of scope)
 - [ ] **API-20** Server (node) settings through the API (Adapt · Planned (#132) · #132 · M4)
 - [x] **API-21** Creating objects: single, several, with children (Adapt · Done · #63 · M1)
@@ -315,10 +315,10 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 
 - [ ] **LOG-01** Driver and plug-in loading, component inventory (Adapt · Planned (#49) · #49 · M3)
 - [ ] **LOG-02** Project load and validation events (`config.loaded`, `config.warning`, `config.invalid`) (Adapt · Not started · #37 · M3)
-- [ ] **LOG-03** Project save and file-name errors (`config.write_failed`) (Adapt · Planned (#135) · #135 · M3)
+- [x] **LOG-03** Project save and file-name errors (`config.write_failed`) (Adapt · Done (Python, #135) · #135 · M3)
 - [x] **LOG-04** Project backups and revisions (Adapt · Done · M3)
 - ~~LOG-05 Project file encryption and passwords~~ (Out of scope · Out of scope)
-- [ ] **LOG-06** Object add/edit/delete failures (`config.change_rejected`) (Adapt · Planned (#135) · #135 · M3)
+- [x] **LOG-06** Object add/edit/delete failures (`config.change_rejected`) (Adapt · Done (Python, #135) · #135 · M3)
 - [ ] **LOG-07** Naming rules and renames (`_` reserved for system tags) (Adapt · Planned (#22) · #22 · M5)
 - [ ] **LOG-08** Automatic tag generation events (Defer · Planned (#11) · #11)
 - [x] **LOG-09** Tag address validation (Adopt · Done · M2)
@@ -341,7 +341,7 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - [x] **LOG-26** Runtime lifecycle, reload, project replacement (Adopt · Done · M2)
 - ~~LOG-27 Windows service, installation, operating mode~~ (Out of scope · Out of scope · #34)
 - ~~LOG-28 OPC ProgID redirect~~ (Out of scope · Out of scope · #18)
-- [ ] **LOG-29** Configuration API port and TLS events (`api.started`, `api.bind_failed`) (Adapt · Planned (#135) · #135 · M3)
+- [x] **LOG-29** Configuration API port and TLS events (`api.started`, `api.bind_failed`) (Adapt · Done (Python, #135) · #135 · M3)
 - [ ] **LOG-30** OPC UA endpoints, certificates, discovery (Adopt · Planned (#74) · #74, #50 · M3)
 - ~~LOG-31 OPC .NET, OPC HDA, DDE~~ (Out of scope · Out of scope)
 - [ ] **LOG-32** OPC AE subscription filters (Defer · Planned (#24) · #24 · M5)
@@ -362,8 +362,8 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - [ ] **LOG-R9** Event log store and retention (Adopt · Planned (#136) · #136 · M5)
 - [ ] **LOG-R10** Event log API (Adopt · Planned (#136) · #136, #32 · M5)
 - [ ] **LOG-R11** UI event log view (Adopt · Planned (#136) · #136 · M5)
-- [ ] **LOG-R12** No secrets in logs (test) (Adopt · Planned (#135) · #135 · M2)
+- [x] **LOG-R12** No secrets in logs (test) (Adopt · Done (Python, #135) · #135 · M2)
 - [ ] **LOG-R13** One test per catalogued event (Adopt · Planned (#134) · #134 · M3)
 - [ ] **LOG-R14** Engine parity of events (Adopt · Not started · #42 · M4)
-- [ ] **LOG-R15** Correlation fields (`revision`, `who`) (Adopt · Planned (#135) · #135 · M3)
+- [x] **LOG-R15** Correlation fields (`revision`, `who`) (Adopt · Done (Python, #135) · #135 · M3)
 - [ ] **LOG-R16** Library log lines as JSON (Adopt · Planned (#133) · #133 · M1)

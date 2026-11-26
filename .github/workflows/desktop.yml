@@ -1,30 +1,46 @@
 name: desktop
 
+# The desktop app (desktop/, ADR-0010) and its installers with the engine bundled (#58):
+# fmt, clippy, tests (including a start/stop of the real engine), then MSI / deb / AppImage, each
+# installed, launched, self-tested (the installed app starts the engine next to it) and removed.
+# Unsigned: code signing is an owner decision (desktop/README.md, "Installers").
+# The release workflow calls this one and attaches the installers (#34).
+
 on:
   pull_request:
-    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+    paths: ["desktop/**", "engine/**", ".github/workflows/desktop.yml"]   # engine/: it is bundled
   push:
     branches: [main]
-    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+    paths: ["desktop/**", "engine/**", ".github/workflows/desktop.yml"]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   build:
+    name: build (${{ matrix.os }}, ${{ matrix.bundles }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-22.04
             bundles: deb,appimage
+            target: x86_64-unknown-linux-gnu
+            exe: ""
           - os: windows-latest
             bundles: msi
+            target: x86_64-pc-windows-msvc
+            exe: ".exe"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: desktop
+        shell: bash
+    env:
+      ENGINE_BIN: ${{ github.workspace }}/engine/target/release/opencap-engine${{ matrix.exe }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch, 2026-11-18
@@ -33,20 +49,99 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: desktop
+          workspaces: |
+            desktop
+            engine
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev build-essential pkg-config file
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev build-essential pkg-config file xvfb
+      - name: Build the engine to bundle (release)
+        working-directory: engine
+        run: cargo build --locked --release -p opencap-engine
+      - name: Put it where Tauri's externalBin looks (src-tauri/binaries/<name>-<target>)
+        run: |
+          mkdir -p src-tauri/binaries
+          cp "$ENGINE_BIN" "src-tauri/binaries/opencap-engine-${{ matrix.target }}${{ matrix.exe }}"
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
+      - name: Test (with a start/stop of the real engine)
+        env:
+          OPENCAP_TEST_ENGINE_BIN: ${{ env.ENGINE_BIN }}
+        run: cargo test --locked
       - name: Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
-      - name: Bundle (unsigned)
-        run: cargo tauri build --bundles ${{ matrix.bundles }} -- --locked
+      - name: Bundle with the engine (unsigned)
+        run: cargo tauri build --config src-tauri/tauri.engine.conf.json --bundles ${{ matrix.bundles }} -- --locked
+
+      - name: "Linux smoke test: deb install, self-test, launch, remove"
+        if: runner.os == 'Linux'
+        run: |
+          set -x
+          deb=$(ls target/release/bundle/deb/*.deb)
+          sudo apt-get install -y "./$deb"
+          test -x /usr/bin/opencap-desktop && test -x /usr/bin/opencap-engine
+          /usr/bin/opencap-engine --help > /dev/null
+          /usr/bin/opencap-desktop --check-bundled-engine     # the installed app starts the engine next to it
+          # launch the window headless: still running after 15 s means it came up
+          set +e; timeout 15 xvfb-run -a /usr/bin/opencap-desktop; code=$?; set -e
+          test "$code" -eq 124
+          # the bundled engine's data lives in the user's home and survives removal (upgrades too)
+          data="$HOME/.local/share/org.opencap.desktop/engine"
+          mkdir -p "$data/config" && echo "kept: true" > "$data/config/marker.yaml"
+          sudo apt-get remove -y opencap-desktop
+          test ! -e /usr/bin/opencap-engine && test -f "$data/config/marker.yaml"
+      - name: "Linux smoke test: AppImage self-test"
+        if: runner.os == 'Linux'
+        run: |
+          set -x
+          app=$(ls target/release/bundle/appimage/*.AppImage)
+          chmod +x "$app"
+          (cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/desktop/$app" --appimage-extract > /dev/null)
+          test -x "$RUNNER_TEMP/squashfs-root/usr/bin/opencap-engine"
+          "$RUNNER_TEMP/squashfs-root/usr/bin/opencap-desktop" --check-bundled-engine
+
+      - name: "Windows smoke test: offline MSI install, self-test, launch, uninstall"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The MSI must not need the internet (plant networks): block the WebView2 download
+          # hosts for the install. The bootstrapper is embedded (webviewInstallMode).
+          $hosts = "$env:SystemRoot\System32\drivers\etc\hosts"
+          Copy-Item $hosts "$env:RUNNER_TEMP\hosts.bak"
+          "0.0.0.0 go.microsoft.com`n0.0.0.0 msedge.sf.dl.delivery.mp.microsoft.com`n0.0.0.0 msedge.b.tlu.dl.delivery.mp.microsoft.com" | Add-Content $hosts
+          $msi = (Get-ChildItem target\release\bundle\msi\*.msi | Select-Object -First 1).FullName
+          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v `"$env:RUNNER_TEMP\install.log`"" -Wait -PassThru
+          Copy-Item "$env:RUNNER_TEMP\hosts.bak" $hosts -Force
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 60; throw "msiexec /i exited $($p.ExitCode)" }
+          $app = Get-ChildItem "$env:ProgramFiles", "${env:ProgramFiles(x86)}", "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter opencap-desktop.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $app) { throw "opencap-desktop.exe not found after install" }
+          $dir = $app.DirectoryName
+          Write-Host "installed in $dir"
+          if (-not (Test-Path "$dir\opencap-engine.exe")) { throw "opencap-engine.exe is not next to the app" }
+          & "$dir\opencap-engine.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "opencap-engine.exe --help exited $LASTEXITCODE" }
+          # GUI build: no console, so the self-test reports through a file and its exit code
+          $report = "$env:RUNNER_TEMP\check.txt"
+          $c = Start-Process $app.FullName -ArgumentList "--check-bundled-engine `"$report`"" -Wait -PassThru
+          Get-Content $report
+          if ($c.ExitCode -ne 0) { throw "--check-bundled-engine exited $($c.ExitCode)" }
+          $w = Start-Process $app.FullName -PassThru
+          Start-Sleep -Seconds 15
+          if ($w.HasExited) { throw "the app exited within 15 s (code $($w.ExitCode))" }
+          Stop-Process -Id $w.Id
+          $data = "$env:LOCALAPPDATA\org.opencap.desktop\engine\config"
+          New-Item -ItemType Directory -Force $data | Out-Null
+          "kept: true" | Set-Content "$data\marker.yaml"
+          $u = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "msiexec /x exited $($u.ExitCode)" }
+          if (Test-Path "$dir\opencap-engine.exe") { throw "uninstall left the engine behind" }
+          if (-not (Test-Path "$data\marker.yaml")) { throw "uninstall removed the engine's config" }
+          Write-Host "OK: offline install, self-test, launch, uninstall; config kept"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: opencap-desktop-${{ runner.os }}

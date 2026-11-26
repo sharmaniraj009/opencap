@@ -69,6 +69,7 @@ ports and RFC 2217; serial-over-TCP gateways need nothing extra). `all` installs
 # 4. Read one device once and print its values (no MQTT)
 .venv/bin/opencap read "Plant A/PLC1"            # --tag FLOW_1 for one tag
 .venv/bin/opencap identity "Plant A/PLC1"        # vendor, model, firmware if the PLC reports them
+.venv/bin/opencap browse "Plant A/PLC1" --out plc1_tags.json   # tags from the PLC's own tag list
 
 # 5. Run: poll, publish to MQTT, serve the admin API
 export OPENCAP_MQTT_PASSWORD=...    # only if mqtt.username is set
@@ -142,6 +143,7 @@ reference implementation.
 | `opcua_client` | OPC UA (subscriptions) | any OPC UA server | OPC UA Client | `opcua` (asyncua) | ✅ done (field check to do) |
 | `modbus_rtu` | Modbus RTU (serial, or RTU over TCP) | serial Modbus slaves | Modbus RTU Serial (configured by hand) | `modbus` (+ `serial` for a local port) | ✅ done |
 | `ab_df1` | Allen-Bradley DF1 full duplex | SLC 500, MicroLogix | Allen-Bradley DF1 | none (+ `serial` for a local port) | ✅ done |
+| `simulator` | none: values computed from the address | demos, the UI, desktop tests, benchmarks | Simulator (its devices are not imported) | none | ✅ done |
 | OPC UA server | OPC UA (north side) | SCADA/HMI clients | KEPServerEX's OPC UA server | `opcua` (asyncua) | ✅ done, off by default (hardening: #28) |
 
 Addresses and data types:
@@ -177,6 +179,12 @@ Addresses and data types:
   `params.username_env` / `password_env`. A password is never sent over security policy `None`
   unless `params.allow_insecure_password: true`. Write, call and node-management services are
   refused inside the driver, even though the library offers them.
+- **Simulator:** `RAMP(period_ms, low, high[, step])`, `SINE(period_ms, low, high[, phase_deg])`,
+  `RANDOM(period_ms, low, high[, seed])`, `SQUARE(period_ms, low, high)`, `CONST(value)`,
+  memory registers `K<n>` (`params.memory`), `TIME`, `COUNTER`. No network; deterministic for a
+  given clock, `params.epoch` and seed, so both engines return the same values at the same
+  instant. Fault switches `fail_connect`, `fail_every_n_reads`, `latency_ms` and
+  `bad_decode_tags` make every quality visible in a demo (D-071).
 
 ### OPC UA server for SCADA
 
@@ -515,6 +523,17 @@ MQTT link, outbox size) · device page (live values and quality every 2 s, block
 overrides; validation errors next to the field; Reload) · check (block plan and cycle estimates)
 · import (KEPServerEX `project.json` or an opencap export, with a dry-run diff) · audit log.
 The UI never writes a PLC value.
+
+**Languages.** Every string the UI shows comes from one table per language in
+`src/opencap/api/ui/i18n/`: `en.json` (key → text) is the reference and the only table today. The
+UI follows the browser's preferred languages (in the desktop app, the system language), falls back
+to English, and a language picked in the header is kept for that browser tab. To add a language,
+copy `en.json` to `<code>.json` (a lowercase BCP 47 code such as `de` or `pt-br`) and translate the
+values. Keep each `{name}` placeholder and the `<code>`, `<strong>`, `<em>` and `<a href>` markup of
+the strings that have it, then list the language in `languages.json` (`"de": "Deutsch"`, its name in
+that language). A key the table lacks falls back to English. `tests/unit/test_ui.py` checks the new
+table's keys and placeholders. Messages from the server (validation and API errors) and identifiers
+such as quality codes and driver names stay as the server sends them.
 
 **Configuration API** (contract: [03 §3.6](docs/architecture/03-deep-dive.md)). Reads, lists
 included, return the config `revision` (also as `ETag`). **Every write needs `If-Match: <revision>`**: 428

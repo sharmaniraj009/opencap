@@ -1,0 +1,14 @@
+{
+ "format": 1,
+ "area": "melsec_mc/decode",
+ "description": "Items at offsets inside a block; aliases; short, empty and long replies.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"offsets","description":"Items at their offsets inside a merged block; the gap words are ignored.","input":{"params":{},"tags":[{"name":"a","address":"D10","dtype":"uint16"},{"name":"b","address":"D12","dtype":"uint32"},{"name":"c","address":"D20","dtype":"int16"}],"reply":{"words":[1,99,3,4,99,99,99,99,99,65535]}},"expected":{"values":{"a":{"t":"int","v":"1"},"b":{"t":"int","v":"262147"},"c":{"t":"decode_error","v":"D20 (int16): short reply: need words up to offset 10, got 10"}}}},
+  {"id":"aliases","description":"Two names, one address: both get the value.","input":{"params":{},"tags":[{"name":"a","address":"D1","dtype":"uint16"},{"name":"b","address":"D1","dtype":"uint16"},{"name":"c","address":"D1.0","dtype":"bool"}],"reply":{"words":[7,5]}},"expected":{"values":{"a":{"t":"int","v":"7"},"b":{"t":"int","v":"7"},"c":{"t":"bool","v":true}}}},
+  {"id":"same-words-two-dtypes","description":"One word as uint16, int16, and half of a uint32.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"uint16"},{"name":"b","address":"D0","dtype":"int16"},{"name":"c","address":"D0","dtype":"uint32"}],"reply":{"words":[65535,1]}},"expected":{"values":{"a":{"t":"int","v":"65535"},"b":{"t":"int","v":"-1"},"c":{"t":"int","v":"131071"}}}},
+  {"id":"short-reply","description":"A reply shorter than the block fails only the tags that do not fit.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"uint16"},{"name":"b","address":"D1","dtype":"uint32"},{"name":"c","address":"D5","dtype":"uint16"}],"reply":{"words":[1,2]}},"expected":{"values":{"a":{"t":"int","v":"1"},"b":{"t":"decode_error","v":"D1 (uint32): short reply: need words up to offset 2, got 2"},"c":{"t":"decode_error","v":"D5 (uint16): short reply: need words up to offset 5, got 2"}}}},
+  {"id":"empty-reply","description":"No words at all: every tag fails.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"uint16"},{"name":"b","address":"D1","dtype":"uint16"}],"reply":{"words":[]}},"expected":{"values":{"a":{"t":"decode_error","v":"D0 (uint16): short reply: need words up to offset 0, got 0"},"b":{"t":"decode_error","v":"D1 (uint16): short reply: need words up to offset 1, got 0"}}}},
+  {"id":"long-reply","description":"Extra words are ignored.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"uint16"}],"reply":{"words":[1,2,3]}},"expected":{"values":{"a":{"t":"int","v":"1"}}}}
+ ]
+}

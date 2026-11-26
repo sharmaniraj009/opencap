@@ -35,6 +35,7 @@ import structlog
 
 from opencap.config.models import Device, Tag
 from opencap.core.cache import TagValue
+from opencap.drivers import _schema as sc
 from opencap.drivers.base import (
     Block,
     BlockConfigError,
@@ -72,6 +73,31 @@ _BOOL_PARAMS = frozenset({
 
 
 # --- params -----------------------------------------------------------------------
+
+def _limit(what: str, fc: int) -> dict[str, Any]:
+    return sc.integer(f"{what} per request (capped at the protocol limit of {PROTOCOL_MAX[fc]})", 64, minimum=1)
+
+
+MODBUS_PROPERTIES: dict[str, dict[str, Any]] = {
+    "unit_id": sc.integer("Modbus unit (slave) id", 0, minimum=0, maximum=255),
+    "zero_based": sc.boolean("addresses are 0-based (false: the first register is 1)", True),
+    "zero_based_bit": sc.boolean("bit-in-register numbers start at 0", True),
+    "modicon_bit_order": sc.boolean("bit 0 is the most significant bit of the register", False),
+    "byte_order_big": sc.boolean("big-endian bytes in a register (the Modbus standard)", True),
+    "first_word_low": sc.boolean("the first word of a 32-bit value is the low word", True),
+    "first_dword_low": sc.boolean("the first dword of a 64-bit value is the low dword", True),
+    "max_coils": _limit("coils (FC01 bits)", 1),
+    "max_discrete": _limit("discrete inputs (FC02 bits)", 2),
+    "max_input": _limit("input registers (FC04)", 4),
+    "max_holding": _limit("holding registers (FC03)", 3),
+    "max_gap": sc.integer("unused registers allowed between merged tags", 4, minimum=0),
+    "max_gap_bits": sc.integer("unused bits allowed between merged coil/discrete tags (null: max_gap x 16)",
+                               minimum=0, nullable=True),
+    "nonnormal_float": sc.string("NaN, Inf and denormal floats: replace with zero or pass unmodified",
+                                 "zero", enum=("zero", "unmodified")),
+    "close_on_timeout": sc.boolean("close the TCP socket after a timeout", True),
+}
+
 
 @dataclass(frozen=True)
 class ModbusParams:
@@ -538,6 +564,10 @@ class ModbusTcpDriver(Driver):
 
     name: ClassVar[str] = "modbus_tcp"
     is_async: ClassVar[bool] = True
+    transport: ClassVar[str] = "tcp"
+    address_examples: ClassVar[tuple[str, ...]] = (
+        "400001", "300010", "000005", "100002", "400001.5", "400001[8]", "400010.10H")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("modbus_tcp params", MODBUS_PROPERTIES)
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)

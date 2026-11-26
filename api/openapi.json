@@ -1,6 +1,57 @@
 {
   "components": {
     "schemas": {
+      "About": {
+        "properties": {
+          "api_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Api Versions",
+            "type": "array"
+          },
+          "config_schema_version": {
+            "title": "Config Schema Version",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "version_major": {
+            "title": "Version Major",
+            "type": "integer"
+          },
+          "version_minor": {
+            "title": "Version Minor",
+            "type": "integer"
+          },
+          "version_patch": {
+            "title": "Version Patch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product",
+          "version",
+          "version_major",
+          "version_minor",
+          "version_patch",
+          "engine",
+          "api_versions",
+          "config_schema_version"
+        ],
+        "title": "About",
+        "type": "object"
+      },
       "AuditList": {
         "additionalProperties": true,
         "properties": {
@@ -148,9 +199,42 @@
             "title": "Channels",
             "type": "array"
           },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          },
           "revision": {
             "title": "Revision",
             "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
           }
         },
         "required": [
@@ -286,6 +370,1574 @@
           "devices"
         ],
         "title": "ChannelStatus",
+        "type": "object"
+      },
+      "ConfigChannel": {
+        "additionalProperties": false,
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigDevice"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "devices"
+        ],
+        "title": "Channel",
+        "type": "object"
+      },
+      "ConfigChannelCreate": {
+        "additionalProperties": false,
+        "description": "A new channel, optionally with devices (their `id` and `channel` are derived).",
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigDeviceCreate"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "ConfigChannelOverride": {
+        "additionalProperties": false,
+        "description": "overrides.yaml can switch a channel on or off, nothing else.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "ConfigChannelPatch": {
+        "additionalProperties": false,
+        "description": "Rename or enable/disable a channel (devices have their own routes). JSON merge patch (RFC 7386): only the keys to change; null removes a key.",
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "default": true,
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "title": "Name",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ConfigDevice": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "demote_after": {
+            "default": 3,
+            "title": "Demote After",
+            "type": "integer"
+          },
+          "demote_for_ms": {
+            "default": 30000,
+            "title": "Demote For Ms",
+            "type": "integer"
+          },
+          "driver": {
+            "enum": [
+              "modbus_tcp",
+              "ab_logix",
+              "ab_pccc",
+              "s7",
+              "melsec_mc",
+              "opcua_client",
+              "modbus_rtu",
+              "ab_df1",
+              "simulator"
+            ],
+            "title": "Driver",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "min_scan_ms": {
+            "default": 1000,
+            "title": "Min Scan Ms",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "publish": {
+            "$ref": "#/components/schemas/ConfigPublishCfg"
+          },
+          "retries": {
+            "default": 2,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "scan_ms": {
+            "default": 1000,
+            "title": "Scan Ms",
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "timeout_ms": {
+            "default": 3000,
+            "title": "Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "name",
+          "driver",
+          "host",
+          "port",
+          "tags"
+        ],
+        "title": "Device",
+        "type": "object"
+      },
+      "ConfigDeviceCreate": {
+        "additionalProperties": false,
+        "description": "A new device: `id` and `channel` come from the URL (`<channel>/<name>`), `tags` defaults to [].",
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "demote_after": {
+            "default": 3,
+            "title": "Demote After",
+            "type": "integer"
+          },
+          "demote_for_ms": {
+            "default": 30000,
+            "title": "Demote For Ms",
+            "type": "integer"
+          },
+          "driver": {
+            "enum": [
+              "modbus_tcp",
+              "ab_logix",
+              "ab_pccc",
+              "s7",
+              "melsec_mc",
+              "opcua_client",
+              "modbus_rtu",
+              "ab_df1",
+              "simulator"
+            ],
+            "title": "Driver",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "min_scan_ms": {
+            "default": 1000,
+            "title": "Min Scan Ms",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "publish": {
+            "$ref": "#/components/schemas/ConfigPublishCfg"
+          },
+          "retries": {
+            "default": 2,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "scan_ms": {
+            "default": 1000,
+            "title": "Scan Ms",
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "timeout_ms": {
+            "default": 3000,
+            "title": "Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "driver",
+          "host",
+          "port"
+        ],
+        "type": "object"
+      },
+      "ConfigDeviceMapEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Env"
+          },
+          "stub": {
+            "default": false,
+            "title": "Stub",
+            "type": "boolean"
+          },
+          "sub_device_id": {
+            "title": "Sub Device Id",
+            "type": "string"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Topic"
+          }
+        },
+        "required": [
+          "sub_device_id"
+        ],
+        "title": "DeviceMapEntry",
+        "type": "object"
+      },
+      "ConfigDeviceMapEntryPatch": {
+        "additionalProperties": false,
+        "description": "JSON merge patch (RFC 7386): only the keys to change; null removes a key.",
+        "properties": {
+          "env": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Env"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stub": {
+            "anyOf": [
+              {
+                "default": false,
+                "title": "Stub",
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sub_device_id": {
+            "anyOf": [
+              {
+                "title": "Sub Device Id",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ConfigDeviceOverride": {
+        "additionalProperties": false,
+        "properties": {
+          "demote_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Demote After"
+          },
+          "demote_for_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Demote For Ms"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Enabled"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Host"
+          },
+          "min_scan_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Min Scan Ms"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Port"
+          },
+          "publish": {
+            "additionalProperties": true,
+            "title": "Publish",
+            "type": "object"
+          },
+          "retries": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retries"
+          },
+          "scan_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scan Ms"
+          },
+          "tags": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ConfigTagOverride"
+            },
+            "title": "Tags",
+            "type": "object"
+          },
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timeout Ms"
+          }
+        },
+        "title": "DeviceOverride",
+        "type": "object"
+      },
+      "ConfigDeviceOverridePatch": {
+        "additionalProperties": false,
+        "description": "JSON merge patch (RFC 7386): only the keys to change; null removes a key.",
+        "properties": {
+          "demote_after": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Demote After"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "demote_for_ms": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Demote For Ms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Enabled"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Host"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "min_scan_ms": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Min Scan Ms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "title": "Params",
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "port": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Port"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publish": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "title": "Publish",
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retries": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Retries"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scan_ms": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Scan Ms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ConfigTagOverride"
+                },
+                "title": "Tags",
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Timeout Ms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ConfigDevicePatch": {
+        "additionalProperties": false,
+        "description": "JSON merge patch (RFC 7386): only the keys to change; null removes a key.",
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "title": "Channel",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "demote_after": {
+            "anyOf": [
+              {
+                "default": 3,
+                "title": "Demote After",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "demote_for_ms": {
+            "anyOf": [
+              {
+                "default": 30000,
+                "title": "Demote For Ms",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "driver": {
+            "anyOf": [
+              {
+                "enum": [
+                  "modbus_tcp",
+                  "ab_logix",
+                  "ab_pccc",
+                  "s7",
+                  "melsec_mc",
+                  "opcua_client",
+                  "modbus_rtu",
+                  "ab_df1",
+                  "simulator"
+                ],
+                "title": "Driver",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "default": true,
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "anyOf": [
+              {
+                "title": "Host",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "anyOf": [
+              {
+                "title": "Id",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "min_scan_ms": {
+            "anyOf": [
+              {
+                "default": 1000,
+                "title": "Min Scan Ms",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "title": "Name",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "title": "Params",
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "port": {
+            "anyOf": [
+              {
+                "title": "Port",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publish": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfigPublishCfg"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retries": {
+            "anyOf": [
+              {
+                "default": 2,
+                "title": "Retries",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scan_ms": {
+            "anyOf": [
+              {
+                "default": 1000,
+                "title": "Scan Ms",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "title": "Source",
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConfigTag"
+                },
+                "title": "Tags",
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "default": 3000,
+                "title": "Timeout Ms",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ConfigDevicePut": {
+        "additionalProperties": false,
+        "description": "The whole device. `name` and `channel` default to the current ones; changing them moves or renames the device; `id` is derived.",
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "demote_after": {
+            "default": 3,
+            "title": "Demote After",
+            "type": "integer"
+          },
+          "demote_for_ms": {
+            "default": 30000,
+            "title": "Demote For Ms",
+            "type": "integer"
+          },
+          "driver": {
+            "enum": [
+              "modbus_tcp",
+              "ab_logix",
+              "ab_pccc",
+              "s7",
+              "melsec_mc",
+              "opcua_client",
+              "modbus_rtu",
+              "ab_df1",
+              "simulator"
+            ],
+            "title": "Driver",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "min_scan_ms": {
+            "default": 1000,
+            "title": "Min Scan Ms",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "publish": {
+            "$ref": "#/components/schemas/ConfigPublishCfg"
+          },
+          "retries": {
+            "default": 2,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "scan_ms": {
+            "default": 1000,
+            "title": "Scan Ms",
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "timeout_ms": {
+            "default": 3000,
+            "title": "Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "driver",
+          "host",
+          "port",
+          "tags"
+        ],
+        "type": "object"
+      },
+      "ConfigProjectImport": {
+        "description": "A KEPServerEX project.json, or an opencap export (`GET /api/v1/project`). Sent as the raw body.",
+        "type": "object"
+      },
+      "ConfigPublishCfg": {
+        "additionalProperties": false,
+        "properties": {
+          "deadband": {
+            "default": 0.0,
+            "title": "Deadband",
+            "type": "number"
+          },
+          "env": {
+            "default": "prod",
+            "title": "Env",
+            "type": "string"
+          },
+          "format": {
+            "default": "subdevice_json",
+            "enum": [
+              "subdevice_json",
+              "iotgw_json"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "heartbeat_ms": {
+            "default": 300000,
+            "title": "Heartbeat Ms",
+            "type": "integer"
+          },
+          "interval_ms": {
+            "default": 10000,
+            "title": "Interval Ms",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "interval",
+            "enum": [
+              "interval",
+              "on_change"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "sub_device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sub Device Id"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Topic"
+          }
+        },
+        "title": "PublishCfg",
+        "type": "object"
+      },
+      "ConfigScale": {
+        "additionalProperties": false,
+        "description": "Kepware-style tag scaling. Defaults match Kepware's defaults.",
+        "properties": {
+          "clamp_hi": {
+            "default": false,
+            "title": "Clamp Hi",
+            "type": "boolean"
+          },
+          "clamp_lo": {
+            "default": false,
+            "title": "Clamp Lo",
+            "type": "boolean"
+          },
+          "eng_hi": {
+            "default": 1000.0,
+            "title": "Eng Hi",
+            "type": "number"
+          },
+          "eng_lo": {
+            "default": 0.0,
+            "title": "Eng Lo",
+            "type": "number"
+          },
+          "negate": {
+            "default": false,
+            "title": "Negate",
+            "type": "boolean"
+          },
+          "raw_hi": {
+            "default": 1000.0,
+            "title": "Raw Hi",
+            "type": "number"
+          },
+          "raw_lo": {
+            "default": 0.0,
+            "title": "Raw Lo",
+            "type": "number"
+          },
+          "type": {
+            "default": "linear",
+            "enum": [
+              "linear",
+              "sqrt"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Units"
+          }
+        },
+        "title": "Scale",
+        "type": "object"
+      },
+      "ConfigTag": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "dtype": {
+            "enum": [
+              "bool",
+              "int16",
+              "uint16",
+              "int32",
+              "uint32",
+              "int64",
+              "uint64",
+              "float32",
+              "float64",
+              "string"
+            ],
+            "title": "Dtype",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfigScale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scan_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scan Ms"
+          }
+        },
+        "required": [
+          "name",
+          "address",
+          "dtype"
+        ],
+        "title": "Tag",
+        "type": "object"
+      },
+      "ConfigTagOverride": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Address"
+          },
+          "dtype": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bool",
+                  "int16",
+                  "uint16",
+                  "int32",
+                  "uint32",
+                  "int64",
+                  "uint64",
+                  "float32",
+                  "float64",
+                  "string"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dtype"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Enabled"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfigScale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scan_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scan Ms"
+          }
+        },
+        "title": "TagOverride",
+        "type": "object"
+      },
+      "ConfigTagPatch": {
+        "additionalProperties": false,
+        "description": "JSON merge patch (RFC 7386): only the keys to change; null removes a key.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "title": "Address",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Description"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dtype": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bool",
+                  "int16",
+                  "uint16",
+                  "int32",
+                  "uint32",
+                  "int64",
+                  "uint64",
+                  "float32",
+                  "float64",
+                  "string"
+                ],
+                "title": "Dtype",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "default": true,
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "title": "Name",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ConfigScale"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scan_ms": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Scan Ms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ConfigTagPut": {
+        "additionalProperties": false,
+        "description": "The whole tag; `name` defaults to the one in the URL (another name renames it).",
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "dtype": {
+            "enum": [
+              "bool",
+              "int16",
+              "uint16",
+              "int32",
+              "uint32",
+              "int64",
+              "uint64",
+              "float32",
+              "float64",
+              "string"
+            ],
+            "title": "Dtype",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfigScale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scan_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scan Ms"
+          }
+        },
+        "required": [
+          "address",
+          "dtype"
+        ],
         "type": "object"
       },
       "DeviceDetail": {
@@ -462,9 +2114,42 @@
             "title": "Devices",
             "type": "array"
           },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          },
           "revision": {
             "title": "Revision",
             "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
           }
         },
         "required": [
@@ -571,6 +2256,139 @@
         "title": "DeviceStates",
         "type": "object"
       },
+      "DriverEntry": {
+        "additionalProperties": true,
+        "properties": {
+          "address_examples": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Address Examples",
+            "type": "array"
+          },
+          "dtypes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dtypes",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params_schema": {
+            "additionalProperties": true,
+            "description": "JSON Schema (draft 2020-12) of `Device.params`; unknown keys are allowed and a null value means the default",
+            "title": "Params Schema",
+            "type": "object"
+          },
+          "supports_browse": {
+            "title": "Supports Browse",
+            "type": "boolean"
+          },
+          "supports_identity": {
+            "title": "Supports Identity",
+            "type": "boolean"
+          },
+          "transport": {
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "transport",
+          "supports_identity",
+          "supports_browse",
+          "params_schema",
+          "dtypes",
+          "address_examples"
+        ],
+        "title": "DriverEntry",
+        "type": "object"
+      },
+      "DriverInfo": {
+        "properties": {
+          "library": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library"
+          },
+          "library_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Version"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DriverInfo",
+        "type": "object"
+      },
+      "DriverList": {
+        "additionalProperties": true,
+        "properties": {
+          "drivers": {
+            "items": {
+              "$ref": "#/components/schemas/DriverSummary"
+            },
+            "title": "Drivers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "drivers"
+        ],
+        "title": "DriverList",
+        "type": "object"
+      },
+      "DriverSummary": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "supports_browse": {
+            "title": "Supports Browse",
+            "type": "boolean"
+          },
+          "supports_identity": {
+            "title": "Supports Identity",
+            "type": "boolean"
+          },
+          "transport": {
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "transport",
+          "supports_identity",
+          "supports_browse"
+        ],
+        "title": "DriverSummary",
+        "type": "object"
+      },
       "Error": {
         "additionalProperties": true,
         "description": "Every non-2xx answer. `detail` is a message, or the list of problems for a 400/422.",
@@ -662,6 +2480,28 @@
           },
           "devices": {
             "$ref": "#/components/schemas/DeviceStates"
+          },
+          "initial_scan_complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Scan Complete"
+          },
+          "initial_scan_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Scan Ms"
           },
           "instance": {
             "title": "Instance",
@@ -765,6 +2605,19 @@
           "pending_reload"
         ],
         "title": "ImportReport",
+        "type": "object"
+      },
+      "Live": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "Live",
         "type": "object"
       },
       "MapEntry": {
@@ -1204,6 +3057,38 @@
         "title": "ProjectStatus",
         "type": "object"
       },
+      "Ready": {
+        "properties": {
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "waiting": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Waiting",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ready",
+          "waiting"
+        ],
+        "title": "Ready",
+        "type": "object"
+      },
       "ReloadResult": {
         "additionalProperties": true,
         "description": "Which channels a reload touched (`unchanged` is not part of the audit detail).",
@@ -1265,9 +3150,123 @@
         "title": "Status",
         "type": "object"
       },
+      "Support": {
+        "properties": {
+          "api_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Api Versions",
+            "type": "array"
+          },
+          "arch": {
+            "title": "Arch",
+            "type": "string"
+          },
+          "config_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Revision"
+          },
+          "config_schema_version": {
+            "title": "Config Schema Version",
+            "type": "integer"
+          },
+          "drivers": {
+            "items": {
+              "$ref": "#/components/schemas/DriverInfo"
+            },
+            "title": "Drivers",
+            "type": "array"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "north_interfaces": {
+            "items": {
+              "type": "string"
+            },
+            "title": "North Interfaces",
+            "type": "array"
+          },
+          "os": {
+            "title": "Os",
+            "type": "string"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "toolchain": {
+            "$ref": "#/components/schemas/Toolchain"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "version_major": {
+            "title": "Version Major",
+            "type": "integer"
+          },
+          "version_minor": {
+            "title": "Version Minor",
+            "type": "integer"
+          },
+          "version_patch": {
+            "title": "Version Patch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product",
+          "version",
+          "version_major",
+          "version_minor",
+          "version_patch",
+          "engine",
+          "api_versions",
+          "config_schema_version",
+          "os",
+          "arch",
+          "toolchain",
+          "drivers",
+          "north_interfaces"
+        ],
+        "title": "Support",
+        "type": "object"
+      },
       "TagList": {
         "additionalProperties": true,
         "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          },
           "revision": {
             "title": "Revision",
             "type": "string"
@@ -1279,6 +3278,17 @@
             },
             "title": "Tags",
             "type": "array"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
           }
         },
         "required": [
@@ -1346,6 +3356,45 @@
           "quality"
         ],
         "title": "TagValueJson",
+        "type": "object"
+      },
+      "Toolchain": {
+        "properties": {
+          "implementation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation"
+          },
+          "python": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Python"
+          },
+          "rust": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rust"
+          }
+        },
+        "title": "Toolchain",
         "type": "object"
       },
       "ValidationError": {
@@ -1764,10 +3813,32 @@
   "info": {
     "description": "Admin and configuration API of opencap (contract: api/README.md).",
     "title": "opencap",
-    "version": "1.1.0"
+    "version": "1.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/about": {
+      "get": {
+        "description": "Open: product, version, engine and API versions (no site information).",
+        "operationId": "about_api_v1_about_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/About"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "About",
+        "tags": [
+          "open"
+        ]
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "operationId": "audit_api_v1_audit_get",
@@ -1933,7 +4004,96 @@
     },
     "/api/v1/channels": {
       "get": {
+        "description": "All channels. `q`, `sort`, `order`, `limit` and `offset` (API-17, API-18);\nsortable: name, enabled, devices.",
         "operationId": "list_channels_api_v1_channels_get",
+        "parameters": [
+          {
+            "description": "case-insensitive substring of name and description",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "case-insensitive substring of name and description",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "field to sort by; the fields are listed per route, anything else is a 422",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "field to sort by; the fields are listed per route, anything else is a 422",
+              "title": "Sort"
+            }
+          },
+          {
+            "description": "sort direction",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "sort direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "description": "page size; absent: the whole collection",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 10000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "page size; absent: the whole collection",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "items to skip, after filtering and sorting",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "items to skip, after filtering and sorting",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1974,6 +4134,16 @@
               }
             },
             "description": "unknown channel, device, tag or entry"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           },
           "503": {
             "content": {
@@ -2024,7 +4194,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigChannelCreate"
               }
             }
           },
@@ -2423,7 +4593,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigChannelPatch"
               }
             }
           },
@@ -2667,7 +4837,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigDeviceCreate"
               }
             }
           },
@@ -2790,6 +4960,7 @@
     },
     "/api/v1/devices": {
       "get": {
+        "description": "All devices, or one channel's. `q`, `sort`, `order`, `limit` and `offset` (API-17, API-18);\nsortable: id, channel, name, driver, host, port, enabled, tags.",
         "operationId": "list_devices_api_v1_devices_get",
         "parameters": [
           {
@@ -2806,6 +4977,92 @@
                 }
               ],
               "title": "Channel"
+            }
+          },
+          {
+            "description": "case-insensitive substring of name and description",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "case-insensitive substring of name and description",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "field to sort by; the fields are listed per route, anything else is a 422",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "field to sort by; the fields are listed per route, anything else is a 422",
+              "title": "Sort"
+            }
+          },
+          {
+            "description": "sort direction",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "sort direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "description": "page size; absent: the whole collection",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 10000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "page size; absent: the whole collection",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "items to skip, after filtering and sorting",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "items to skip, after filtering and sorting",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           }
         ],
@@ -3152,7 +5409,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigDevicePatch"
               }
             }
           },
@@ -3317,7 +5574,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigDevicePut"
               }
             }
           },
@@ -3781,6 +6038,7 @@
     },
     "/api/v1/devices/{device_id}/tags": {
       "get": {
+        "description": "The device's tags. `q`, `sort`, `order`, `limit` and `offset` as on the other lists (API-17, API-18);\nsortable: name, address, dtype, scan_ms, enabled, description.",
         "operationId": "list_tags_api_v1_devices__device_id__tags_get",
         "parameters": [
           {
@@ -3790,6 +6048,92 @@
             "schema": {
               "title": "Device Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "case-insensitive substring of name and description",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "case-insensitive substring of name and description",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "field to sort by; the fields are listed per route, anything else is a 422",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "field to sort by; the fields are listed per route, anything else is a 422",
+              "title": "Sort"
+            }
+          },
+          {
+            "description": "sort direction",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "sort direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "description": "page size; absent: the whole collection",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 10000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "page size; absent: the whole collection",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "items to skip, after filtering and sorting",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "items to skip, after filtering and sorting",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           }
         ],
@@ -3902,7 +6246,19 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ConfigTag"
+                  },
+                  {
+                    "items": {
+                      "$ref": "#/components/schemas/ConfigTag"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                ],
+                "description": "One tag, or a list of tags added in one change."
               }
             }
           },
@@ -4328,7 +6684,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigTagPatch"
               }
             }
           },
@@ -4502,7 +6858,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigTagPut"
               }
             }
           },
@@ -4706,6 +7062,115 @@
         "summary": "Device Values"
       }
     },
+    "/api/v1/drivers": {
+      "get": {
+        "description": "Every implemented driver: name, transport, and whether it reads identity and browses.",
+        "operationId": "list_drivers_api_v1_drivers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "the token's role may not do this (viewer: GET only)"
+          }
+        },
+        "summary": "List Drivers"
+      }
+    },
+    "/api/v1/drivers/{name}": {
+      "get": {
+        "description": "One driver: the JSON Schema of its `params`, the dtypes it reads and address examples.",
+        "operationId": "get_driver_api_v1_drivers__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverEntry"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "the token's role may not do this (viewer: GET only)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "unknown channel, device, tag or entry"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Driver"
+      }
+    },
     "/api/v1/map": {
       "get": {
         "operationId": "get_map_api_v1_map_get",
@@ -4801,7 +7266,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigPublishCfg"
               }
             }
           },
@@ -5200,7 +7665,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigDeviceMapEntryPatch"
               }
             }
           },
@@ -5365,7 +7830,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigDeviceMapEntry"
               }
             }
           },
@@ -5822,7 +8287,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigChannelOverride"
               }
             }
           },
@@ -6221,7 +8686,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigDeviceOverridePatch"
               }
             }
           },
@@ -6386,7 +8851,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Body"
+                "$ref": "#/components/schemas/ConfigDeviceOverride"
               }
             }
           },
@@ -6648,6 +9113,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigProjectImport"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -7252,6 +9727,65 @@
         "summary": "Status"
       }
     },
+    "/api/v1/support": {
+      "get": {
+        "description": "Support information (viewer): safe to paste into a public issue, as `opencap info`.",
+        "operationId": "support_summary_api_v1_support_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Support"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "missing or wrong token (`WWW-Authenticate: Bearer`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "the token's role may not do this (viewer: GET only)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "unknown channel, device, tag or entry"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "the API runs without a config directory"
+          }
+        },
+        "summary": "Support Summary"
+      }
+    },
     "/api/v1/whoami": {
       "get": {
         "operationId": "whoami_api_v1_whoami_get",
@@ -7732,6 +10266,60 @@
           }
         },
         "summary": "Health",
+        "tags": [
+          "open"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "description": "Open: 200 while the process serves requests (a liveness probe).",
+        "operationId": "health_live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Live"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Live",
+        "tags": [
+          "open"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "Open: 200 once the config is loaded, the north servers are started and every enabled device\nhas finished one cycle (or is offline or demoted); 503 with the devices still waiting.",
+        "operationId": "health_ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            },
+            "description": "not ready yet: `waiting` lists the devices"
+          }
+        },
+        "summary": "Health Ready",
         "tags": [
           "open"
         ]

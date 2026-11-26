@@ -7,6 +7,7 @@ from config files.
 
 from __future__ import annotations
 
+import functools
 import math
 from typing import Any, Literal
 
@@ -17,7 +18,7 @@ DType = Literal[
     "float32", "float64", "string",
 ]
 DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client",
-                     "modbus_rtu", "ab_df1"]
+                     "modbus_rtu", "ab_df1", "simulator"]
 Quality = Literal["good", "bad_comm", "bad_config", "bad_decode", "stale"]
 
 DEFAULT_TOPIC_PREFIX = "opencap"   # poller.yaml mqtt.topic_prefix default
@@ -59,6 +60,80 @@ class Scale(_Model):
 # Each device's diagnostics live under `<channel>.<device>._System` (OPC UA server, D-046), so no
 # tag or tag group may use that name (compared without case, as KEPServerEX compares names).
 RESERVED_GROUP = "_System"
+# System-tag folders (docs/spec/system-tags.md section 3.2, PRJ-13, LOG-07). Compared without case.
+RESERVED_CHANNEL_NAMES = ("_System",)
+RESERVED_DEVICE_NAMES = ("_System", "_Statistics")
+RESERVED_TAG_GROUPS = ("_System", "_Statistics")
+
+
+def reserved_word(name: str, reserved: tuple[str, ...]) -> str | None:
+    """The reserved word `name` equals (case-insensitively), or None."""
+    return next((w for w in reserved if w.lower() == name.lower()), None)
+
+
+def underscore_names(channels: Any) -> list[str]:
+    """Names with a segment starting with `_` (the warning of spec 3.2; reserved words are errors
+    and never get here). One text per name, in file order: the loader reports them, and API writes
+    refuse the ones they would add (PRJ-13)."""
+    out: list[str] = []
+    for ch in channels:
+        if ch.name.startswith("_"):
+            out.append(f"channel name {ch.name!r} starts with '_'")
+        for dev in ch.devices:
+            if dev.name.startswith("_"):
+                out.append(f"{dev.id}: device name {dev.name!r} starts with '_'")
+            for tag in dev.tags:
+                if any(seg.startswith("_") for seg in tag.name.split(".")):
+                    out.append(f"{dev.id}: tag name {tag.name!r} has a segment starting with '_'")
+    return out
+
+
+# Device names the REST paths use as sub-resources (`/devices/<channel>/<device>/tags`): a device
+# cannot have one of them as its name (case-sensitive, as the paths are).
+API_DEVICE_NAMES = ("tags", "values", "plan", "identity", "status", "read-once")
+
+
+def _name_faults(name: str, what: str, *, dotted: bool) -> list[str]:
+    """Rule violations of one name (PRJ-13). `dotted`: a channel or device name, where `.` and `/`
+    would make tag paths and device ids ambiguous. The `_` rule is `underscore_names`'."""
+    out: list[str] = []
+    if not name:
+        return [f"{what} name is empty"]
+    if name != name.strip():
+        out.append(f"{what} name {name!r} has leading or trailing whitespace")
+    if '"' in name:
+        out.append(f"{what} name {name!r} contains '\"'")
+    if dotted:
+        for ch in (".", "/"):
+            if ch in name:
+                out.append(f"{what} name {name!r} contains {ch!r}")
+    return out
+
+
+def name_rule_problems(channels: Any) -> list[tuple[tuple[Any, ...], str]]:
+    """Names that break the naming rules other than the `_` one (PRJ-13): empty, surrounding
+    whitespace, `"`, `.` or `/` in a channel or device name, an empty or padded dot segment of a tag
+    name, a device name the REST paths use. One `(loc, text)` per problem, in file order; `loc` is
+    the pydantic-style path of the name. Names are never changed: the loader reports these as
+    warnings and API writes refuse the ones they would add."""
+    out: list[tuple[tuple[Any, ...], str]] = []
+    for ci, ch in enumerate(channels):
+        loc: tuple[Any, ...] = ("channels", ci)
+        out += [((*loc, "name"), t) for t in _name_faults(ch.name, "channel", dotted=True)]
+        for di, dev in enumerate(ch.devices):
+            dloc = (*loc, "devices", di)
+            out += [((*dloc, "name"), f"{dev.id}: {t}") for t in _name_faults(dev.name, "device", dotted=True)]
+            if dev.name in API_DEVICE_NAMES:
+                out.append(((*dloc, "name"), f"{dev.id}: device name {dev.name!r} is used by the REST paths"))
+            for ti, tag in enumerate(dev.tags):
+                tloc = (*dloc, "tags", ti, "name")
+                if tag.name == "":
+                    out.append((tloc, f"{dev.id}: tag name is empty"))
+                    continue
+                for seg in tag.name.split("."):
+                    out += [(tloc, f"{dev.id}: {t} (in tag {tag.name!r})")
+                            for t in _name_faults(seg, "tag segment", dotted=False)]
+    return out
 
 
 class Tag(_Model):
@@ -79,6 +154,9 @@ class PublishCfg(_Model):
     interval_ms: int = 10_000
     heartbeat_ms: int = 300_000
     deadband: float = 0.0
+    # "subdevice_json" = the SubDevice message; "iotgw_json" = KEPServerEX IoT Gateway standard
+    # template (docs/spec/payload-iotgw-json.md). Applies to the data topic only.
+    format: Literal["subdevice_json", "iotgw_json"] = "subdevice_json"
 
 
 class Device(_Model):
@@ -106,10 +184,16 @@ class Device(_Model):
         dupes = sorted({t.name for t in self.tags if t.name in seen or seen.add(t.name)})
         if dupes:
             raise ValueError(f"{self.id}: duplicate tag names {dupes}")
-        reserved = sorted(t.name for t in self.tags if t.name.split(".", 1)[0].lower() == RESERVED_GROUP.lower())
-        if reserved:
-            raise ValueError(f"{self.id}: tag names {reserved} use the reserved group name {RESERVED_GROUP!r} "
-                             "(the per-device diagnostics folder of the OPC UA server, D-046)")
+        word = reserved_word(self.name, RESERVED_DEVICE_NAMES)
+        if word:
+            raise ValueError(f"{self.id}: device name {self.name!r} is the reserved word {word!r} "
+                             "(system-tag folder, docs/spec/system-tags.md 3.2)")
+        for word in RESERVED_TAG_GROUPS:
+            reserved = sorted(t.name for t in self.tags if t.name.split(".", 1)[0].lower() == word.lower())
+            if reserved:
+                raise ValueError(f"{self.id}: tag names {reserved} use the reserved group name {word!r} "
+                                 + ("(the per-device diagnostics folder of the OPC UA server, D-046)"
+                                    if word == RESERVED_GROUP else "(system-tag folder, docs/spec/system-tags.md 3.2)"))
         return self
 
     def effective_rate_ms(self, tag: Tag) -> int:
@@ -128,6 +212,15 @@ class Channel(_Model):
     name: str                      # KEPServer channel name = site
     enabled: bool = True
     devices: list[Device]
+
+    @field_validator("name")
+    @classmethod
+    def _not_reserved(cls, value: str) -> str:
+        word = reserved_word(value, RESERVED_CHANNEL_NAMES)
+        if word:
+            raise ValueError(f"channel name {value!r} is the reserved word {word!r} "
+                             "(system-tag folder, docs/spec/system-tags.md 3.2)")
+        return value
 
 
 class ExcludedDevice(_Model):
@@ -269,10 +362,46 @@ class ApiCfg(_Model):
         return self
 
 
+def is_known_zone(name: str) -> bool:
+    """An IANA zone name the payload can use (the fixed-offset zones cover images without tzdata,
+    as `north.payload.zone` does)."""
+    if name in _FALLBACK_ZONES:
+        return True
+    if not name or name != name.strip():
+        return False
+    zones = _available_zones()
+    if zones:                       # exact, case-sensitive key match, as chrono-tz in the Rust engine
+        return name in zones        # (Windows file lookups ignore case and trailing spaces)
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return False
+    return True
+
+
+_FALLBACK_ZONES = ("Asia/Kolkata", "Asia/Calcutta", "UTC")
+
+
+@functools.lru_cache(maxsize=1)
+def _available_zones() -> frozenset[str]:
+    from zoneinfo import available_timezones
+
+    return frozenset(available_timezones())
+
+
 class PayloadCfg(_Model):
     float_decimals: int = 4
     bad_tags_field: bool = True
     timezone: str = "Asia/Kolkata"
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_zone(cls, value: str) -> str:
+        if not is_known_zone(value):
+            raise ValueError(f"payload.timezone {value!r} is not a known IANA time zone name")
+        return value
 
 
 class DeviceDefaults(_Model):

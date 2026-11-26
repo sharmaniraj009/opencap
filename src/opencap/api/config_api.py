@@ -9,7 +9,7 @@ The open equivalent of KEPServerEX's Configuration API, and the only API the web
     /api/v1/overrides, /overrides/devices/{id}, /overrides/channels/{c} overrides.yaml
     /api/v1/project (whole config), /project/status, /project/pending, /project/import,
     /project/validate (= opencap check), /project/revisions, /project/schema
-    /api/v1/audit, /api/v1/whoami
+    /api/v1/audit, /api/v1/whoami, /api/v1/support
     runtime: /api/v1/status, /api/v1/devices/{id}/status|values|plan|identity,
              POST /api/v1/devices/{id}/read-once, POST /api/v1/reload
 
@@ -30,9 +30,12 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from opencap.api import schemas as S
+from opencap.api import collection_query as CQ
 from opencap.api.context import ApiContext
 from opencap.config.models import Channel, Device, DeviceMapEntry, DeviceOverride, PublishCfg, Tag
 from opencap.config.store import CURRENT_WRITER, MAX_IMPORT_BYTES, ConfigError, ConfigStore, Invalid, Result
+from opencap.core.support import support_info
+from opencap.drivers import catalogue
 
 JSON_TYPES = ("application/json",)
 IDENTITY_TTL_S = 300
@@ -108,6 +111,21 @@ def _lookup(fn, device_id: str) -> Any:
 def build_router() -> APIRouter:
     r = APIRouter(prefix="/api/v1")
 
+    # --- driver catalogue (API-16) ---------------------------------------------------
+    @r.get("/drivers", response_model=S.DriverList, response_model_exclude_unset=True, responses=S.ERR_AUTH)
+    def list_drivers() -> dict[str, Any]:
+        """Every implemented driver: name, transport, and whether it reads identity and browses."""
+        return catalogue.listing()
+
+    @r.get("/drivers/{name}", response_model=S.DriverEntry, response_model_exclude_unset=True,
+           responses={**S.ERR_AUTH, **S.ERR_NOT_FOUND})
+    def get_driver(name: str) -> dict[str, Any]:
+        """One driver: the JSON Schema of its `params`, the dtypes it reads and address examples."""
+        try:
+            return catalogue.entry(name)
+        except LookupError:
+            raise HTTPException(status_code=404, detail=f"unknown driver {name!r}") from None
+
     # --- who / status ------------------------------------------------------------
     @r.get("/whoami", response_model=S.Whoami, response_model_exclude_unset=True, responses=S.ERR_READ)
     def whoami(request: Request) -> dict[str, Any]:
@@ -116,6 +134,14 @@ def build_router() -> APIRouter:
         w = ctx.store.writable() if ctx.store is not None else {"writable": False, "reason": "no config directory"}
         return {"name": p.name, "role": p.role, "open": ctx.auth.open,
                 "config_writable": w["writable"], "config_writable_reason": w["reason"]}
+
+    @r.get("/support", response_model=S.Support, response_model_exclude_unset=True, responses=S.ERR_READ)
+    def support_summary(request: Request) -> dict[str, Any]:
+        """Support information (viewer): safe to paste into a public issue, as `opencap info`."""
+        ctx = _ctx(request)
+        cfg = getattr(getattr(ctx.poller, "loaded", None), "poller", None)
+        revision = ctx.store.revision() if ctx.store is not None else None
+        return support_info(cfg, revision)
 
     @r.get("/status", response_model=S.Status, response_model_exclude_unset=True, responses=S.ERR_READ)
     def status(request: Request) -> dict[str, Any]:
@@ -126,9 +152,13 @@ def build_router() -> APIRouter:
 
     # --- runtime per device (device ids contain "/": suffix routes come first) ----
     @r.get("/devices/{device_id:path}/tags", response_model=S.TagList, response_model_exclude_unset=True, responses=S.ERR_READ)
-    def list_tags(request: Request, device_id: str) -> JSONResponse:
+    def list_tags(request: Request, device_id: str, query: CQ.CollectionParams) -> JSONResponse:
+        """The device's tags. `q`, `sort`, `order`, `limit` and `offset` as on the other lists (API-17, API-18);
+        sortable: name, address, dtype, scan_ms, enabled, description."""
         dev = _store(request).get_device(device_id)
-        return with_rev({"tags": dev["device"]["tags"], "revision": dev["revision"]})
+        page = CQ.apply_query(dev["device"]["tags"], query, CQ.TAG_SORT)
+        return with_rev({"tags": page["items"], "total": page["total"], "limit": page["limit"],
+                         "offset": page["offset"], "revision": dev["revision"]})
 
     @r.post("/devices/{device_id:path}/tags", status_code=201, response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def create_tags(request: Request, device_id: str, body: JsonBody, if_match: IfMatch = None,
@@ -211,8 +241,13 @@ def build_router() -> APIRouter:
 
     # --- channels ----------------------------------------------------------------
     @r.get("/channels", response_model=S.ChannelList, response_model_exclude_unset=True, responses=S.ERR_READ)
-    def list_channels(request: Request) -> JSONResponse:
-        return with_rev(_store(request).list_channels())
+    def list_channels(request: Request, query: CQ.CollectionParams) -> JSONResponse:
+        """All channels. `q`, `sort`, `order`, `limit` and `offset` (API-17, API-18);
+        sortable: name, enabled, devices."""
+        data = _store(request).list_channels()
+        page = CQ.apply_query(data["channels"], query, CQ.CHANNEL_SORT)
+        return with_rev({"channels": page["items"], "total": page["total"], "limit": page["limit"],
+                         "offset": page["offset"], "revision": data["revision"]})
 
     @r.post("/channels", status_code=201, response_model=S.WriteResult, response_model_exclude_unset=True, responses=S.ERR_WRITE)
     async def create_channel(request: Request, body: JsonBody, if_match: IfMatch = None,
@@ -250,8 +285,13 @@ def build_router() -> APIRouter:
 
     # --- devices -----------------------------------------------------------------
     @r.get("/devices", response_model=S.DeviceList, response_model_exclude_unset=True, responses=S.ERR_READ)
-    def list_devices(request: Request, channel: str | None = None) -> JSONResponse:
-        return with_rev(_store(request).list_devices(channel))
+    def list_devices(request: Request, query: CQ.CollectionParams, channel: str | None = None) -> JSONResponse:
+        """All devices, or one channel's. `q`, `sort`, `order`, `limit` and `offset` (API-17, API-18);
+        sortable: id, channel, name, driver, host, port, enabled, tags."""
+        data = _store(request).list_devices(channel)
+        page = CQ.apply_query(data["devices"], query, CQ.DEVICE_SORT)
+        return with_rev({"devices": page["items"], "total": page["total"], "limit": page["limit"],
+                         "offset": page["offset"], "revision": data["revision"]})
 
     @r.get("/devices/{device_id:path}", response_model=S.DeviceResource, response_model_exclude_unset=True, responses=S.ERR_READ)
     def get_device(request: Request, device_id: str) -> JSONResponse:

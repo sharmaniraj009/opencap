@@ -58,6 +58,7 @@ from opencap.drivers._cip_common import (
     is_timeout,
     oo_socket_class,
 )
+from opencap.drivers import _schema as sc
 from opencap.drivers.base import (
     Block,
     BlockConfigError,
@@ -927,6 +928,13 @@ def _param(params: Mapping[str, Any], key: str, default: int, minimum: int, who:
     return value
 
 
+PCCC_PROPERTIES: dict[str, dict[str, Any]] = {       # shared with ab_df1
+    "max_elements": sc.integer("elements per file-block read", 100, minimum=1),
+    "max_gap": sc.integer("unused elements allowed between merged tags", 4, minimum=0),
+    "request_size": sc.integer("maximum data bytes per read (clamped to 255, the PCCC limit)", 232, minimum=1),
+}
+
+
 def plan_pccc(tags: list[Tag], params: Mapping[str, Any], *, who: str = "ab_pccc") -> Plan:
     """Parse PCCC addresses and merge them into file blocks (one PCCC read each). Pure.
 
@@ -982,6 +990,15 @@ class AbPcccDriver(Driver):
 
     name: ClassVar[str] = "ab_pccc"
     is_async: ClassVar[bool] = False
+    transport: ClassVar[str] = "tcp (EtherNet/IP)"
+    address_examples: ClassVar[tuple[str, ...]] = ("N7:0", "F8:3", "L9:2", "B3:0/5", "T4:0.ACC", "ST10:0", "I:0/3")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("ab_pccc params", {
+        **PCCC_PROPERTIES,
+        "path": sc.string("CIP route after the IP address, if any", nullable=True),
+        "file_check": {**sc.boolean("read the processor's file directory once and reject blocks for "
+                                    "missing or short files before sending", True),
+                       "type": ["boolean", "string"], "enum": [True, False, "on", "off", "true", "false"]},
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)

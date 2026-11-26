@@ -24,6 +24,7 @@ from opencap.config.models import Scale
 from opencap.drivers import modbus_tcp
 from opencap.north import payload as payload_mod
 from tests.conformance import reference
+from tests.helpers import fins_sim
 from tests.conformance.vectors import (
     AREAS,
     FORMAT,
@@ -129,6 +130,12 @@ def _mutants() -> dict[str, tuple[str, Callable[[pytest.MonkeyPatch], None]]]:
             "scaling", lambda mp: mp.setattr(
                 Scale, "apply", lambda self, raw: apply(self.model_copy(update={"clamp_lo": False, "clamp_hi": False}),
                                                         raw))),
+        "FINS counter offset dropped": (
+            "omron_fins/addresses", lambda mp: mp.setitem(
+                fins_sim.AREAS, "C", dataclasses.replace(fins_sim.AREAS["C"], offset=0))),
+        "FINS DM bit code = word code": (
+            "omron_fins/addresses", lambda mp: mp.setitem(
+                fins_sim.AREAS, "D", dataclasses.replace(fins_sim.AREAS["D"], bit_code=0x82))),
         "-0.0 kept in the payload": (
             "payload", lambda mp: mp.setattr(
                 payload_mod, "clean_value",

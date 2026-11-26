@@ -1,0 +1,79 @@
+# systemd unit for the Rust engine, opencap-engine (#57). Install and usage: docs/deployment.md,
+# "Rust engine (opencap-engine) as a service". Same layout and hardening as opencap.service (Python).
+#
+#   /usr/local/bin/opencap-engine   the engine binary (a release build, or from the release page)
+#   /etc/opencap/                   poller.yaml, devices.json, devices_map.yaml, overrides.yaml
+#   /etc/opencap/opencap.env        secrets (OPENCAP_MQTT_PASSWORD, OPENCAP_API_TOKEN, ...), mode 0640
+#   /var/lib/opencap/               working directory: data/saf.sqlite (store-and-forward outbox)
+#
+# Type=notify: systemd counts the engine as started once it has loaded the config, started the
+# poller and bound the API (READY=1), so `systemctl start` fails if the config does not load.
+# Logs are JSON lines on stdout -> journald:  journalctl -u opencapd -f -o cat
+# Reload the config without a restart:        systemctl reload opencapd   (SIGHUP, diff reload)
+# Run either this unit or opencap.service on a machine, not both: they share /etc/opencap and the
+# API port.
+
+[Unit]
+Description=opencap read-only PLC connectivity server, Rust engine (polls PLCs, publishes to MQTT)
+Documentation=https://github.com/sharmaniraj009/opencap
+Wants=network-online.target
+After=network-online.target
+# Keep restarting for as long as it fails: a PLC gateway should never give up.
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=opencap
+Group=opencap
+EnvironmentFile=-/etc/opencap/opencap.env
+WorkingDirectory=/var/lib/opencap
+ExecStart=/usr/local/bin/opencap-engine run --config /etc/opencap
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=opencapd
+
+# /var/lib/opencap, created and owned by User= on start.
+StateDirectory=opencap
+StateDirectoryMode=0750
+
+# The config API and the web UI rewrite the config files (keeping .bak copies) in /etc/opencap,
+# which ProtectSystem=strict would otherwise make read-only. The directory should be sticky
+# (mode 1775, root:opencap) with the config files owned by opencap, so opencap can replace them
+# but not opencap.env (docs/deployment.md). For a read-only configuration, remove this line and
+# keep /etc/opencap root-owned: the UI then shows editing as off and config writes answer 503.
+ReadWritePaths=/etc/opencap
+
+# Hardening: opencap needs outbound TCP to PLCs/broker and one listening port for the API.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+UMask=0027
+# Serial drivers (Modbus RTU, DF1) need the device: drop PrivateDevices=yes and add e.g.
+#   DeviceAllow=/dev/ttyUSB0 rw
+#   SupplementaryGroups=dialout
+
+[Install]
+WantedBy=multi-user.target

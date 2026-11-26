@@ -58,6 +58,8 @@ class Health(_Open):
     saf_queue: int
     channels: int
     devices: DeviceStates
+    initial_scan_complete: bool | None = None   # every enabled device finished one cycle (or is offline/demoted)
+    initial_scan_ms: int | None = None          # process start to that moment; null until then
     opcua_server: OpcUaServerHealth | None = None   # only when poller.yaml enables the OPC UA server
 
 
@@ -126,6 +128,48 @@ class AuthInfo(BaseModel):
     open: bool
 
 
+class Live(BaseModel):
+    status: str
+
+
+class Ready(BaseModel):
+    ready: bool
+    waiting: list[str]     # ids of the enabled devices that have not finished a first cycle
+    reason: str | None = None
+
+
+class About(BaseModel):
+    product: str
+    version: str
+    version_major: int
+    version_minor: int
+    version_patch: int
+    engine: str            # "python" or "rust"
+    api_versions: list[str]
+    config_schema_version: int
+
+
+class DriverInfo(BaseModel):
+    name: str
+    library: str | None = None
+    library_version: str | None = None
+
+
+class Toolchain(BaseModel):
+    python: str | None = None
+    rust: str | None = None
+    implementation: str | None = None
+
+
+class Support(About):
+    os: str
+    arch: str
+    toolchain: Toolchain
+    drivers: list[DriverInfo]
+    north_interfaces: list[str]
+    config_revision: str | None = None
+
+
 class Whoami(_Open):
     name: str
     role: str
@@ -157,6 +201,26 @@ class Status(_Open):
     config: Pending
 
 
+# --- driver catalogue (API-16) -------------------------------------------------------------------
+
+class DriverSummary(_Open):
+    name: str
+    transport: str
+    supports_identity: bool
+    supports_browse: bool
+
+
+class DriverList(_Open):
+    drivers: list[DriverSummary]
+
+
+class DriverEntry(DriverSummary):
+    params_schema: Obj = Field(description="JSON Schema (draft 2020-12) of `Device.params`; unknown keys are "
+                                           "allowed and a null value means the default")
+    dtypes: list[str]
+    address_examples: list[str]
+
+
 # --- configuration ------------------------------------------------------------------------------
 
 class Revisioned(_Open):
@@ -170,7 +234,16 @@ class ChannelListItem(_Open):
     override: Obj | None = None
 
 
-class ChannelList(Revisioned):
+class Paged(Revisioned):
+    """Paging of a list route (API-18): `total` counts the items after `q`, before `limit` and `offset`;
+    `limit` is null when the whole collection was asked for. `revision` is the whole config's."""
+
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
+
+
+class ChannelList(Paged):
     channels: list[ChannelListItem]
 
 
@@ -181,7 +254,7 @@ class ChannelResource(Revisioned):
     devices: list[Obj]
 
 
-class DeviceList(Revisioned):
+class DeviceList(Paged):
     devices: list[Obj]
 
 
@@ -191,7 +264,7 @@ class DeviceResource(Revisioned):
     override: Obj | None = None
 
 
-class TagList(Revisioned):
+class TagList(Paged):
     tags: list[Obj]
 
 
@@ -388,3 +461,107 @@ class WsError(_Open):
 
 WS_CLIENT_MESSAGES = (WsSubscribe,)
 WS_SERVER_MESSAGES = (WsSubscribed, WsValues, WsUnavailable, WsError)
+
+
+# --- request bodies of configuration writes (#89) -------------------------------------------------
+# Described in the contract only: the handlers still take the raw JSON body and `ConfigStore` validates
+# it, so 422 answers keep their resource-relative `loc`s (D-064). The schemas are the models behind
+# `GET /api/v1/project/schema`, as `Config*` components, plus per-route variants: what the server
+# derives from the URL is not required on create, and a PATCH (JSON merge patch, RFC 7386) has no
+# `required` and allows `null` (which removes the key).
+
+CONFIG_PREFIX = "Config"
+_PATCH_NOTE = "JSON merge patch (RFC 7386): only the keys to change; null removes a key."
+
+
+def _ref(name: str) -> dict[str, str]:
+    return {"$ref": f"#/components/schemas/{CONFIG_PREFIX}{name}"}
+
+
+def _variant(base: dict[str, Any], *, drop_required: tuple[str, ...] = (), patch: bool = False,
+             only: tuple[str, ...] | None = None, description: str = "") -> dict[str, Any]:
+    out = {k: v for k, v in base.items() if k not in ("required", "properties", "title")}
+    props = base.get("properties", {})
+    if only is not None:
+        props = {k: v for k, v in props.items() if k in only}
+    if patch:
+        out["properties"] = {k: {"anyOf": [v, {"type": "null"}]} for k, v in props.items()}
+    else:
+        out["properties"] = dict(props)
+        required = [r for r in base.get("required", []) if r not in drop_required and r in props]
+        if required:
+            out["required"] = required
+    if description:
+        out["description"] = description
+    return out
+
+
+def request_body_components() -> tuple[dict[str, Any], dict[tuple[str, str], dict[str, Any]]]:
+    """(components to add, {(method, path): requestBody}) for every configuration write."""
+    from pydantic.json_schema import models_json_schema
+
+    from opencap.config.models import Channel, Device, DeviceMapEntry, DeviceOverride, PublishCfg, Tag
+
+    models = [Channel, Device, Tag, DeviceMapEntry, PublishCfg, DeviceOverride]
+    _, top = models_json_schema([(m, "validation") for m in models],
+                                ref_template="#/components/schemas/" + CONFIG_PREFIX + "{model}")
+    comps = {CONFIG_PREFIX + name: schema for name, schema in top["$defs"].items()}
+    c = {name[len(CONFIG_PREFIX):]: schema for name, schema in comps.items()}
+
+    device_create = _variant(c["Device"], drop_required=("id", "channel", "tags"),
+                             description="A new device: `id` and `channel` come from the URL (`<channel>/<name>`), "
+                                         "`tags` defaults to [].")
+    channel_create = _variant(c["Channel"], drop_required=("devices",),
+                              description="A new channel, optionally with devices (their `id` and `channel` are derived).")
+    channel_create["properties"]["devices"] = {"type": "array", "items": _ref("DeviceCreate")}
+    variants = {
+        "ChannelCreate": channel_create,
+        "ChannelPatch": _variant(c["Channel"], patch=True, only=("name", "enabled"),
+                                 description="Rename or enable/disable a channel (devices have their own routes). "
+                                             + _PATCH_NOTE),
+        "DeviceCreate": device_create,
+        "DevicePut": _variant(c["Device"], drop_required=("id", "channel", "name"),
+                              description="The whole device. `name` and `channel` default to the current ones; "
+                                          "changing them moves or renames the device; `id` is derived."),
+        "DevicePatch": _variant(c["Device"], patch=True, description=_PATCH_NOTE),
+        "TagPut": _variant(c["Tag"], drop_required=("name",),
+                           description="The whole tag; `name` defaults to the one in the URL (another name renames it)."),
+        "TagPatch": _variant(c["Tag"], patch=True, description=_PATCH_NOTE),
+        "DeviceMapEntryPatch": _variant(c["DeviceMapEntry"], patch=True, description=_PATCH_NOTE),
+        "DeviceOverridePatch": _variant(c["DeviceOverride"], patch=True, description=_PATCH_NOTE),
+        "ChannelOverride": {"type": "object", "additionalProperties": False, "required": ["enabled"],
+                            "properties": {"enabled": {"type": "boolean"}},
+                            "description": "overrides.yaml can switch a channel on or off, nothing else."},
+        "ProjectImport": {"type": "object", "description": "A KEPServerEX project.json, or an opencap export "
+                                                           "(`GET /api/v1/project`). Sent as the raw body."},
+    }
+    comps.update({CONFIG_PREFIX + name: schema for name, schema in variants.items()})
+    tags_create = {"anyOf": [_ref("Tag"), {"type": "array", "items": _ref("Tag"), "minItems": 1}],
+                   "description": "One tag, or a list of tags added in one change."}
+
+    v1 = "/api/v1"
+    routes: dict[tuple[str, str], dict[str, Any]] = {
+        ("post", f"{v1}/channels"): _ref("ChannelCreate"),
+        ("patch", f"{v1}/channels/{{channel}}"): _ref("ChannelPatch"),
+        ("post", f"{v1}/channels/{{channel}}/devices"): _ref("DeviceCreate"),
+        ("put", f"{v1}/devices/{{device_id}}"): _ref("DevicePut"),
+        ("patch", f"{v1}/devices/{{device_id}}"): _ref("DevicePatch"),
+        ("post", f"{v1}/devices/{{device_id}}/tags"): tags_create,
+        ("put", f"{v1}/devices/{{device_id}}/tags/{{tag}}"): _ref("TagPut"),
+        ("patch", f"{v1}/devices/{{device_id}}/tags/{{tag}}"): _ref("TagPatch"),
+        ("put", f"{v1}/map/defaults"): _ref("PublishCfg"),
+        ("put", f"{v1}/map/devices/{{device_id}}"): _ref("DeviceMapEntry"),
+        ("patch", f"{v1}/map/devices/{{device_id}}"): _ref("DeviceMapEntryPatch"),
+        ("put", f"{v1}/overrides/devices/{{device_id}}"): _ref("DeviceOverride"),
+        ("patch", f"{v1}/overrides/devices/{{device_id}}"): _ref("DeviceOverridePatch"),
+        ("put", f"{v1}/overrides/channels/{{channel}}"): _ref("ChannelOverride"),
+        ("post", f"{v1}/project/import"): _ref("ProjectImport"),
+    }
+    bodies = {key: {"required": True, "content": {"application/json": {"schema": schema}}}
+              for key, schema in routes.items()}
+    return comps, bodies
+
+
+# write routes that take no body
+NO_BODY_WRITES = frozenset({("post", "/api/v1/reload"), ("post", "/api/v1/devices/{device_id}/read-once"),
+                            ("post", "/reload"), ("post", "/devices/{device_id}/read-once")})

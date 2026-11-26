@@ -1,0 +1,26 @@
+{
+ "format": 1,
+ "area": "s7/decode",
+ "description": "S5TIME timers and BCD counters.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"timer-0000","description":"S5TIME 0x0000 in milliseconds.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"0000"}},"expected":{"values":{"a":{"t":"int","v":"0"}}}},
+  {"id":"timer-0001","description":"S5TIME 0x0001 in milliseconds.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"0001"}},"expected":{"values":{"a":{"t":"int","v":"10"}}}},
+  {"id":"timer-0999","description":"S5TIME 0x0999 in milliseconds.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"0999"}},"expected":{"values":{"a":{"t":"int","v":"9990"}}}},
+  {"id":"timer-1123","description":"S5TIME 0x1123 in milliseconds.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"1123"}},"expected":{"values":{"a":{"t":"int","v":"12300"}}}},
+  {"id":"timer-2050","description":"S5TIME 0x2050 in milliseconds.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"2050"}},"expected":{"values":{"a":{"t":"int","v":"50000"}}}},
+  {"id":"timer-3999","description":"S5TIME 0x3999 in milliseconds.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"3999"}},"expected":{"values":{"a":{"t":"int","v":"9990000"}}}},
+  {"id":"timer-3001","description":"S5TIME 0x3001 in milliseconds.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"3001"}},"expected":{"values":{"a":{"t":"int","v":"10000"}}}},
+  {"id":"timer-bad-bcd-00a0","description":"S5TIME 0x00A0 has a non-BCD digit.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"00a0"}},"expected":{"values":{"a":{"t":"decode_error","v":"T0 (uint32): S5TIME 0x00A0: digits are not BCD"}}}},
+  {"id":"timer-bad-bcd-0f00","description":"S5TIME 0x0F00 has a non-BCD digit.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"0f00"}},"expected":{"values":{"a":{"t":"decode_error","v":"T0 (uint32): S5TIME 0x0F00: digits are not BCD"}}}},
+  {"id":"timer-bad-bcd-01fa","description":"S5TIME 0x01FA has a non-BCD digit.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"01fa"}},"expected":{"values":{"a":{"t":"decode_error","v":"T0 (uint32): S5TIME 0x01FA: digits are not BCD"}}}},
+  {"id":"counter-0000","description":"Counter BCD 0x0000.","input":{"params":{},"tags":[{"name":"a","address":"C0","dtype":"uint16"}],"reply":{"bytes":"0000"}},"expected":{"values":{"a":{"t":"int","v":"0"}}}},
+  {"id":"counter-0007","description":"Counter BCD 0x0007.","input":{"params":{},"tags":[{"name":"a","address":"C0","dtype":"uint16"}],"reply":{"bytes":"0007"}},"expected":{"values":{"a":{"t":"int","v":"7"}}}},
+  {"id":"counter-0123","description":"Counter BCD 0x0123.","input":{"params":{},"tags":[{"name":"a","address":"C0","dtype":"uint16"}],"reply":{"bytes":"0123"}},"expected":{"values":{"a":{"t":"int","v":"123"}}}},
+  {"id":"counter-0999","description":"Counter BCD 0x0999.","input":{"params":{},"tags":[{"name":"a","address":"C0","dtype":"uint16"}],"reply":{"bytes":"0999"}},"expected":{"values":{"a":{"t":"int","v":"999"}}}},
+  {"id":"counter-bad-bcd-00a0","description":"Counter 0x00A0 is not BCD.","input":{"params":{},"tags":[{"name":"a","address":"C0","dtype":"uint16"}],"reply":{"bytes":"00a0"}},"expected":{"values":{"a":{"t":"decode_error","v":"C0 (uint16): 0x00A0 is not BCD (digit A)"}}}},
+  {"id":"counter-bad-bcd-100f","description":"Counter 0x100F is not BCD.","input":{"params":{},"tags":[{"name":"a","address":"C0","dtype":"uint16"}],"reply":{"bytes":"100f"}},"expected":{"values":{"a":{"t":"decode_error","v":"C0 (uint16): 0x100F is not BCD (digit F)"}}}},
+  {"id":"timer-ignores-byte-order","description":"Timers are not byte-swapped by byte_order_big.","input":{"params":{"byte_order_big":false},"tags":[{"name":"a","address":"T0","dtype":"uint32"}],"reply":{"bytes":"1123"}},"expected":{"values":{"a":{"t":"int","v":"12300"}}}},
+  {"id":"timers-two","description":"Two timers and a gap.","input":{"params":{},"tags":[{"name":"a","address":"T0","dtype":"uint32"},{"name":"b","address":"T2","dtype":"uint32"}],"reply":{"bytes":"012300002999"}},"expected":{"values":{"a":{"t":"int","v":"1230"},"b":{"t":"int","v":"999000"}}}}
+ ]
+}

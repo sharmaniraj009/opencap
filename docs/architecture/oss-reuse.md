@@ -66,7 +66,8 @@ policy-level summary, reconciled with it after #64.
 | DNP3 | stepfunc `dnp3` (Rust) | custom non-commercial licence ([1.8.0](https://github.com/stepfunc/dnp3/blob/1.8.0/LICENSE.txt); never OSS in any version) | yes (#14) | **Avoid** in every role, including as a test peer (its §2.6); do not read its source |
 | IEC 60870-5-104 | lib60870-C | GPL-3.0 or commercial | no | Isolated, or Build natively (IEC 104 spike) |
 | IEC 61850 MMS | libiec61850 | GPL-3.0 or commercial | no | Isolated only |
-| BACnet/IP | bacnet-stack | GPL-2.0 with linking exception (*verify*) | no | Evaluate in the BACnet spike |
+| BACnet/IP | bacnet-stack | mixed: core `GPL-2.0-or-later WITH GCC-exception-2.0`, 2 plain GPL-2.0 files, rest MIT/BSD/Apache ([1.7.0](https://github.com/bacnet-stack/bacnet-stack/blob/bacnet-stack-1.7.0/license/readme.txt)) | yes (#15) | **Avoid** in the default build (no client segmentation either); demo apps Test-only. Build: native Rust read subset ([ADR-0016](../adr/0016-bacnet-native-rust-client.md)) |
+| BACnet/IP | rusty-bacnet | MIT ([v0.15.0](https://github.com/jscott3201/rusty-bacnet/blob/v0.15.0/LICENSE)) | yes (#15) | Test-only peer; revisit as a dependency at 1.0 (single maintainer, MSRV 1.95) |
 | SNMP | csnmp / snmp2 crates | *verify* | no | Evaluate |
 | Expression engine | own grammar (Pratt parser) or rhai | — ; MIT or Apache-2.0 | no | Decide in the derived-tags spec; **Avoid evalexpr** until its current licence is verified (reported to have moved to AGPL) |
 | Password hashing | argon2 | MIT or Apache-2.0 | no | Adopt (security RFC) |
@@ -88,7 +89,7 @@ policy-level summary, reconciled with it after #64.
 | OPC UA client, L1 SCADA suite | asyncua 2.1 (the `opcua` extra) | LGPL-3.0-or-later | Test-only use of a dependency already adopted above (#29) |
 | Sparkplug conformance | Eclipse Sparkplug TCK, Eclipse Tahu | EPL-2.0 | Test-only |
 | MQTT broker with persistence | Eclipse Mosquitto | EPL-2.0 or EDL-1.0 | Test-only (and recommended in production) |
-| BACnet device simulator | bacpypes3 | MIT (*verify*) | Test-only |
+| BACnet device simulator | bacpypes3 0.1.0 | MIT declared in [pyproject@v0.1.0](https://github.com/JoelBender/BACpypes3/blob/v0.1.0/pyproject.toml); **no licence file shipped** (classifier says BSD) | Test-only; the lead accepted the declared MIT in its pyproject metadata for a test-only dependency (#15, spike §6 Q1) |
 | ADS test server | pyads (testserver) | MIT (*verify*) | Test-only |
 | SNMP agent simulator | snmpsim | BSD-2-Clause (*verify*) | Test-only |
 | IEC 104 test peer | c104 (Python, wraps lib60870) | GPL-3.0 (*verify*) | Test-only: installed in CI, never vendored or shipped |

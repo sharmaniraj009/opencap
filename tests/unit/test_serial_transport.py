@@ -151,6 +151,14 @@ def test_make_transport_kinds():
 
 # --- raw TCP ------------------------------------------------------------------------------------------
 
+async def _until(pred, timeout: float = 2.0) -> None:
+    """Wait for a condition (bytes crossing a socket take a scheduler turn or two; a loaded runner more)."""
+    deadline = time.monotonic() + timeout
+    while not pred():
+        assert time.monotonic() < deadline, "condition not met in time"
+        await asyncio.sleep(0.005)
+
+
 class _Peer:
     """A TCP server that records what it receives and lets the test write back or hang up."""
 
@@ -186,7 +194,7 @@ async def test_tcp_transport_round_trip_timeout_and_peer_close():
         assert t.is_open
         await asyncio.wait_for(peer.connected.wait(), 2)
         t.write(b"\x10\x02abc")
-        await asyncio.sleep(0.05)
+        await _until(lambda: len(peer.received) >= 5)
         assert bytes(peer.received) == b"\x10\x02abc"
         peer.writer.write(b"\x10\x06")
         assert await t.read(1.0) == b"\x10\x06"
@@ -219,7 +227,7 @@ async def test_tcp_transport_discard():
         await t.open(timeout=2)
         await asyncio.wait_for(peer.connected.wait(), 2)
         peer.writer.write(b"stale bytes")
-        await asyncio.sleep(0.05)
+        await _until(lambda: len(t._buf) >= len(b"stale bytes"))     # arrived, not yet read
         assert t.discard() == len(b"stale bytes")
         with pytest.raises(TimeoutError):
             await t.read(0.05)

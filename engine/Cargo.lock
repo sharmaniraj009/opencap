@@ -886,6 +886,7 @@ dependencies = [
  "opencap-driver-ab-logix",
  "opencap-driver-melsec-mc",
  "opencap-driver-modbus-tcp",
+ "opencap-driver-s7",
  "opencap-north",
  "serde_json",
 ]
@@ -969,6 +970,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencap-driver-s7"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "opencap-core",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "opencap-drivers"
 version = "0.1.0"
 dependencies = [
@@ -977,6 +990,7 @@ dependencies = [
  "opencap-driver-melsec-mc",
  "opencap-driver-modbus-rtu",
  "opencap-driver-modbus-tcp",
+ "opencap-driver-s7",
 ]
 
 [[package]]

@@ -24,7 +24,8 @@ GENERATED_BY = "scripts/gen_conformance.py"
 AREAS = ("modbus/plan", "modbus/decode", "scaling", "payload", "payload/iotgw",
          "ab_logix/plan", "ab_logix/decode", "ab_pccc/plan", "ab_pccc/decode", "system_tags",
          "omron_fins/addresses",
-         "melsec_mc/plan", "melsec_mc/decode", "melsec_mc/frame", "melsec_mc/reply", "quality")
+         "melsec_mc/plan", "melsec_mc/decode", "melsec_mc/frame", "melsec_mc/reply",
+         "s7/plan", "s7/decode", "s7/frame", "s7/reply", "quality")
 
 _ID_RE = re.compile(r"[a-z0-9][a-z0-9_.-]*")
 

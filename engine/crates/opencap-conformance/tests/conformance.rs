@@ -364,3 +364,146 @@ mod melsec_mc {
         });
     }
 }
+
+mod s7 {
+    use super::*;
+    use opencap_core::driver::Block;
+    use opencap_driver_s7::address::Area;
+    use opencap_driver_s7::proto::{self, ReadItem, ReplyError};
+    use opencap_driver_s7::{decode_block, S7Block, S7Driver};
+
+    fn driver(input: &Json) -> Result<Result<(S7Driver, Vec<Tag>), String>, String> {
+        let tags = tags_of(input)?;
+        let mut dev = Device::new("SITE/PLC", "SITE", "PLC", "s7", "192.0.2.1", 102, vec![]);
+        dev.params = params_of(input);
+        Ok(S7Driver::new(&dev).map(|d| (d, tags)))
+    }
+
+    fn block_of(plan: &Plan, i: usize) -> &S7Block {
+        plan.blocks[i].as_any().downcast_ref::<S7Block>().expect("an S7 block")
+    }
+
+    fn unhex(text: &str) -> Result<Vec<u8>, String> {
+        (0..text.len() / 2)
+            .map(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).map_err(|e| e.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn plan() {
+        run_area("s7/plan", |input| {
+            let (d, tags) = match driver(input)? {
+                Ok(x) => x,
+                Err(reason) => return Ok(json!({"error": reason})),
+            };
+            let plan = d.plan_tags(&tags);
+            let blocks: Vec<Json> = (0..plan.blocks.len())
+                .map(|i| {
+                    let b = block_of(&plan, i);
+                    let items: Vec<Json> = b
+                        .items
+                        .iter()
+                        .map(|it| {
+                            json!({
+                                "names": it.names, "offset": it.offset, "text": it.addr.text,
+                                "dtype": it.addr.dtype.as_str(), "kind": it.addr.kind.as_str(),
+                                "size": it.addr.size, "elements": it.addr.count, "bit": it.addr.bit,
+                                "dims": it.addr.dims, "str_len": it.addr.str_len,
+                            })
+                        })
+                        .collect();
+                    json!({
+                        "area": b.area.as_str(), "db": b.db, "start": b.start, "count": b.count,
+                        "describe": b.describe(), "tags": b.tags, "items": items,
+                    })
+                })
+                .collect();
+            Ok(json!({"blocks": blocks, "invalid": plan.invalid}))
+        });
+    }
+
+    #[test]
+    fn decode() {
+        run_area("s7/decode", |input| {
+            let (d, tags) = driver(input)?.map_err(|e| format!("params refused: {e}"))?;
+            let plan = d.plan_tags(&tags);
+            if plan.blocks.len() != 1 || !plan.invalid.is_empty() {
+                return Err(format!("decode vector must plan to one block, got {}", plan.blocks.len()));
+            }
+            let bytes = unhex(input["reply"]["bytes"].as_str().ok_or("no bytes")?)?;
+            let decoded = decode_block(block_of(&plan, 0), &bytes, &d.params);
+            let out: Map<String, Json> = decoded
+                .iter()
+                .map(|(n, r)| {
+                    let enc = match r {
+                        Ok(v) => encode_value(Some(v)),
+                        Err(e) => encode_decode_error(&e.0),
+                    };
+                    (n.clone(), enc)
+                })
+                .collect();
+            Ok(json!({"values": out}))
+        });
+    }
+
+    #[test]
+    fn frame() {
+        run_area("s7/frame", |input| {
+            let (d, tags) = driver(input)?.map_err(|e| format!("params refused: {e}"))?;
+            let p = &d.params;
+            let pdu = input["pdu"].as_u64().map_or(p.max_pdu, |v| v as usize);
+            let tsap = proto::remote_tsap(p.connection_type, p.rack, p.slot);
+            let plan = d.plan_tags(&tags);
+            let requests: Vec<Vec<String>> = (0..plan.blocks.len())
+                .map(|i| {
+                    let b = block_of(&plan, i);
+                    let (word_len, area) = match b.area {
+                        Area::T => (proto::WL_TIMER, b.area.code()),
+                        Area::C => (proto::WL_COUNTER, b.area.code()),
+                        a => (proto::WL_BYTE, a.code()),
+                    };
+                    b.parts(pdu)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(n, (start, count))| {
+                            let item =
+                                ReadItem { area, db: b.db as u16, start: start as u32, word_len, count: count as u16 };
+                            proto::hex(&proto::read_var(n as u16 + 1, &[item]))
+                        })
+                        .collect()
+                })
+                .collect();
+            let szl: Vec<String> =
+                [0x001Cu16, 0x0011, 0x0424].iter().map(|id| proto::hex(&proto::read_szl(1, *id, 0))).collect();
+            Ok(json!({
+                "connection_request": proto::hex(&proto::connection_request(proto::LOCAL_TSAP, tsap)),
+                "setup": proto::hex(&proto::setup_communication(1, p.max_pdu as u16)),
+                "szl": szl,
+                "requests": requests,
+            }))
+        });
+    }
+
+    #[test]
+    fn reply() {
+        run_area("s7/reply", |input| {
+            let pdu = unhex(input["pdu"].as_str().ok_or("no pdu")?)?;
+            let item = ReadItem {
+                area: 0x84,
+                db: 1,
+                start: 0,
+                word_len: input["word_len"].as_u64().ok_or("no word_len")? as u8,
+                count: input["count"].as_u64().ok_or("no count")? as u16,
+            };
+            let parsed = match proto::parse_pdu(&pdu) {
+                Ok(p) => p,
+                Err(ReplyError::Header { code, text }) => return Ok(json!({"header_error": code, "message": text})),
+                Err(ReplyError::Malformed(m)) => return Ok(json!({"bad_reply": m})),
+            };
+            Ok(match proto::parse_read_reply(&parsed, &[item]) {
+                Ok(items) => json!({"return_code": items[0].return_code, "data": proto::hex(&items[0].data)}),
+                Err(e) => json!({"bad_reply": e.message()}),
+            })
+        });
+    }
+}

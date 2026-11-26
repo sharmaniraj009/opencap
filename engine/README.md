@@ -12,7 +12,7 @@ Status: first vertical slice (milestone M2). Modbus TCP, MQTT with store-and-for
 admin API and `check`/`read` pass the Python Phase 1 acceptance suite. Every other driver is
 reported as "not implemented yet in the Rust engine" (or "not compiled in" when its crate
 exists but its Cargo feature is off) and its devices are skipped, never polled. Modbus RTU (serial
-line and RTU over TCP) passes the Python RTU simulator suite (`tests/integration/test_rust_engine_rtu.py`). Mitsubishi MELSEC MC 3E passes the Python MC simulator checks (`tests/integration/test_rust_engine_melsec.py`). The engine is **read-only** toward PLCs: the driver trait has no write method.
+line and RTU over TCP) passes the Python RTU simulator suite (`tests/integration/test_rust_engine_rtu.py`). Siemens S7 passes the Python S7 simulator checks (`tests/integration/test_rust_engine_s7.py`). Mitsubishi MELSEC MC 3E passes the Python MC simulator checks (`tests/integration/test_rust_engine_melsec.py`). The engine is **read-only** toward PLCs: the driver trait has no write method.
 
 ## Build and run
 
@@ -45,6 +45,7 @@ requests to `localhost` (D-062).
 | `drivers/modbus_rtu` (`opencap-driver-modbus-rtu`) | Modbus RTU on a serial line or RTU over TCP: the Modbus TCP planner/decoder, tokio-modbus RTU framing |
 | `drivers/ab_logix` (`opencap-driver-ab-logix`) | Allen-Bradley Logix / Micro800 symbolic tags: native EtherNet/IP + CIP client (read services only), tag-list upload and cache, Multiple Service Packet packing and the Micro800 batching probe |
 | `drivers/melsec_mc` (`opencap-driver-melsec-mc`) | Mitsubishi MELSEC MC protocol, 3E binary frame over TCP or UDP: Kepware Q Series address parser, planner, decoder, native read-only client (batch read in word units, read CPU model); whole-frame reads |
+| `drivers/s7` (`opencap-driver-s7`) | Siemens S7-300/400/1200/1500 over ISO-on-TCP: Kepware address parser, planner, decoder, native S7comm read subset (COTP connect with rack/slot TSAPs, setup communication, read var, SZL read for identity); blocks split to the negotiated PDU |
 | `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
 | `opencap-conformance` | test harness for the shared vectors in `tests/conformance` (ADR-0014): vector loader, value codec, structural diff, `run_area`; the adapters for Modbus, scaling and payload are in its `tests/` |

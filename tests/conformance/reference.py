@@ -16,7 +16,7 @@ from opencap.config.models import Device, PayloadCfg, Scale, Tag
 from opencap.core import quality as quality_mod
 from opencap.core.cache import TagValue
 from opencap.core.channel_worker import scale_value
-from opencap.drivers import ab_logix, ab_pccc, melsec_mc
+from opencap.drivers import ab_logix, ab_pccc, melsec_mc, s7
 from opencap.drivers.modbus_tcp import ModbusBlock, ModbusTcpDriver
 from opencap.north import payload as payload_mod
 from opencap.north import payload_iotgw as payload_iotgw_mod
@@ -365,6 +365,96 @@ def melsec_mc_reply(inp: dict[str, Any]) -> dict[str, Any]:
     return {"words": [int.from_bytes(data[i:i + 2], "little") for i in range(0, len(data), 2)]}
 
 
+def _s7_driver(inp: dict[str, Any]) -> tuple[s7.S7Driver, list[Tag]]:
+    device, tags = _device("s7", 102, inp)
+    return s7.S7Driver(device), tags      # ValueError on bad params
+
+
+def s7_plan(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags} -> {blocks: [{area, db, start, count, describe, tags, items}], invalid}, or
+    {error} when the params are refused (the driver cannot be built)."""
+    try:
+        driver, tags = _s7_driver(inp)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    plan = driver.plan(tags)
+    blocks = []
+    for b in plan.blocks:
+        assert isinstance(b, s7.S7Block)
+        blocks.append({
+            "area": b.area, "db": b.db, "start": b.start, "count": b.count, "describe": b.describe(),
+            "tags": list(b.tags),
+            "items": [{"names": list(it.names), "offset": it.offset, "text": it.addr.text, "dtype": it.addr.dtype,
+                       "kind": it.addr.kind, "size": it.addr.size, "elements": it.addr.count, "bit": it.addr.bit,
+                       "dims": list(it.addr.dims), "str_len": it.addr.str_len} for it in b.items],
+        })
+    return {"blocks": blocks, "invalid": dict(plan.invalid)}
+
+
+def s7_decode(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags, reply: {bytes: hex}} -> {values: {tag: value}}. The tags plan to exactly one
+    block; `bytes` is that block's data."""
+    driver, tags = _s7_driver(inp)
+    block = _one_block(driver.plan(tags), s7.S7Block)
+    decoded = driver.decode(block, bytes.fromhex(inp["reply"]["bytes"]))
+    return {"values": {name: encode_value(decoded[name]) for name in sorted(decoded)}}
+
+
+def s7_frame(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {params, tags, pdu} -> the frames python-snap7 builds: {connection_request, setup, szl: [3],
+    requests: [[read var PDU hex per request] per block]}. `pdu` (default max_pdu) is the negotiated PDU the
+    blocks are split for. Read var references count 1.. per block, as a fresh connection numbers them."""
+    from snap7.connection import ISOTCPConnection
+    from snap7.datatypes import S7Area, S7WordLen
+    from snap7.s7protocol import S7Protocol
+
+    driver, tags = _s7_driver(inp)
+    p = driver.params
+    pdu = inp["pdu"] or p.max_pdu
+    tsap = (p.connection_type << 8) | (p.rack << 5) | p.slot
+    conn = ISOTCPConnection(host="192.0.2.1", port=102, local_tsap=0x0100, remote_tsap=tsap)
+    out: dict[str, Any] = {"connection_request": conn._build_tpkt(conn._build_cotp_cr()).hex(),
+                           "setup": S7Protocol().build_setup_communication_request(pdu_length=p.max_pdu).hex(),
+                           "szl": [S7Protocol().build_read_szl_request(i, 0).hex() for i in (0x001C, 0x0011, 0x0424)]}
+    requests = []
+    for b in driver.plan(tags).blocks:
+        assert isinstance(b, s7.S7Block)
+        proto = S7Protocol()
+        unit_bytes = 2 if b.area in s7.TC_AREAS else 1
+        chunk = max(1, (pdu - s7.READ_OVERHEAD) // unit_bytes)
+        parts = []
+        for start, count in s7._split(b.start, b.count, chunk):
+            parts.append(proto.build_read_request(S7Area(b.area_code), b.db, start, S7WordLen(b.word_len), count).hex())
+        requests.append(parts)
+    out["requests"] = requests
+    return out
+
+
+def s7_reply(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {pdu: hex, word_len, count} (a read var reply to one item) -> {return_code, data: hex} (an item
+    return code other than 0xFF has no data), {header_error: code, message}, or {bad_reply: reason}."""
+    from snap7.datatypes import S7WordLen
+    from snap7.error import S7ProtocolError
+    from snap7.s7protocol import S7Protocol
+
+    proto = S7Protocol()
+    try:
+        resp = proto.parse_response(bytes.fromhex(inp["pdu"]))
+        item = resp.get("data")
+        if not item:
+            return {"bad_reply": "No data in response"}
+        rc = item.get("return_code")
+        if rc != 0xFF:
+            return {"return_code": rc, "data": ""}
+        data = bytes(proto.extract_read_data(resp, S7WordLen(inp["word_len"]), inp["count"]))
+        return {"return_code": 0xFF, "data": data.hex()}
+    except S7ProtocolError as exc:
+        code = getattr(exc, "error_code", None)
+        if code:
+            return {"header_error": code, "message": str(exc)}
+        return {"bad_reply": str(exc)}
+
+
 ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "modbus/plan": modbus_plan,
     "modbus/decode": modbus_decode,
@@ -384,6 +474,10 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "melsec_mc/decode": melsec_mc_decode,
     "melsec_mc/frame": melsec_mc_frame,
     "melsec_mc/reply": melsec_mc_reply,
+    "s7/plan": s7_plan,
+    "s7/decode": s7_decode,
+    "s7/frame": s7_frame,
+    "s7/reply": s7_reply,
 }
 
 

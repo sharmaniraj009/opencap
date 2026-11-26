@@ -443,6 +443,56 @@
       "title": "PayloadCfg",
       "type": "object"
     },
+    "PluginsCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "python": {
+          "$ref": "#/$defs/PythonPluginCfg"
+        }
+      },
+      "title": "PluginsCfg",
+      "type": "object"
+    },
+    "PythonPluginCfg": {
+      "additionalProperties": false,
+      "description": "The Python driver host the Rust engine starts for `plugin: python` devices (#49, proto/README.md).\nThe Python engine ignores it.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "start_timeout_ms": {
+          "default": 30000,
+          "title": "Start Timeout Ms",
+          "type": "integer"
+        },
+        "transport": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "unix",
+            "tcp"
+          ],
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "title": "PythonPluginCfg",
+      "type": "object"
+    },
     "SafCfg": {
       "additionalProperties": false,
       "properties": {
@@ -458,6 +508,77 @@
         }
       },
       "title": "SafCfg",
+      "type": "object"
+    },
+    "SparkplugCfg": {
+      "additionalProperties": false,
+      "description": "Sparkplug B 3.0 edge node (#51, docs/spec/payload-sparkplug.md). Served by the Rust engine;\nthe Python engine loads and validates it, and warns. Uses the broker of `mqtt` on its own\nconnection (its own client id and Will).",
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "devices": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Devices",
+          "type": "object"
+        },
+        "edge_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Edge Node Id"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "group_id": {
+          "default": "opencap",
+          "title": "Group Id",
+          "type": "string"
+        },
+        "outbox": {
+          "default": "data/sparkplug-outbox.sqlite",
+          "title": "Outbox",
+          "type": "string"
+        },
+        "outbox_max_bytes": {
+          "default": 67108864,
+          "title": "Outbox Max Bytes",
+          "type": "integer"
+        },
+        "primary_host_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Host Id"
+        }
+      },
+      "title": "SparkplugCfg",
       "type": "object"
     }
   },
@@ -493,8 +614,14 @@
     "payload": {
       "$ref": "#/$defs/PayloadCfg"
     },
+    "plugins": {
+      "$ref": "#/$defs/PluginsCfg"
+    },
     "saf": {
       "$ref": "#/$defs/SafCfg"
+    },
+    "sparkplug": {
+      "$ref": "#/$defs/SparkplugCfg"
     },
     "stats_interval_s": {
       "default": 300.0,

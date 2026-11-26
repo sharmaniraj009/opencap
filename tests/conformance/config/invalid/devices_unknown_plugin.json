@@ -1,0 +1,31 @@
+{
+  "document": "devices",
+  "expected_error": "plugin",
+  "semantic": false,
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "SITE_A",
+        "devices": [
+          {
+            "id": "SITE_A/PLC1",
+            "channel": "SITE_A",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "uint16"
+              }
+            ],
+            "plugin": "java"
+          }
+        ]
+      }
+    ]
+  }
+}

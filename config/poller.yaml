@@ -80,3 +80,14 @@ opcua_server:                    # northbound OPC UA server for SCADA/HMI client
   min_publishing_interval_ms: 100   # faster requests are revised up
   min_sampling_interval_ms: 100
   max_references_per_browse: 1000   # larger folders are returned in pages (BrowseNext)
+
+# Drivers without a Rust port (Rust engine only; the Python engine runs every driver itself).
+# A device with `plugin: python` (devices.json or overrides.yaml) runs its driver in the Python
+# driver host: one process per channel, started, supervised and restarted by the engine
+# (proto/README.md, docs/deployment.md).
+plugins:
+  python:
+    command: null                # default: [python3, -m, opencap.plugin_host] ("python" on Windows);
+                                 #   e.g. [/opt/opencap/venv/bin/python, -m, opencap.plugin_host]
+    transport: auto              # auto = Unix socket (loopback TCP on Windows) | unix | tcp
+    start_timeout_ms: 30000      # spawn -> ready line

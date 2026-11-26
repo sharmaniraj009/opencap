@@ -351,6 +351,15 @@ pub const KNOWN_DRIVERS: [&str; 10] = [
     "omron_fins",
 ];
 
+/// Python `PluginName`: the plugin hosts a device can be routed through (ADR-0004 §3, #49).
+pub const KNOWN_PLUGINS: [&str; 1] = ["python"];
+
+/// pydantic's message for the `PluginName` literal.
+pub fn plugin_name_error(value: &str) -> String {
+    use crate::pyfmt::py_repr_str as q;
+    format!("plugin: Input should be {} (got {})", q(KNOWN_PLUGINS[0]), q(value))
+}
+
 /// pydantic's message shape for the `DriverName` literal.
 pub fn driver_name_error(value: &str) -> String {
     use crate::pyfmt::py_repr_str as q;
@@ -366,6 +375,9 @@ pub struct Device {
     pub channel: String,
     pub name: String,
     pub driver: String,
+    /// `"python"`: run the driver in the Python driver host (`plugins.python`, #49).
+    #[serde(default)]
+    pub plugin: Option<String>,
     pub host: String,
     pub port: i64,
     #[serde(default)]
@@ -399,6 +411,7 @@ impl Device {
             channel: channel.into(),
             name: name.into(),
             driver: driver.into(),
+            plugin: None,
             host: host.into(),
             port,
             params: Map::new(),
@@ -419,6 +432,9 @@ impl Device {
     pub fn validate(&self) -> Result<(), String> {
         if !KNOWN_DRIVERS.contains(&self.driver.as_str()) {
             return Err(format!("{}: {}", self.id, driver_name_error(&self.driver)));
+        }
+        if let Some(p) = self.plugin.as_deref().filter(|p| !KNOWN_PLUGINS.contains(p)) {
+            return Err(format!("{}: {}", self.id, plugin_name_error(p)));
         }
         let mut seen = std::collections::HashSet::new();
         let mut dupes: Vec<String> =
@@ -587,6 +603,8 @@ pub struct DeviceOverride {
     #[serde(default)]
     pub enabled: Option<bool>,
     #[serde(default)]
+    pub plugin: Option<String>,
+    #[serde(default)]
     pub host: Option<String>,
     #[serde(default)]
     pub port: Option<i64>,
@@ -622,6 +640,18 @@ pub struct Overrides {
     /// `"rfc2217://host:port"`, `"/dev/ttyUSB0"`.
     #[serde(default)]
     pub serial_ports: IndexMap<String, String>,
+}
+
+impl Overrides {
+    /// The `PluginName` literal of each device override.
+    pub fn validate(&self) -> Result<(), String> {
+        for (id, ov) in &self.devices {
+            if let Some(p) = ov.plugin.as_deref().filter(|p| !KNOWN_PLUGINS.contains(p)) {
+                return Err(format!("devices.{id}.{}", plugin_name_error(p)));
+            }
+        }
+        Ok(())
+    }
 }
 
 // --- poller.yaml ------------------------------------------------------------------
@@ -875,6 +905,76 @@ pub struct CheckCfg {
     pub est_rtt_ms: f64,
 }
 
+/// Python `PythonPluginCfg`: the Python driver host the engine starts for `plugin: python`
+/// devices (#49, proto/README.md).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPluginCfg {
+    /// `None`: `python3 -m opencap.plugin_host` (`python` on Windows).
+    #[serde(default)]
+    pub command: Option<Vec<String>>,
+    /// `auto` (Unix socket; loopback TCP on Windows), `unix` or `tcp`.
+    #[serde(default = "d_transport")]
+    pub transport: String,
+    #[serde(default = "d_start_timeout")]
+    pub start_timeout_ms: i64,
+}
+
+pub const PLUGIN_TRANSPORTS: [&str; 3] = ["auto", "unix", "tcp"];
+
+fn d_transport() -> String {
+    "auto".into()
+}
+
+fn d_start_timeout() -> i64 {
+    30_000
+}
+
+impl PythonPluginCfg {
+    /// pydantic's field constraints and `_check` validator, same messages.
+    pub fn validate(&self) -> Result<(), String> {
+        use crate::pyfmt::py_repr_str as q;
+        if let Some(cmd) = &self.command {
+            if cmd.is_empty() {
+                return Err("plugins.python.command: List should have at least 1 item after validation, not 0".into());
+            }
+            if let Some(i) = cmd.iter().position(String::is_empty) {
+                return Err(format!("plugins.python.command.{i}: String should have at least 1 character"));
+            }
+            if cmd.iter().any(|p| p.trim().is_empty()) {
+                return Err(
+                    "plugins.python: Value error, plugins.python.command: every part must be a non-blank string".into(),
+                );
+            }
+        }
+        if !PLUGIN_TRANSPORTS.contains(&self.transport.as_str()) {
+            return Err(format!(
+                "plugins.python.transport: Input should be 'auto', 'unix' or 'tcp' (got {})",
+                q(&self.transport)
+            ));
+        }
+        if self.start_timeout_ms < 1000 {
+            return Err("plugins.python: Value error, plugins.python.start_timeout_ms must be >= 1000".into());
+        }
+        Ok(())
+    }
+
+    /// The command to start the host (without the launch-contract arguments).
+    pub fn command_or_default(&self) -> Vec<String> {
+        self.command.clone().unwrap_or_else(|| {
+            let python = if cfg!(windows) { "python" } else { "python3" };
+            vec![python.into(), "-m".into(), "opencap.plugin_host".into()]
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginsCfg {
+    #[serde(default = "d_obj")]
+    pub python: PythonPluginCfg,
+}
+
 /// Python `OpcUaServerPolicy`.
 pub const OPCUA_SERVER_POLICIES: [&str; 7] = [
     "None",
@@ -1112,6 +1212,95 @@ fn d_log_level() -> String {
 fn d_stats() -> f64 {
     300.0
 }
+// --- sparkplug (#51) ---------------------------------------------------------------------------
+
+/// Sparkplug ids are non-empty UTF-8 without `+`, `/`, `#` (spec 4.1.1) or NUL (Python
+/// `_sparkplug_id_error`).
+pub fn sparkplug_id_error(what: &str, ident: &str) -> Option<String> {
+    if ident.is_empty() {
+        return Some(format!("sparkplug: {what} must not be empty"));
+    }
+    ident.chars().find(|c| matches!(c, '+' | '/' | '#' | '\0')).map(|c| {
+        format!(
+            "sparkplug: {what} {} contains the reserved character {}",
+            py_repr_str(ident),
+            py_repr_str(&c.to_string())
+        )
+    })
+}
+
+fn d_group_id() -> String {
+    "opencap".into()
+}
+fn d_sp_outbox() -> String {
+    "data/sparkplug-outbox.sqlite".into()
+}
+fn d_sp_outbox_max() -> i64 {
+    64 * 1024 * 1024
+}
+
+/// `poller.yaml` `sparkplug` (Python `SparkplugCfg`): the Sparkplug B 3.0 edge node (#51),
+/// served by `engine/north/sparkplug` on its own connection to the `mqtt` broker.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SparkplugCfg {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "d_group_id")]
+    pub group_id: String,
+    #[serde(default)]
+    pub edge_node_id: Option<String>,
+    #[serde(default)]
+    pub primary_host_id: Option<String>,
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub devices: IndexMap<String, String>,
+    #[serde(default = "d_sp_outbox")]
+    pub outbox: String,
+    #[serde(default = "d_sp_outbox_max")]
+    pub outbox_max_bytes: i64,
+}
+
+impl Default for SparkplugCfg {
+    fn default() -> Self {
+        d_obj()
+    }
+}
+
+impl SparkplugCfg {
+    pub fn validate(&self) -> Result<(), String> {
+        let ids = [
+            ("group_id", Some(&self.group_id)),
+            ("edge_node_id", self.edge_node_id.as_ref()),
+            ("primary_host_id", self.primary_host_id.as_ref()),
+        ];
+        for (what, ident) in ids {
+            if let Some(err) = ident.and_then(|i| sparkplug_id_error(what, i)) {
+                return Err(err);
+            }
+        }
+        for (dev, ident) in &self.devices {
+            if let Some(err) = sparkplug_id_error(&format!("device id for {}", py_repr_str(dev)), ident) {
+                return Err(err);
+            }
+        }
+        let unique: std::collections::HashSet<&String> = self.devices.values().collect();
+        if unique.len() != self.devices.len() {
+            return Err("sparkplug: two devices map to the same Sparkplug device id".into());
+        }
+        if self.outbox_max_bytes < 1 {
+            return Err("sparkplug: outbox_max_bytes must be >= 1".into());
+        }
+        Ok(())
+    }
+
+    /// The Sparkplug device id of an opencap device: `devices`, else `<channel>.<device>`.
+    pub fn device_id(&self, device: &Device) -> String {
+        self.devices.get(&device.id).cloned().unwrap_or_else(|| format!("{}.{}", device.channel, device.name))
+    }
+}
+
 fn d_obj<T: for<'de> Deserialize<'de>>() -> T {
     serde_json::from_value(Json::Object(Map::new())).expect("all fields have defaults")
 }
@@ -1139,6 +1328,11 @@ pub struct PollerConfig {
     pub check: CheckCfg,
     #[serde(default = "d_obj")]
     pub opcua_server: OpcUaServerCfg,
+    #[serde(default = "d_obj")]
+    pub plugins: PluginsCfg,
+    /// #51: served by `engine/north/sparkplug`.
+    #[serde(default = "d_obj")]
+    pub sparkplug: SparkplugCfg,
 }
 
 impl Default for PollerConfig {

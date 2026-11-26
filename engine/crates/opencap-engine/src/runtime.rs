@@ -25,6 +25,7 @@ use opencap_north::mqtt::{LinkOptions, MqttLink};
 use opencap_north::plugin::{self, DeviceStatusReader, NorthContext, NorthHandle};
 use opencap_north::publisher::{Publisher, PublisherOptions, Sink};
 use opencap_north::saf::StoreAndForward;
+use opencap_plugin::PluginRegistry;
 
 /// Agent name of the MQTT link's publisher (`north_lagged_total{agent}`).
 pub const MQTT_AGENT: &str = "mqtt";
@@ -45,12 +46,16 @@ pub struct Poller {
     config_dir: PathBuf,
     only: Option<HashSet<String>>,
     factory: DriverFactory,
+    /// Hosts and plans of `plugin: python` devices; `factory` routes those devices to it.
+    plugins: Arc<PluginRegistry>,
     loaded: RwLock<LoadedConfig>,
     store: Arc<TagStore>,
     state: RwLock<RtState>,
     link: StdMutex<Option<Arc<MqttLink>>>,
     link_task: StdMutex<Option<JoinHandle<()>>>,
     north: tokio::sync::Mutex<Option<NorthHandle>>,
+    /// What the Sparkplug edge node was started from, and the node (#51).
+    sparkplug: tokio::sync::Mutex<(Option<Value>, Option<NorthHandle>)>,
     reload_lock: tokio::sync::Mutex<()>,
     me: Weak<Poller>,
 }
@@ -69,6 +74,7 @@ impl Poller {
         loaded: LoadedConfig,
         only: Option<Vec<String>>,
         factory: DriverFactory,
+        plugins: Arc<PluginRegistry>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             config_dir,
@@ -78,12 +84,14 @@ impl Poller {
                 workers: IndexMap::new(),
                 channel_cfg: HashMap::new(),
             }),
-            factory,
+            factory: plugins.factory(factory),
+            plugins,
             loaded: RwLock::new(loaded),
             store: Arc::new(TagStore::new()),
             link: StdMutex::new(None),
             link_task: StdMutex::new(None),
             north: tokio::sync::Mutex::new(None),
+            sparkplug: tokio::sync::Mutex::new((None, None)),
             reload_lock: tokio::sync::Mutex::new(()),
             me: me.clone(),
         })
@@ -112,8 +120,10 @@ impl Poller {
         *lock(&self.link_task) = Some(tokio::spawn(link.clone().run()));
         *lock(&self.link) = Some(link);
         let channels = rlock(&self.loaded).channels.clone();
+        self.plugins.prepare(&cfg.plugins.python, &self.selected(&channels)).await;
         self.apply_channels(&channels);
         self.restart_publisher().await;
+        self.restart_sparkplug(true).await;
         if cfg.opcua_server.enabled {
             // Python serves it (D-046); the Rust server is #46. Polling and MQTT run as usual,
             // as they do in Python when its server cannot start.
@@ -130,11 +140,15 @@ impl Poller {
 
     pub async fn stop(&self) {
         self.stop_publisher().await;
+        if let Some(h) = self.sparkplug.lock().await.1.take() {
+            h.stop(NORTH_STOP_GRACE).await;
+        }
         let workers: Vec<Arc<ChannelWorker>> = wlock(&self.state).workers.drain(..).map(|(_, w)| w).collect();
         wlock(&self.state).channel_cfg.clear();
         for w in workers {
             w.stop().await;
         }
+        self.plugins.shutdown().await;
         if let Some(link) = self.link() {
             link.stop();
             let task = lock(&self.link_task).take();
@@ -238,6 +252,51 @@ impl Poller {
         *north = Some(plugin::spawn(Box::new(publisher), ctx));
     }
 
+    /// (Re)start the Sparkplug edge node (#51) when its config, the broker settings or the
+    /// device set changed (its births list every metric), or always with `force`. A new node is a
+    /// new MQTT session: NDEATH of the old one, then CONNECT and births.
+    async fn restart_sparkplug(&self, force: bool) {
+        let (poller, devices) = {
+            let l = rlock(&self.loaded);
+            let devices: Vec<_> =
+                self.active_channels().into_iter().flat_map(|c| c.devices).filter(|d| d.enabled).collect();
+            (l.poller.clone(), devices)
+        };
+        let fingerprint = json!({"sparkplug": poller.sparkplug, "mqtt": poller.mqtt, "instance": poller.instance,
+                                 "devices": devices});
+        let mut guard = self.sparkplug.lock().await;
+        if !force && guard.0.as_ref() == Some(&fingerprint) {
+            return;
+        }
+        if let Some(h) = guard.1.take() {
+            h.stop(NORTH_STOP_GRACE).await;
+        }
+        guard.0 = Some(fingerprint);
+        if !poller.sparkplug.enabled {
+            return;
+        }
+        let path = PathBuf::from(&poller.sparkplug.outbox); // relative paths resolve from the working directory
+        let started = (|| -> Result<NorthHandle, String> {
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+            }
+            let saf = StoreAndForward::open(&path, poller.sparkplug.outbox_max_bytes)
+                .map_err(|e| format!("cannot open the Sparkplug outbox {}: {e}", path.display()))?;
+            let node = opencap_north_sparkplug::node::NodeConfig::build(&poller, &devices, FIRM_VERSION)?;
+            let me = self.me.clone();
+            let status = DeviceStatusReader::new(move |id: &str| {
+                me.upgrade().and_then(|p| p.worker_for(id)).and_then(|w| w.health(id))
+            });
+            let ctx = NorthContext::new(opencap_north_sparkplug::node::KIND, self.store.reader(), status)
+                .with_outbox(Arc::new(StdMutex::new(saf)));
+            Ok(plugin::spawn(Box::new(opencap_north_sparkplug::node::SparkplugNode::new(node)), ctx))
+        })();
+        match started {
+            Ok(h) => guard.1 = Some(h),
+            Err(e) => error!(error = %e, "sparkplug_start_failed"),
+        }
+    }
+
     async fn stop_publisher(&self) {
         if let Some(old) = self.north.lock().await.take() {
             old.stop(NORTH_STOP_GRACE).await;
@@ -262,9 +321,11 @@ impl Poller {
             warn!(detail = "restart opencap to apply mqtt connection/LWT settings", "mqtt_settings_changed");
         }
         let channels = loaded.channels.clone();
+        self.plugins.prepare(&loaded.poller.plugins.python, &self.selected(&channels)).await;
         *wlock(&self.loaded) = loaded;
         let changed = self.apply_channels(&channels);
         self.restart_publisher().await;
+        self.restart_sparkplug(false).await;
         let n = |k: &str| changed[k].as_array().map(|a| a.len()).unwrap_or(0);
         info!(
             started = n("started"),

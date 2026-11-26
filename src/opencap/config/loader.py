@@ -71,7 +71,7 @@ _LIST_LIMIT = 5          # ids listed in an aggregate warning
 _PUBLISH_FIELDS = set(PublishCfg.model_fields)
 _DEVICE_SCALARS = (
     "enabled", "host", "port", "scan_ms", "min_scan_ms", "timeout_ms", "retries",
-    "demote_after", "demote_for_ms",
+    "demote_after", "demote_for_ms", "plugin",
 )
 _TAG_FIELDS = ("enabled", "address", "dtype", "scan_ms", "scale")
 SERIAL_DRIVERS: dict[str, tuple[str, ...]] = {        # driver -> transports it supports
@@ -239,6 +239,34 @@ def _serial_line_checks(channels: list[Channel]) -> list[str]:
     running = [d for c in channels if c.enabled for d in c.devices if d.enabled and d.driver in SERIAL_DRIVERS]
     check_shared_lines(running, SERIAL_DRIVERS)
     return [w for d in running if d.driver == "ab_df1" and (w := timing_warning(d)) is not None]
+def sparkplug_device_id(poller: PollerConfig, device: Device) -> str:
+    """The Sparkplug device id of an opencap device: `sparkplug.devices`, else `<channel>.<device>`."""
+    return poller.sparkplug.devices.get(device.id, f"{device.channel}.{device.name}")
+
+
+def _sparkplug_checks(poller: PollerConfig, channels: list[Channel]) -> list[str]:
+    """Cross-file rules of `sparkplug` (#51). Errors only while it is enabled."""
+    from opencap.config.models import _sparkplug_id_error
+
+    cfg = poller.sparkplug
+    ids = {d.id for c in channels for d in c.devices}
+    warnings = [f"{POLLER_FILE}: sparkplug.devices: unknown device id {dev!r}; entry ignored"
+                for dev in cfg.devices if dev not in ids]
+    if not cfg.enabled:
+        return warnings
+    seen: dict[str, str] = {}
+    for c in channels:
+        for d in c.devices:
+            if not d.enabled:
+                continue
+            sp = sparkplug_device_id(poller, d)
+            if err := _sparkplug_id_error(f"device id of {d.id!r}", sp):
+                raise ValueError(f"{POLLER_FILE}: {err}; map it in sparkplug.devices")
+            if sp in seen:
+                raise ValueError(f"{POLLER_FILE}: sparkplug: {seen[sp]!r} and {d.id!r} both get the Sparkplug "
+                                 f"device id {sp!r}; map one in sparkplug.devices")
+            seen[sp] = d.id
+    return warnings
 
 
 def load_config(config_dir: Path) -> LoadedConfig:
@@ -353,6 +381,8 @@ def load_v1(config_dir: Path, *, for_project: bool = False) -> LoadedConfig:
     if not for_project:               # a project v2 runs them in finalize_project
         warnings += _serial_line_checks(channels)
 
+    warnings.extend(_sparkplug_checks(poller, channels))
+
     # Final pass through the models (cheap, and catches cross-field rules).
     validated = DevicesFile(
         version=devices_file.version,
@@ -437,6 +467,7 @@ def finalize_project(project: ProjectV2, node: PollerConfig, warnings: list[str]
                         f"{PROJECT_FILE}): {_ids(unmapped)}")
     warnings += _duplicate_warnings(all_devices)
     warnings += _serial_line_checks(channels)
+    warnings += _sparkplug_checks(node, channels)
     validated = ProjectV2(revision=project.revision, generated_from=project.generated_from,
                           generated_at=project.generated_at, name=project.name, title=project.title,
                           channels=channels, excluded=project.excluded)

@@ -8,7 +8,9 @@ members = [
     "crates/opencap-engine",
     "crates/opencap-serial",
     "crates/opencap-conformance",     # shared conformance-vector harness (#40, ADR-0014)
+    "crates/opencap-plugin",
     "drivers/*",                      # one crate per driver (#67): see README "How to add a driver crate"
+    "north/*",                        # one crate per north protocol (Sparkplug B: #51)
 ]
 
 [workspace.package]
@@ -30,6 +32,7 @@ opencap-driver-modbus-tcp = { path = "drivers/modbus_tcp" }
 opencap-driver-melsec-mc = { path = "drivers/melsec_mc" }
 opencap-driver-s7 = { path = "drivers/s7" }
 opencap-driver-ab-logix = { path = "drivers/ab_logix" }
+opencap-plugin = { path = "crates/opencap-plugin" }
 
 anyhow = "1"
 async-trait = "0.1"

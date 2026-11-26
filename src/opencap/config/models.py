@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 import math
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -20,6 +20,8 @@ DType = Literal[
 DriverName = Literal["modbus_tcp", "ab_logix", "ab_pccc", "s7", "melsec_mc", "opcua_client",
                      "modbus_rtu", "ab_df1", "simulator", "omron_fins"]
 Quality = Literal["good", "bad_comm", "bad_config", "bad_decode", "stale"]
+# Out-of-process plugin hosts a device can be routed through (Rust engine, ADR-0004 §3, #49).
+PluginName = Literal["python"]
 
 DEFAULT_TOPIC_PREFIX = "opencap"   # poller.yaml mqtt.topic_prefix default
 
@@ -164,6 +166,9 @@ class Device(_Model):
     channel: str
     name: str
     driver: DriverName
+    # "python": the Rust engine runs this driver in the Python driver host (`plugins.python` in
+    # poller.yaml). The Python engine always runs its drivers in-process and ignores it.
+    plugin: PluginName | None = None
     host: str
     port: int
     params: dict[str, Any] = Field(default_factory=dict)  # driver-specific
@@ -277,6 +282,7 @@ class TagOverride(_Model):
 
 class DeviceOverride(_Model):
     enabled: bool | None = None
+    plugin: PluginName | None = None
     host: str | None = None
     port: int | None = None
     scan_ms: int | None = None
@@ -413,6 +419,28 @@ class DeviceDefaults(_Model):
     demote_for_ms: int = 30_000
 
 
+class PythonPluginCfg(_Model):
+    """The Python driver host the Rust engine starts for `plugin: python` devices (#49, proto/README.md).
+    The Python engine ignores it."""
+
+    # default: ["python3", "-m", "opencap.plugin_host"] ("python" on Windows)
+    command: list[Annotated[str, Field(min_length=1)]] | None = Field(default=None, min_length=1)
+    transport: Literal["auto", "unix", "tcp"] = "auto"   # auto: Unix socket, loopback TCP on Windows
+    start_timeout_ms: int = 30_000         # spawn -> ready line
+
+    @model_validator(mode="after")
+    def _check(self) -> "PythonPluginCfg":
+        if self.command is not None and not all(part.strip() for part in self.command):
+            raise ValueError("plugins.python.command: every part must be a non-blank string")
+        if self.start_timeout_ms < 1000:
+            raise ValueError("plugins.python.start_timeout_ms must be >= 1000")
+        return self
+
+
+class PluginsCfg(_Model):
+    python: PythonPluginCfg = Field(default_factory=PythonPluginCfg)
+
+
 class CheckCfg(_Model):
     est_rtt_ms: float = 60.0       # assumed round trip per wire request over the IPsec link
 
@@ -509,6 +537,46 @@ class OpcUaServerCfg(_Model):
         return rest.rsplit(":", 1)[0] if rest.count(":") == 1 else rest
 
 
+def _sparkplug_id_error(what: str, ident: str) -> str | None:
+    """Sparkplug ids are non-empty UTF-8 without `+`, `/`, `#` (spec 4.1.1) or NUL."""
+    if not ident:
+        return f"sparkplug: {what} must not be empty"
+    bad = next((c for c in ident if c in "+/#\0"), None)
+    if bad is not None:
+        return f"sparkplug: {what} {ident!r} contains the reserved character {bad!r}"
+    return None
+
+
+class SparkplugCfg(_Model):
+    """Sparkplug B 3.0 edge node (#51, docs/spec/payload-sparkplug.md). Served by the Rust engine;
+    the Python engine loads and validates it, and warns. Uses the broker of `mqtt` on its own
+    connection (its own client id and Will)."""
+
+    enabled: bool = False
+    group_id: str = "opencap"
+    edge_node_id: str | None = None        # default: `instance`
+    primary_host_id: str | None = None     # births only while this host's STATE says online
+    client_id: str | None = None           # default: "<mqtt.client_id>-sparkplug"
+    devices: dict[str, str] = Field(default_factory=dict)   # opencap device id -> Sparkplug device id
+    outbox: str = "data/sparkplug-outbox.sqlite"   # DATA held while the primary host is offline (ADR-0011)
+    outbox_max_bytes: int = 64 * 1024 * 1024
+
+    @model_validator(mode="after")
+    def _check(self) -> "SparkplugCfg":
+        for what, ident in (("group_id", self.group_id), ("edge_node_id", self.edge_node_id),
+                            ("primary_host_id", self.primary_host_id)):
+            if ident is not None and (err := _sparkplug_id_error(what, ident)):
+                raise ValueError(err)
+        for dev, ident in self.devices.items():
+            if err := _sparkplug_id_error(f"device id for {dev!r}", ident):
+                raise ValueError(err)
+        if len(set(self.devices.values())) != len(self.devices):
+            raise ValueError("sparkplug: two devices map to the same Sparkplug device id")
+        if self.outbox_max_bytes < 1:
+            raise ValueError("sparkplug: outbox_max_bytes must be >= 1")
+        return self
+
+
 def _is_loopback_host(host: str) -> bool:
     """`localhost` or a loopback IP (all of 127/8, ::1), as `server._is_loopback` decides for the API."""
     import ipaddress
@@ -532,6 +600,8 @@ class PollerConfig(_Model):
     defaults: DeviceDefaults = Field(default_factory=DeviceDefaults)
     check: CheckCfg = Field(default_factory=CheckCfg)
     opcua_server: OpcUaServerCfg = Field(default_factory=OpcUaServerCfg)
+    plugins: PluginsCfg = Field(default_factory=PluginsCfg)
+    sparkplug: SparkplugCfg = Field(default_factory=SparkplugCfg)   # #51: served by the Rust engine
 
 
 # --- project v2 (ADR-0013, #37) ----------------------------------------------

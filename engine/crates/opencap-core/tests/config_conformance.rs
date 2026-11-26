@@ -29,13 +29,15 @@ fn check(document: &str, data: Value) -> Result<(), String> {
     match document {
         "devices" => from_json::<DevicesFile>(data)?.validate(),
         "devices_map" => from_json::<DeviceMap>(data).map(drop),
-        "overrides" => from_json::<Overrides>(data).map(drop),
+        "overrides" => from_json::<Overrides>(data)?.validate(),
         "poller" => {
             let p = from_json::<PollerConfig>(data)?;
             p.mqtt.validate().map_err(|e| format!("mqtt: {e}"))?;
             p.api.validate().map_err(|e| format!("api: {e}"))?;
             p.payload.validate()?;
-            p.opcua_server.validate()
+            p.opcua_server.validate()?;
+            p.plugins.python.validate()?;
+            p.sparkplug.validate()
         }
         other => panic!("fixture document {other:?} has no Rust model: add it here"),
     }

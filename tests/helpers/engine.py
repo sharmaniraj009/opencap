@@ -101,8 +101,17 @@ def implemented_drivers(kind: str) -> frozenset[str] | None:
     return frozenset(_rust_report()["implemented"])
 
 
-def unsupported_reason(kind: str, drivers: tuple[str, ...]) -> str | None:
-    """Why the engine cannot run a suite that polls `drivers`, or None if it can."""
+def unsupported_reason(kind: str, drivers: tuple[str, ...], plugin: str | None = None) -> str | None:
+    """Why the engine cannot run a suite that polls `drivers`, or None if it can. `plugin`: the
+    suite's devices say `plugin: <name>`, so the Rust engine runs them in that plugin host (#49)."""
+    if plugin is not None and kind == "rust":
+        if plugin not in _rust_report().get("plugins", ()):
+            return f"{NOT_PORTED}: {', '.join(drivers)} (this binary has no {plugin} plugin host)"
+        try:
+            import grpc  # noqa: F401
+        except ImportError:
+            return f"{NOT_PORTED}: {', '.join(drivers)} (the {plugin} plugin host needs the `plugin` extra)"
+        return None
     implemented = implemented_drivers(kind)
     if implemented is None:
         return None

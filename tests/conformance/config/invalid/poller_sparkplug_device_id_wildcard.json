@@ -1,0 +1,12 @@
+{
+  "document": "poller",
+  "expected_error": "sparkplug: device id for 'Plant A/PLC1' 'PLC#1' contains the reserved character '#'",
+  "semantic": true,
+  "data": {
+    "sparkplug": {
+      "devices": {
+        "Plant A/PLC1": "PLC#1"
+      }
+    }
+  }
+}

@@ -10,9 +10,9 @@ name: Rust engine
 on:
   push:
     branches: [main]          # other branches run through their pull request (#38)
-    paths: ["engine/**", "src/**", "tests/**", "config/**", "pyproject.toml", "deploy/opencapd.service", "deploy/windows/engine_service_smoke.py", ".github/workflows/rust-engine.yml"]
+    paths: ["engine/**", "proto/**", "src/**", "tests/**", "config/**", "pyproject.toml", "deploy/opencapd.service", "deploy/windows/engine_service_smoke.py", ".github/workflows/rust-engine.yml"]
   pull_request:
-    paths: ["engine/**", "src/**", "tests/**", "config/**", "pyproject.toml", "deploy/opencapd.service", "deploy/windows/engine_service_smoke.py", ".github/workflows/rust-engine.yml"]
+    paths: ["engine/**", "proto/**", "src/**", "tests/**", "config/**", "pyproject.toml", "deploy/opencapd.service", "deploy/windows/engine_service_smoke.py", ".github/workflows/rust-engine.yml"]
   schedule:
     - cron: "41 2 * * *"          # nightly, after CI's Python acceptance run (UTC)
   workflow_dispatch:
@@ -101,7 +101,7 @@ jobs:
       - name: Install the Python reference and test harness
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev,modbus,north,serial,ab,melsec,s7]'
+          pip install -e '.[dev,modbus,north,serial,ab,melsec,s7,plugin]'   # plugin: devices served by the Python driver host (#49)
       - name: Golden payloads, CLI parity, outbox interchange, API and reload
         env:
           OPENCAP_ENGINE_BIN: engine/target/debug/opencap-engine
@@ -109,6 +109,7 @@ jobs:
           pytest -ra tests/unit/test_payload_golden.py
           tests/integration/test_rust_engine_cli.py tests/integration/test_rust_engine_outbox.py
           tests/integration/test_rust_engine_api.py tests/integration/test_engine_harness.py
+          tests/unit/test_sparkplug_conformance.py tests/integration/test_sparkplug_node.py
           tests/integration/test_rust_engine_rtu.py tests/integration/test_rust_engine_ab_logix.py
           tests/integration/test_rust_engine_melsec.py tests/integration/test_rust_engine_s7.py
           tests/integration/test_rust_engine_fins.py
@@ -155,6 +156,14 @@ jobs:
           OPENCAP_OUTAGE_S: ${{ inputs.outage_s || '8' }}
           OPENCAP_REQUIRE_MOSQUITTO: "1"   # #8: Docker is on ubuntu-latest, so the Mosquitto restart test must run, not skip
         run: pytest -m acceptance -ra -s
+      - name: Python driver host - plugin protocol, kill and recovery, CLI, added latency (#49)
+        env:
+          OPENCAP_ENGINE_BIN: engine/target/debug/opencap-engine
+          OPENCAP_TEST_PYTHON: python
+        run: |
+          cargo build --locked --manifest-path engine/Cargo.toml -p opencap-plugin --example plugin_read_latency
+          cargo test --locked --manifest-path engine/Cargo.toml -p opencap-plugin --test python_host
+          pytest -ra -s tests/integration/test_plugin_host.py tests/integration/test_rust_engine_plugin.py
       - name: Engine log on failure
         if: failure()
         run: find /tmp -name engine.log -path '*rust-engine*' -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;

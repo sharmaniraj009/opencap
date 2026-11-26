@@ -1838,6 +1838,43 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
 
+### D-092 Out-of-process plugin protocol v1 and the Python driver host as built (#49)
+`proto/opencap/plugin/v1/driver.proto`, `engine/crates/opencap-plugin`, `src/opencap/plugin_host.py`. Where they go
+beyond ADR-0004 §3 / 03 §3.3:
+- **Opt-in per device: `plugin: python`** (devices.json or overrides.yaml; `plugins.python` in poller.yaml says how to
+  start the host). Expected: the engine picks the host for drivers it lacks. Why: routing stays explicit and
+  reviewable, a native port can take over device by device, and the Python engine ignores the key.
+- **One host process per channel**, so the host's single executor is the channel executor (D-015), and a crash or
+  hang in a PLC library affects one channel only. Cost: one Python process (~40 MB) per such channel.
+- **`plan()` stays pure in Rust.** `PluginRegistry::prepare()` asks the host to `Plan` every rate group before the
+  engine builds its registry (start, reload, `check`/`read`/`identity`); `PluginDriver::plan()` answers from those
+  plans. A device the host cannot plan (bad params, no Python, the host does not start) is a driver-factory error:
+  listed, not polled.
+- **Added RPCs `Hello` and `Open`**: `Hello` checks the protocol and the served drivers; `Open` creates the device's
+  driver instance in the process, and `NOT_OPEN` tells the engine to open it again after a restart. Generations are
+  unique across hosts, so a device is never taken as open in a successor process. Connect/Close replies also carry
+  `DriverInfo`, since a connect budget can change once connected (PCCC: 60 s before the file directory is cached,
+  10 s after).
+- **Block payloads are pickles signed with HMAC-SHA256** under the run's token; the host verifies before it
+  unpickles and caches verified blocks. Opaque to the engine, and stateless across host restarts. A payload that
+  does not verify is `BLOCK_CONFIG` (block disabled until reload), never deserialised.
+- **Transport:** Unix socket in a 0700 directory; loopback TCP (Windows, or `transport: tcp`) needs the token, which
+  every call carries. Named pipes are not used. The host exits when its stdin closes, so it never outlives the engine.
+- **Restart:** a process that exits, or a call that fails in transport, ends its generation; the next start waits
+  1 s, 2 s ... 60 s (reset after 60 s alive). Its devices see `ConnectionLost`, go `bad_comm`, and recover by the
+  worker's normal reconnect.
+- **Not wired yet:** `Browse` has no caller in the Rust trait; `Subscribe` returns `UNSUPPORTED` from the Python host
+  (push drivers are served through `Read`, as in the Python engine); `stale_by_read_time` is reported but the Rust
+  worker does not use read times (D-045) yet.
+- **Overhead target missed:** ~0.6 ms p50 / ~1.1 ms p99 added per read (target < 0.5 ms p99), almost all of it the
+  fixed per-call cost of Python grpcio (04 §4.1). Kept for now (small against PLC round trips); #252 tracks the
+  target (batched reads per call, a leaner `v2` transport, or the native PCCC port in #48), so #49 stays open.
+- **Codegen:** Rust compiles the `.proto` with protox in `build.rs` (no `protoc` on build machines); tonic is pinned
+  at 0.14.5 for the workspace's Rust 1.85. Python stubs are committed (grpcio-tools 1.85.4), with a drift test; the
+  `plugin` extra needs protobuf >= 7.35.1 and grpcio >= 1.85.4, the stubs' gencode versions.
+- **Harness:** `opencap-engine drivers` reports `"plugins": ["python"]`, and `@pytest.mark.drivers(..., plugin="python")`
+  lets an engine-agnostic suite run on the Rust engine through the host (Phase 3 does).
+
 ### D-088 OPC UA server hardening (#28)
 Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo, open62541 and asyncua.
 - **Per-server asyncua overrides, no global patch** (`north/opcua_services.py`): a `Server` subclass
@@ -1998,6 +2035,61 @@ Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo,
   tags.
 - **Rust (#56):** it has no system tags yet. When it gets them it should do the same: atomic
   per-device counters, and per-device event updates rather than a node-wide recomputation.
+
+## Sparkplug B (#51)
+
+### D-090 Sparkplug B codec: proto + prost, not srad; what the specification leaves open
+Spec: `docs/spec/payload-sparkplug.md`. Code: `engine/north/sparkplug`. Vectors: `tests/conformance/sparkplug/`.
+- **srad not used.** `oss-reuse.md` asked #51 to evaluate the `srad` crates first. They are MIT OR Apache-2.0 but
+  pre-1.0, with breaking releases from 0.4 to 0.7 in eight months and about 5k downloads in total. `srad-types` also
+  ships prost code generated from the EPL-2.0 `sparkplug_b.proto`, comments included, under MIT/Apache without an
+  EPL notice. srad is also a framework that owns the MQTT session, which would bypass the outbox (ADR-0011) and the
+  NorthPlugin contract. Instead the proto is vendored unmodified (Tahu v1.0.19, `proto/third_party/`, listed in
+  `NOTICE`) and compiled at build time by prost-build and protox. protox is a pure-Rust compiler, so no system
+  `protoc` is needed and no generated code is committed.
+- **Negative Int8/Int16/Int32:** stored as value mod 2^width in `int_value`. The spec gives `uint32` and no rule.
+  Tahu Java sign-extends to 32 bits, while Tahu Python adds 2^width. The Java decoder casts (`(short) getIntValue()`),
+  so it reads either form; the Rust decoder accepts both.
+- **UInt32 in `int_value`,** the spec's field type. Tahu Java writes `long_value`, and its decoder and ours accept both.
+- **Scaled tags are Double**, because the value is always a float. Arrays use the spec's packed little-endian bytes.
+  BooleanArray puts the first value in the MSB (the spec's example) with zero padding bits.
+- **Quality (ADR-0006):** a `Quality` Int32 property (192, 0x18, 0x04, 0x00, 0x44). `bad_config` and `bad_decode`
+  are `is_null` even with a last value; `bad_comm` and `stale` keep it. #30's shared module will replace
+  `quality.rs`.
+- **Names and aliases.** A tag's dots become `/` in the metric name, because dots are the group path, as in
+  KEPServerEX. Aliases are unique per edge node and handed out from 1 in birth order: `bdSeq`,
+  `Node Control/Rebirth`, then each device's tags in config order. `bdSeq` carries an alias in NBIRTH, because every
+  birth metric needs one (tck-id-payloads-alias-birth-requirement); it has none in NDEATH.
+- **Properties `engUnit`/`engLow`/`engHigh`**: these are the names Ignition's MQTT Engine maps; *verify* at L2.
+- **Commands:** only `Node Control/Rebirth` = true in an NCMD is executed, by name or by its alias. Everything else
+  in an NCMD, and every DCMD metric, is rejected with a reason (ADR-0008).
+- **STATE:** only the 3.0 JSON form. Plain-text `ONLINE`/`OFFLINE` from Sparkplug 2.x hosts is not supported.
+- **Vectors from an independent reference.** No Python engine implements Sparkplug, so the vectors come from a
+  second implementation of the spec page: `tests/helpers/sparkplug_ref.py`, on Google's protobuf runtime (Python
+  `protobuf`, BSD-3-Clause, `dev` extra, test-only). It loads the schema from `sparkplug_b.desc`, which protox
+  compiles without source info so line endings and comments don't matter, and which a Rust test keeps identical to
+  the build. prost and Google's runtime produce identical bytes for every case. Two mutations confirm the replay
+  test catches regressions: Tahu Java's sign extension for Int16, and LSB-first BooleanArray bits.
+- **Licence gate:** `scripts/check_licenses.py` learned the `3-Clause BSD License` spelling of protobuf's metadata.
+- **Quality from the shared table.** `quality.rs` follows `tests/conformance/quality/map.json`, and `tests/vectors.rs`
+  checks it. A stale tag that was never read has Quality 0x00, not 0x44. The Python reference calls
+  `opencap.core.quality.to_sparkplug`.
+- **The edge node (spec §8).**
+  - It has its own MQTT connection, because Sparkplug needs its own Will (NDEATH with a new bdSeq on every CONNECT)
+    and its own subscriptions. The broker settings come from `mqtt`, through the new shared
+    `opencap_north::mqtt::client_options`.
+  - A STATE `online: false` ends the session (NDEATH, disconnect, a new CONNECT after 2 s), as the spec requires for
+    a primary host that lost this server.
+  - Data held while the session has no births goes to the node's own outbox as historical DDATA. It is replayed
+    after the next births, with new seq numbers. That includes data read before the host was first online, because
+    it is history the host has not seen.
+  - The outbox rows are deleted once handed to the client, because DDATA is QoS 0 by the spec.
+  - The runtime restarts the node when the `sparkplug` or `mqtt` settings or the device set change, so the births
+    always list every metric.
+- **Known limits.**
+  - `StoreAndForward::put` sets the global `saf_queue` gauge, so it now also counts the Sparkplug outbox. Per-agent
+    labels belong to #142.
+  - The TCK has no headless runner; the tck-ids the integration test covers are listed in spec §8.5.
 
 ### D-096 Serial follow-ups from #62 (#68)
 - **Non-blocking serial writes.** `SerialTransport` hands the tty what it takes now. The rest is queued and

@@ -51,6 +51,9 @@ docker run -d --name opencap --restart unless-stopped \
   by the container user: `sudo chown -R 10001:10001 config` and `-v "$PWD/config:/opencap/config"`
   (no `:ro`). With `:ro` the UI shows editing as off and config writes answer 503 with the path.
   The audit log of config changes goes to `data/audit.jsonl`, in the data volume.
+- **Importing a KEPServerEX project in the web UI** stages the importer's output in
+  `<config dir>/.import-staging/` (0700) for up to an hour; the export itself is deleted as soon as it is read and
+  credentials are never kept (D-087). If you keep the config directory in git, ignore that folder.
 - **Quick Client (live values)** uses the WebSocket `/api/v1/ws` on the same port. A reverse proxy in front must
   pass the WebSocket upgrade (`Upgrade` and `Connection` headers) and keep the `Host` header, or list the public
   origin in `api.cors_origins`: browsers may open the feed only from the API's own origin (D-067).

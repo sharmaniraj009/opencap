@@ -40,6 +40,11 @@ done (S7, MC and OPC UA still need a check on real equipment). See [ROADMAP.md](
 - [Testing](#testing)
 - [Contributing, security, license](#contributing-security-license)
 
+## Try it in one minute
+
+No PLC needed: [`demo/`](demo/README.md) runs two simulated devices through the real poller into a local
+MQTT broker, with the API and web UI, and walks through the broker-outage (store-and-forward) test.
+
 ## Quick start
 
 opencap is not on PyPI yet. Install it from a clone (or with
@@ -441,7 +446,7 @@ opencap import-kep project.json --format v2   # import straight into a new v2 di
 
 Re-importing into a v2 project (a three-way merge) is not supported yet. The config API edits
 v1 only for now: on a v2 project its configuration routes answer 409, while status, values and
-reload keep working. The Rust engine reads v1 only for now (#186). D-087.
+reload keep working. The Rust engine reads v1 only for now (#186). D-089.
 
 ## MQTT topics and payload
 

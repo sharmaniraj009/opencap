@@ -326,17 +326,37 @@ async function pseudoLocale(browser, en) {
     await page.waitForSelector("#view-config");
     check(!(await page.textContent("#view-config")).includes("SITE PCCC"), "channel deleted");
 
-    // --- import: dry run, then apply
+    // --- import wizard: upload -> review -> apply, then upload -> discard
     await page.goto(base + "/ui/#/import");
     await page.setInputFiles("#import-form input[type=file]", projectFile);
     await page.click("#import-form button[type=submit]");
-    await page.waitForSelector("#import-result h2 >> text=Dry run");
-    check((await page.textContent("#import-result")).includes("SITE PCCC/7 PUMP"), "import dry run lists the added device");
+    await page.waitForSelector("#import-result h2 >> text=Review");
+    check((await page.textContent("#import-result")).includes("SITE PCCC/7 PUMP"), "import review lists the added device");
+    check((await page.textContent("#import-drivers")).includes("modbus_tcp"), "import review shows devices per driver");
+    check((await page.textContent("#import-excluded")).includes("Simulator driver"), "import review shows excluded devices with reasons");
+    check(await page.locator("#import-same-address").count() === 1, "import review has the same-address report");
+    check((await page.textContent("#import-stubs")).includes("SITE PCCC/7 PUMP"), "stub map entries are highlighted");
+    check(await page.isDisabled("#import-result >> text=Apply import"), "apply waits for the stub confirmation");
+    check((await page.textContent("#import-env")).includes("OPENCAP_OPCUA_"), "import names the env vars for credentials");
+    await page.goto(base + "/ui/#/audit");                        // leave the wizard ...
+    await page.goto(base + "/ui/#/import");                       // ... and come back: the staged import reopens
+    await page.waitForSelector("#import-result h2 >> text=Review");
+    check(true, "a staged import is resumed after leaving the page");
     await shot(page, "import");
-    page.once("dialog", (d) => d.accept());
+    await page.check("#import-stubs input[name=stubs_ok]");
+    // apply without reloading: the steps after this (and the pseudo-locale walk) expect pending changes;
+    // apply with ?apply=true is covered by tests/unit/test_import_wizard.py
+    await page.uncheck("#import-result input[name=reload]");
     await page.click("#import-result >> text=Apply import");
-    await page.waitForSelector("#import-result >> text=Imported");
-    check(true, "import applied");
+    await page.waitForSelector("#import-result .flash-ok >> text=Imported");
+    check((await page.textContent("#import-result .flash-ok")).includes("Reload to apply"), "import applied, reload pending");
+    await page.click("#import-result >> text=Import another file");
+    await page.setInputFiles("#import-form input[type=file]", projectFile);
+    await page.click("#import-form button[type=submit]");
+    await page.waitForSelector("#import-result h2 >> text=Review");
+    await page.click("#import-result >> text=Discard");
+    await page.waitForSelector("#import-form >> text=discarded");
+    check(true, "a staged import can be discarded");
 
     // --- audit and check
     await page.goto(base + "/ui/#/audit");

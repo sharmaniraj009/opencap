@@ -352,14 +352,39 @@ class ProjectRevisions(_Open):
     revisions: list[ProjectRevision]
 
 
+class SameAddressRow(_Open):
+    """Tags of a KEPServerEX device that read the same address (D-011)."""
+
+    device_id: str
+    address: str
+    tags: list[str]
+    dtypes: list[str]
+    classification: str = Field(description='"alias" (same type: kept) or "suspect" (review it)')
+    reason: str
+    included: bool
+
+
 class ImportReport(Revisioned):
-    """A dry run or an applied import (KEPServerEX `project.json` or an opencap export)."""
+    """A dry run, a staged import (#33) or an applied import (KEPServerEX `project.json` or an
+    opencap export)."""
 
     applied: bool
     pending_reload: bool
     changes: list[Obj] | None = None
     reload: ReloadResult | None = None
     reload_error: str | None = None
+    import_id: str | None = Field(None, description="staged import: apply or discard it with this id")
+    staged: bool | None = None
+    created_at: str | None = None
+    expires_at: str | None = Field(None, description="a staged import is removed at this time (UTC)")
+    same_address: list[SameAddressRow] | None = Field(None, description="KEPServerEX import: same-address tags "
+                                                                         "(D-011), at most 500 rows")
+    excluded_devices: list[Obj] | None = Field(None, description="KEPServerEX import: devices not imported, each "
+                                                                 "with channel, device, kep_driver, tags, reason")
+
+
+class ImportDiscarded(_Open):
+    discarded: str
 
 
 class AuditList(_Open):
@@ -564,4 +589,5 @@ def request_body_components() -> tuple[dict[str, Any], dict[tuple[str, str], dic
 
 # write routes that take no body
 NO_BODY_WRITES = frozenset({("post", "/api/v1/reload"), ("post", "/api/v1/devices/{device_id}/read-once"),
+                            ("post", "/api/v1/project/import/{import_id}/apply"),
                             ("post", "/reload"), ("post", "/devices/{device_id}/read-once")})

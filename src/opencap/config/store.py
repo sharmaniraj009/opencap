@@ -48,6 +48,8 @@ from opencap.config.diff import capped, changes, devices_file_diff, text_diff
 from opencap.config.kep_import import (  # the CLI importer's own helpers, so both behave alike
     DEVICES_MAP_HEADER,
     OVERRIDES_TEMPLATE,
+    ImportResult,
+    SameAddressRow,
     _indent,
     _stub_entries,
     _yaml_entries,
@@ -537,6 +539,12 @@ def _changed_tags(old: list[dict[str, Any]], new: list[dict[str, Any]]) -> set[s
 
 
 STUBS_FILE = "devices_map.stubs.yaml"
+SAME_ADDRESS_ROWS = 500       # rows of the same-address report (D-011) in an import report
+
+
+def _same_address_json(row: SameAddressRow) -> dict[str, Any]:
+    return {"device_id": row.device_id, "address": row.address, "tags": list(row.tags), "dtypes": list(row.dtypes),
+            "classification": row.classification, "reason": row.reason, "included": row.included}
 
 
 def _kep_map_update(text: str | None, devices_file: DevicesFile) -> tuple[str | None, str | None, str, list[str]]:
@@ -1316,9 +1324,39 @@ class ConfigStore:
 
     # import -------------------------------------------------------------------------
     def import_config(self, raw: bytes, *, dry_run: bool = True, filename: str | None = None,
-                      if_match: str | None = None) -> dict[str, Any]:
+                      if_match: str | None = None, work_dir: Path | None = None) -> dict[str, Any]:
         """Import a KEPServer `project.json` or an opencap export. Returns the dry-run report
-        (always) and, unless `dry_run`, the `Result` of writing it under `"result"`."""
+        (always) and, unless `dry_run`, the `Result` of writing it under `"result"`. The importer
+        reads the upload from a temporary copy (0600) in `work_dir`, or the system temp dir."""
+        kind, doc = self._classify(raw)
+        if kind == "kepserver":
+            result = self._kep_parse(raw, filename, work_dir)
+            return self._import_kep(result, filename, dry_run=dry_run, if_match=if_match)
+        return self._import_export(doc, dry_run=dry_run, if_match=if_match)
+
+    def stage_import(self, raw: bytes, *, filename: str | None, work_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Run the import without writing: (the dry-run report, what `apply_staged` installs). The
+        staged part is the importer's output only (env-var names, never credentials, D-010); the
+        upload itself is deleted from `work_dir` before this returns."""
+        kind, doc = self._classify(raw)
+        if kind == "export":
+            return self._import_export(doc, dry_run=True, if_match=None), {"kind": "export", "doc": doc}
+        result = self._kep_parse(raw, filename, work_dir)
+        report = self._import_kep(result, filename, dry_run=True, if_match=None)
+        staged = {"kind": "kepserver", "filename": _safe_filename(filename), "devices_file": _dump(result.devices_file),
+                  "summary": result.summary, "problems": result.problems}
+        return report, staged
+
+    def apply_staged(self, staged: dict[str, Any], *, if_match: str | None) -> dict[str, Any]:
+        """Write what `stage_import` staged, as `import_config(dry_run=False)` would have."""
+        if staged.get("kind") == "export":
+            return self._import_export(staged["doc"], dry_run=False, if_match=if_match)
+        result = ImportResult(devices_file=DevicesFile.model_validate(staged["devices_file"]), same_address=[],
+                              summary=staged["summary"], problems=list(staged["problems"]))
+        return self._import_kep(result, staged["filename"], dry_run=False, if_match=if_match)
+
+    @staticmethod
+    def _classify(raw: bytes) -> tuple[str, Any]:
         if len(raw) > MAX_IMPORT_BYTES:
             raise Invalid("upload too large", [_err((), f"the upload is larger than {MAX_IMPORT_BYTES} bytes")])
         try:
@@ -1326,26 +1364,32 @@ class ConfigStore:
         except (ValueError, UnicodeDecodeError) as exc:
             raise Invalid("not JSON", [_err((), f"the upload is not JSON: {exc}", "json_invalid")]) from None
         if isinstance(doc, dict) and isinstance(doc.get("project"), dict):
-            return self._import_kep(raw, filename, dry_run=dry_run, if_match=if_match)
+            return "kepserver", doc
         if isinstance(doc, dict) and doc.get("format") == EXPORT_FORMAT:
-            return self._import_export(doc, dry_run=dry_run, if_match=if_match)
+            return "export", doc
         raise Invalid("unknown file", [_err((), "expected a KEPServer project.json (top-level 'project') "
                                                 f"or an opencap export (format '{EXPORT_FORMAT}')")])
 
-    def _import_kep(self, raw: bytes, filename: str | None, *, dry_run: bool, if_match: str | None) -> dict[str, Any]:
-        state = self._read()
+    def _kep_parse(self, raw: bytes, filename: str | None, work_dir: Path | None) -> ImportResult:
+        """Run the KEPServer importer on the upload (a 0600 temporary copy, removed afterwards)."""
         try:
-            poller = PollerConfig.model_validate(yamledit.parse(state.texts[POLLER_FILE]))
+            poller = PollerConfig.model_validate(yamledit.parse(self._read().texts[POLLER_FILE]))
             defaults = poller.defaults
         except Exception:  # noqa: BLE001 - a broken poller.yaml fails later in validation
             defaults = None
-        with tempfile.TemporaryDirectory(prefix="opencap-import-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="opencap-import-", dir=work_dir) as tmp:
             path = Path(tmp) / _safe_filename(filename)
-            path.write_bytes(raw)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(raw)
             try:
-                result = import_kep(path, defaults=defaults)
+                return import_kep(path, defaults=defaults)
             except Exception as exc:  # noqa: BLE001 - malformed export
                 raise Invalid("cannot import this project", [_err((), f"KEPServer import failed: {exc}")]) from None
+
+    def _import_kep(self, result: ImportResult, filename: str | None, *, dry_run: bool,
+                    if_match: str | None) -> dict[str, Any]:
+        state = self._read()
         new_devices = _dump(result.devices_file)
         stub_ids: list[str] = []
         map_status = {"status": "unchanged", "side_file": None}
@@ -1383,7 +1427,10 @@ class ConfigStore:
             "warnings": res.warnings,
             "import_summary": result.summary,
             "problems": result.problems,
+            "excluded_devices": [e.model_dump(mode="json") for e in result.devices_file.excluded],
         }
+        if result.same_address:
+            report["same_address"] = [_same_address_json(r) for r in result.same_address[:SAME_ADDRESS_ROWS]]
         if not dry_run:
             res.data = {"devices_json": report["devices_json"]["summary"], "stubs_added": stub_ids,
                         "problems": len(result.problems)}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from opencap.api.audit import AuditLog
 from opencap.api.auth import Auth, Principal
+from opencap.api.events import RefusalLog
 from opencap.config.models import ApiCfg, PollerConfig
 from opencap.config.store import ConfigStore, Result
 
@@ -58,6 +60,15 @@ class PendingTracker:
         return out
 
 
+def _cause(poller: Any, principal: Principal) -> dict[str, str]:
+    """`who` and `via` for the `config_reloaded` line, when the poller accepts them (LOG-R15)."""
+    try:
+        accepts = "who" in inspect.signature(poller.reload).parameters
+    except (TypeError, ValueError):
+        accepts = False
+    return {"who": principal.name, "via": principal.via} if accepts else {}
+
+
 @dataclass
 class ApiContext:
     poller: "Poller"
@@ -67,6 +78,7 @@ class ApiContext:
     audit: AuditLog
     tracker: PendingTracker = field(init=False)
     identity_cache: dict[str, tuple[float, dict[str, Any]]] = field(default_factory=dict)
+    refusals: RefusalLog = field(default_factory=RefusalLog)       # api.request_refused, rate limited
 
     def __post_init__(self) -> None:
         self.tracker = PendingTracker(self.poller, self.store)
@@ -90,7 +102,7 @@ class ApiContext:
             while not lock.acquire(blocking=False):
                 await asyncio.sleep(0.02)
         try:
-            changed = await self.poller.reload()
+            changed = await self.poller.reload(**_cause(self.poller, principal))
         finally:
             if lock is not None:
                 lock.release()

@@ -902,10 +902,10 @@ JSON with `event` and `level`.
 |---|---|---|---|---|---|
 | LOG-01 | Driver and plug-in loading, component inventory | Adapt | Planned (#49) | #49 | M3 |
 | LOG-02 | Project load and validation events (`config.loaded`, `config.warning`, `config.invalid`) | Adapt | Not started | #37 | M3 |
-| LOG-03 | Project save and file-name errors (`config.write_failed`) | Adapt | Planned (#135) | #135 | M3 |
+| LOG-03 | Project save and file-name errors (`config.write_failed`) | Adapt | Done (Python, #135) | #135 | M3 |
 | LOG-04 | Project backups and revisions | Adapt | Done | — | M3 |
 | LOG-05 | Project file encryption and passwords | Out of scope | Out of scope | — | — |
-| LOG-06 | Object add/edit/delete failures (`config.change_rejected`) | Adapt | Planned (#135) | #135 | M3 |
+| LOG-06 | Object add/edit/delete failures (`config.change_rejected`) | Adapt | Done (Python, #135) | #135 | M3 |
 | LOG-07 | Naming rules and renames (`_` reserved for system tags) | Adapt | Planned (#22) | #22 | M5 |
 | LOG-08 | Automatic tag generation events | Defer | Planned (#11) | #11 | — |
 | LOG-09 | Tag address validation | Adopt | Done | — | M2 |
@@ -928,7 +928,7 @@ JSON with `event` and `level`.
 | LOG-26 | Runtime lifecycle, reload, project replacement | Adopt | Done | — | M2 |
 | LOG-27 | Windows service, installation, operating mode | Out of scope | Out of scope | #34 | — |
 | LOG-28 | OPC ProgID redirect | Out of scope | Out of scope | #18 | — |
-| LOG-29 | Configuration API port and TLS events (`api.started`, `api.bind_failed`) | Adapt | Planned (#135) | #135 | M3 |
+| LOG-29 | Configuration API port and TLS events (`api.started`, `api.bind_failed`) | Adapt | Done (Python, #135) | #135 | M3 |
 | LOG-30 | OPC UA endpoints, certificates, discovery | Adopt | Planned (#74) | #74, #50 | M3 |
 | LOG-31 | OPC .NET, OPC HDA, DDE | Out of scope | Out of scope | — | — |
 | LOG-32 | OPC AE subscription filters | Defer | Planned (#24) | #24 | M5 |
@@ -949,8 +949,8 @@ JSON with `event` and `level`.
 | LOG-R9 | Event log store and retention | Adopt | Planned (#136) | #136 | M5 |
 | LOG-R10 | Event log API | Adopt | Planned (#136) | #136, #32 | M5 |
 | LOG-R11 | UI event log view | Adopt | Planned (#136) | #136 | M5 |
-| LOG-R12 | No secrets in logs (test) | Adopt | Planned (#135) | #135 | M2 |
+| LOG-R12 | No secrets in logs (test) | Adopt | Done (Python, #135) | #135 | M2 |
 | LOG-R13 | One test per catalogued event | Adopt | Planned (#134) | #134 | M3 |
 | LOG-R14 | Engine parity of events | Adopt | Not started | #42 | M4 |
-| LOG-R15 | Correlation fields (`revision`, `who`) | Adopt | Planned (#135) | #135 | M3 |
+| LOG-R15 | Correlation fields (`revision`, `who`) | Adopt | Done (Python, #135) | #135 | M3 |
 | LOG-R16 | Library log lines as JSON | Adopt | Planned (#133) | #133 | M1 |

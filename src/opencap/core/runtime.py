@@ -6,7 +6,10 @@ PLAN.md sections 3, 8 (reload) and 9.
 from __future__ import annotations
 
 import asyncio
+import errno
+import os
 import signal
+import socket
 import sys
 import time
 from collections.abc import Callable
@@ -23,7 +26,7 @@ from opencap.config.models import Channel, Device
 from opencap.core.cache import TagValue, ValueCache
 from opencap.core.channel_worker import ChannelWorker
 from opencap.core.registry import Registry
-from opencap.core.system_tags import SystemTagTask
+from opencap.core.support import ENGINE
 from opencap.core.system_tags import SystemTagTask
 from opencap.drivers.base import Driver
 from opencap.north.mqtt import MqttLink
@@ -34,6 +37,35 @@ from opencap.north.saf import StoreAndForward
 log = structlog.get_logger("opencap.runtime")
 
 DriverFactory = Callable[[Device, Executor], Driver]
+
+
+class ApiStartError(RuntimeError):
+    """The API cannot start (port taken, bad address, token settings). The process must not run
+    without its API, so `opencap run` exits non-zero after `api.bind_failed` is logged (LOG-29)."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+_BIND_REASONS = {errno.EADDRINUSE: "in_use", errno.EACCES: "permission_denied", errno.EPERM: "permission_denied",
+                 errno.EADDRNOTAVAIL: "address_unavailable"}
+
+
+def bind_api_socket(host: str, port: int) -> socket.socket:
+    """Bind the API's listening socket (as uvicorn would), so a failure is ours to report."""
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        if os.name != "nt":                 # on Windows SO_REUSEADDR would let a second process share the port
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+        sock.set_inheritable(True)
+    except OSError as exc:
+        sock.close()
+        reason = "bad_address" if isinstance(exc, socket.gaierror) else _BIND_REASONS.get(exc.errno, "io")
+        raise ApiStartError(reason, f"cannot bind {host}:{port}: {exc.strerror or exc}") from None
+    return sock
 
 
 def event_loop_factory() -> Callable[[], asyncio.AbstractEventLoop] | None:
@@ -113,7 +145,8 @@ class Poller:
             await self._start_api()
         self._started_at = time.monotonic()
         self._check_ready()
-        log.info("poller_started", version=FIRM_VERSION, channels=len(self.workers),
+        log.info("poller_started", version=FIRM_VERSION, engine=ENGINE, instance=self.loaded.poller.instance,
+                 revision=self._revision_or_none(), channels=len(self.workers),
                  devices=sum(len(c.devices) for c in self._active_channels()))
 
     def _signal_handlers(self) -> list[tuple[int, Callable[[], Any]]]:
@@ -131,7 +164,11 @@ class Poller:
                 loop.add_signal_handler(sig, handler)
             except (NotImplementedError, RuntimeError):  # non-Unix or not the main thread
                 pass
-        await self.start()
+        try:
+            await self.start()
+        except ApiStartError:          # logged as api.bind_failed; stop what already runs, then fail the process
+            await self.stop()
+            raise
         try:
             await self._stop_event.wait()
         finally:
@@ -215,6 +252,12 @@ class Poller:
 
         return ConfigStore(self.config_dir).revision()
 
+    def _revision_or_none(self) -> str | None:
+        try:
+            return self._config_revision()
+        except Exception:  # noqa: BLE001 - a log field must never stop the start or a reload
+            return None
+
     def _on_cycle(self, device_id: str) -> None:
         self._check_ready()
 
@@ -239,8 +282,9 @@ class Poller:
             self._pub_task = None
 
     # ------------------------------------------------------------------ reload
-    async def reload(self) -> dict[str, list[str]]:
-        """SIGHUP / POST /reload: re-read config, restart only the channels that changed."""
+    async def reload(self, *, who: str | None = None, via: str | None = None) -> dict[str, list[str]]:
+        """SIGHUP / POST /reload: re-read config, restart only the channels that changed.
+        `who` and `via` name the API caller, for the `config_reloaded` line (LOG-R15)."""
         async with self._reload_lock:
             try:
                 loaded = load_config(self.config_dir)
@@ -257,7 +301,9 @@ class Poller:
             self._restart_publisher()
             await self._reload_opcua()
             self.system_tags.reconfigure()
-            log.info("config_reloaded", **{k: len(v) for k, v in changed.items()})
+            cause = {"who": who, "via": via} if who is not None else {}
+            log.info("config_reloaded", revision=self._revision_or_none(), **cause,
+                     **{k: len(v) for k, v in changed.items()})
             return changed
 
     # ------------------------------------------------------------------ OPC UA server (north)
@@ -422,8 +468,30 @@ class Poller:
         from opencap.api.server import create_app
 
         api_cfg = self.loaded.poller.api
-        app = create_app(self, api_cfg)
+        try:
+            app = create_app(self, api_cfg)
+            sock = bind_api_socket(api_cfg.bind, api_cfg.port)
+        except (ApiStartError, RuntimeError) as exc:      # RuntimeError: token settings (api/server.py, auth.py)
+            failure = exc if isinstance(exc, ApiStartError) else ApiStartError("config", str(exc))
+            log.error("api.bind_failed", bind=api_cfg.bind, port=api_cfg.port, reason=failure.reason,
+                      error=str(failure))
+            raise failure from None
         config = uvicorn.Config(app, host=api_cfg.bind, port=api_cfg.port, log_config=None,
                                 access_log=False, lifespan="off", **UVICORN_WS)
         self._api_server = uvicorn.Server(config)
-        self._api_task = asyncio.create_task(self._api_server.serve(), name="api")
+        self._api_task = asyncio.create_task(self._api_server.serve(sockets=[sock]), name="api")
+        while not self._api_server.started:
+            if self._api_task.done():             # it died while starting
+                reason = "io"
+                error = repr(self._api_task.exception()) if not self._api_task.cancelled() else "cancelled"
+                log.error("api.bind_failed", bind=api_cfg.bind, port=api_cfg.port, reason=reason, error=error)
+                raise ApiStartError(reason, error)
+            await asyncio.sleep(0.01)
+        ctx = app.state.ctx
+        log.info("api.started", bind=api_cfg.bind, port=bound_port(sock), open_mode=ctx.auth.open,
+                 tokens=ctx.auth.token_count)
+
+
+def bound_port(sock: socket.socket) -> int:
+    """The port actually bound (port 0 asks the OS for a free one)."""
+    return int(sock.getsockname()[1])

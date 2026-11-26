@@ -21,6 +21,7 @@ tests/conformance/
   ab_pccc/decode/*.json  PCCC words, bits, floats, strings and T/C sub-elements
   system_tags/*.json   system and diagnostic tags: engine state -> tags, device event sequences (docs/spec/system-tags.md)
   system_tags_catalogue.json  every system tag as data (level, name, dtype, update class, presence)
+  quality/*.json       quality -> OPC UA StatusCode, OPC DA byte, Sparkplug, SubDevice JSON; worst-of (ADR-0006)
   config/              config model fixtures: an older, separate format, see config/compare.py
   simulator/vectors.json  simulator driver address grammar and values (D-071); see simulator/README.md
 ```
@@ -281,6 +282,21 @@ evaluated at the step's `at`, after the event.
 The inputs are generated from hand-written cases in `scripts/conformance_system_tags/*.json`, which
 also carry the values the spec says; `tests/conformance/system_tags/test_system_tag_vectors.py` checks
 the engine against those, so regenerating cannot bless a wrong reading of the spec.
+
+### `quality`
+
+The one quality mapping table of ADR-0006 (`opencap.core.quality`). Two kinds of input:
+
+- `{"op": "map", "quality": "<quality>", "ever_good": bool}` ->
+  `{"opcua": <StatusCode as an integer>, "opcua_name": "UncertainLastUsableValue", "opcda": <byte>,
+  "sparkplug": {"is_null": bool, "Quality": <byte>}, "subdevice": "Data" | "BadTags"}`.
+  `ever_good` is whether the tag has a last good value (it decides between
+  UncertainLastUsableValue and BadWaitingForInitialData for `stale`, and whether a Sparkplug
+  metric can carry a value); it is ignored for `good`. Codes are those of OPC 10000-6 Annex A
+  (`UA-Nodeset/Schema/StatusCode.csv`); the OPC DA byte doubles as the Sparkplug `Quality`
+  property Ignition reads.
+- `{"op": "worst", "qualities": ["<quality>", ...]}` -> `{"worst": "<quality>"}`, by
+  bad_config > bad_decode > bad_comm > stale > good; the worst of none is good.
 
 ## Regenerating
 

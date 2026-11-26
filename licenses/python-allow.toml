@@ -23,5 +23,6 @@ sortedcontainers = { licence = "Apache-2.0", reason = "classifier 'Apache Softwa
 # only if installed in CI and never vendored (ADR-0007); non-commercial and unknown never.
 [test_only]
 packages = ["pytest", "pytest-asyncio", "httpx", "amqtt", "pip-licenses", "prettytable", "iniconfig", "pluggy", "pygments",
-            "fins-driver"]   # fins-driver: MIT, validates tests/helpers/fins_sim.py (#13)
+            "fins-driver",   # fins-driver: MIT, validates tests/helpers/fins_sim.py (#13)
+            "dnp3py", "yadnp3"]   # MIT and Apache-2.0 (License-Expression): tests/helpers/dnp3_sim.py (#178)
 extra_ids = []

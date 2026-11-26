@@ -282,6 +282,22 @@ It is validated, unmodified, by **opendnp3's master** (yadnp3) and by **dnp3py's
 integrity, event and unsolicited flows, faults, and both peers reading the same values. The
 outstation north plugin is accepted against the same two masters (SCADA matrix L1).
 
+**Status (#178).** `tests/helpers/dnp3_sim.py` follows this plan, and `tests/unit/test_dnp3_sim.py`
+validates it with both masters. The front end adds three things dnp3py 0.6.0 does not do:
+
+- the start-up null unsolicited response with IIN1.7, which tells a master about a restart;
+- CON on a solicited response that carries events;
+- refusal (IIN2.0) of every WRITE except g80v1 index 7, and of freeze, restart and file functions.
+
+dnp3py 0.6.0 itself limits what the simulator can serve:
+
+- analog inputs only as g30v1/g32v1 (32-bit integers, so no floats);
+- binary and analog events without time (g2v1, g32v1); only counter events carry time (g22v5);
+- events are removed when sent, not when confirmed, so an unconfirmed event is not resent;
+- no double-bit inputs.
+
+The master driver needs these for its acceptance, so they are a follow-up issue.
+
 Wire **conformance vectors** (`tests/conformance/dnp3/`) are captured from opendnp3. A generator
 script drives the yadnp3 outstation with known values and records its response fragments. Each
 vector pairs the bytes with the inputs, so the expected decode comes from the inputs, not from

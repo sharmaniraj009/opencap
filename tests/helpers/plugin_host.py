@@ -1,5 +1,8 @@
 """Start `python -m opencap.plugin_host` the way the engine does (proto/README.md "Launching a
-plugin process") and talk to it with the generated gRPC stubs."""
+plugin process") and talk to it with the generated gRPC stubs.
+
+The process is a plain `subprocess.Popen` driven from worker threads, not an asyncio subprocess:
+the event loop the suite runs on Windows has no subprocess support."""
 
 from __future__ import annotations
 
@@ -8,6 +11,7 @@ import contextlib
 import json
 import os
 import secrets
+import subprocess
 import sys
 import tempfile
 from collections.abc import AsyncIterator
@@ -25,7 +29,7 @@ READY = "opencap-plugin-ready"
 
 @dataclass
 class HostProcess:
-    proc: asyncio.subprocess.Process
+    proc: subprocess.Popen
     address: str
     token: str
     stub: pb_grpc.DriverStub
@@ -49,9 +53,11 @@ class HostProcess:
 
 
 @contextlib.asynccontextmanager
-async def plugin_host(*drivers: str, tcp: bool = False, token: str | None = None,
+async def plugin_host(*drivers: str, tcp: bool | None = None, token: str | None = None,
                       stdin_eof: bool = True) -> AsyncIterator[HostProcess]:
+    """`tcp=None`: loopback TCP on Windows, a Unix socket elsewhere (the engine's `auto`)."""
     token = token or secrets.token_hex(32)
+    tcp = os.name == "nt" if tcp is None else tcp
     with tempfile.TemporaryDirectory(prefix="opencap-plugin-") as tmp:
         where = ["--listen", "127.0.0.1:0"] if tcp else ["--socket", str(Path(tmp) / "plugin.sock")]
         args = [sys.executable, "-m", "opencap.plugin_host", *where]
@@ -59,12 +65,11 @@ async def plugin_host(*drivers: str, tcp: bool = False, token: str | None = None
             args += ["--driver", d]
         if stdin_eof:
             args.append("--exit-on-stdin-eof")
-        proc = await asyncio.create_subprocess_exec(
-            *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            env={**os.environ, "OPENCAP_PLUGIN_TOKEN": token, "OPENCAP_LOG_LEVEL": "WARNING"})
+        proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                env={**os.environ, "OPENCAP_PLUGIN_TOKEN": token, "OPENCAP_LOG_LEVEL": "WARNING"})
         try:
             assert proc.stdout is not None
-            line = (await asyncio.wait_for(proc.stdout.readline(), 30)).decode()
+            line = (await asyncio.wait_for(asyncio.to_thread(proc.stdout.readline), 30)).decode()
             assert line.startswith(READY + " "), f"no ready line, got {line!r}"
             info = json.loads(line[len(READY) + 1:])
             assert info["protocol"] == "opencap.plugin.v1"
@@ -74,6 +79,10 @@ async def plugin_host(*drivers: str, tcp: bool = False, token: str | None = None
             finally:
                 await channel.close()
         finally:
-            if proc.returncode is None:
+            if proc.poll() is None:
                 proc.kill()
-            await proc.wait()
+            await asyncio.to_thread(proc.wait)
+            for pipe in (proc.stdin, proc.stdout):
+                with contextlib.suppress(Exception):
+                    if pipe is not None:
+                        pipe.close()

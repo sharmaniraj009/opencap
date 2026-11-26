@@ -188,18 +188,17 @@ async def test_tcp_transport_and_exit_when_the_engine_goes_away() -> None:
             assert len(await read_all(host, dev, plan)) == len(TAGS)
             assert host.proc.stdin is not None
             host.proc.stdin.close()                   # the engine died: the host must not linger
-            assert await asyncio.wait_for(host.proc.wait(), 10) == 0
+            assert await asyncio.wait_for(asyncio.to_thread(host.proc.wait), 10) == 0
     finally:
         await sim.stop()
 
 
 async def test_tcp_without_a_token_is_refused() -> None:
     import os
+    import subprocess
     import sys
 
     env = {k: v for k, v in os.environ.items() if k != "OPENCAP_PLUGIN_TOKEN"}
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "opencap.plugin_host", "--listen", "127.0.0.1:0", env=env,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    _, err = await asyncio.wait_for(proc.communicate(), 30)
-    assert proc.returncode == 2 and b"OPENCAP_PLUGIN_TOKEN" in err
+    out = await asyncio.to_thread(subprocess.run, [sys.executable, "-m", "opencap.plugin_host", "--listen",
+                                                   "127.0.0.1:0"], env=env, capture_output=True, timeout=60)
+    assert out.returncode == 2 and b"OPENCAP_PLUGIN_TOKEN" in out.stderr

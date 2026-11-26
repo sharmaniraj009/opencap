@@ -63,6 +63,8 @@ from opencap.config.loader import (
     load_config,
 )
 from opencap.config.models import (
+    API_DEVICE_NAMES,
+    name_rule_problems,
     underscore_names,
     Channel,
     Device,
@@ -79,7 +81,7 @@ from opencap.config.models import (
 
 CONFIG_FILES = (POLLER_FILE, DEVICES_FILE, MAP_FILE, OVERRIDES_FILE)
 # `/api/v1/devices/{id}/<suffix>` routes: a device with one of these names would be ambiguous
-RESERVED_DEVICE_NAMES = frozenset({"tags", "values", "plan", "identity", "status", "read-once"})
+RESERVED_DEVICE_NAMES = frozenset(API_DEVICE_NAMES)
 EXPORT_FORMAT = "opencap-config"
 MAP_TEMPLATE = DEVICES_MAP_HEADER + "defaults: {}\ndevices: {}\n"
 MAX_IMPORT_BYTES = 64 * 1024 * 1024
@@ -921,6 +923,12 @@ class ConfigStore:
                         raise Invalid("names starting with '_' are reserved for system tags",
                                       [_err((), f"{t}; names starting with '_' are reserved for system tags")
                                        for t in added])
+                    old_rules = {t for _, t in name_rule_problems(
+                        DevicesFile.model_validate(base).channels)} if state.devices else set()
+                    added_rules = [(loc, t) for loc, t in name_rule_problems(model.channels) if t not in old_rules]
+                    if added_rules:    # the other naming rules: the same split between disk and writes
+                        raise Invalid("a name breaks the naming rules",
+                                      [_err(loc, t, "value_error") for loc, t in added_rules])
                 texts[DEVICES_FILE] = devices_json_text(model)
             for name, doc, model, template, renames in (
                 (MAP_FILE, txn.dmap, DeviceMap, MAP_TEMPLATE, txn.map_renames),

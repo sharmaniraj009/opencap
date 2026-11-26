@@ -101,7 +101,7 @@ jobs:
       - name: Install the Python reference and test harness
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev,modbus,north,serial,ab,melsec]'
+          pip install -e '.[dev,modbus,north,serial,ab,melsec,s7]'
       - name: Golden payloads, CLI parity, outbox interchange, API and reload
         env:
           OPENCAP_ENGINE_BIN: engine/target/debug/opencap-engine
@@ -110,7 +110,7 @@ jobs:
           tests/integration/test_rust_engine_cli.py tests/integration/test_rust_engine_outbox.py
           tests/integration/test_rust_engine_api.py tests/integration/test_engine_harness.py
           tests/integration/test_rust_engine_rtu.py tests/integration/test_rust_engine_ab_logix.py
-          tests/integration/test_rust_engine_melsec.py
+          tests/integration/test_rust_engine_melsec.py tests/integration/test_rust_engine_s7.py
       - name: Config conformance, Rust models vs Python models (#39)
         run: |
           cargo build --locked --manifest-path engine/Cargo.toml -p opencap-core --example config_dump

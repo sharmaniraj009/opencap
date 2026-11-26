@@ -63,6 +63,14 @@ pub static DRIVERS: &[DriverEntry] = &[
         #[cfg(not(feature = "driver-melsec-mc"))]
         create: None,
     },
+    DriverEntry {
+        name: "s7",
+        feature: "driver-s7",
+        #[cfg(feature = "driver-s7")]
+        create: Some(|d| Ok(Box::new(opencap_driver_s7::S7Driver::new(d)?))),
+        #[cfg(not(feature = "driver-s7"))]
+        create: None,
+    },
 ];
 
 /// Driver names this build can poll, in table order.

@@ -1720,7 +1720,55 @@ produced once the outbox drains, then every frozen message must reach the subscr
   accepted since the last save, including messages opencap's outbox has already deleted after
   their PUBACK. A production broker should save more often (`autosave_interval`, or
   `autosave_on_changes`) as far as its disk allows.
-### D-084 The Rust engine as a service: sd_notify by hand, a native Windows service (#57)
+
+### D-084 Naming rules and the payload time zone in the Python engine (#112)
+- **Expected:** names that make tag paths ambiguous are caught at load, and a bad `payload.timezone`
+  fails before payloads are built; no name is ever altered.
+- **Done (Python half):** `name_rule_problems` in `config/models.py` lists, besides the `_` rule of
+  D-074, a channel or device name that is empty, has surrounding whitespace, or contains `"`, `.` or
+  `/`; a device named like a REST sub-resource (`tags`, `values`, `plan`, `identity`, `status`,
+  `read-once`); and a tag whose dot segment is empty, padded or contains `"`. For a v1
+  `devices.json` each is a loader warning (so `opencap check` shows it) and an API write that would
+  add one gets a 422 with the `loc` of the name; a name already on disk never blocks an unrelated
+  write. `payload.timezone` must be a tz-database name (or one of the three fixed-offset fallbacks
+  of `north.payload`), else the model is refused naming `payload.timezone`. Names with `%`, `#`,
+  `?`, `&` and `+` round-trip through their percent-encoded path (pinned by a test).
+- **Not done yet:** the same checks in the Rust models and shared fixtures (they would fail
+  `compare.py` until both engines agree), the v2 error severity (waits for #37), the importer
+  reporting these names, and `params.device_timezone` with its DST vectors (DEV-13).
+- **Why:** PRJ-13, API-07, LOG-21; the shared-fixture comparison is the reason the Python rules
+  are not yet fixtures.
+
+### D-085 s7 in the Rust engine: a native S7comm read subset, read PDUs only (#44)
+- **Decision:** `engine/drivers/s7` (`opencap-driver-s7`, feature `driver-s7`) ports the Python driver
+  (D-048 to D-052) with its own client instead of python-snap7 (LGPL snap7 cannot be linked statically,
+  ADR-0007; no Rust crate with a usable licence). TPKT and COTP connect with rack/slot/link-type TSAPs,
+  setup communication (PDU negotiation), read var, SZL read for `identity` (0x001C, 0x0011, 0x0424, with
+  follow-up fragments). Address parser, planner, decoder, params validation and error texts are the Python
+  ones. Conformance areas `s7/plan`, `decode`, `frame` and `reply` (python-snap7 builds the frame bytes and
+  parses the replies) pass in `opencap-conformance`; one request/reply is also checked against the S7comm
+  field layout, independently of snap7 (`proto.rs` unit test), as the #60 review asked.
+- **Read-only:** `proto.rs` builds only setup communication, read var and the SZL read; `check_read_only`
+  runs before every send. Tests refuse write var (0x05), download/upload (0x1A-0x1F), PLC control (0x28),
+  stop (0x29) and other USERDATA groups, and scan the sources for them.
+- **PDU split counted (D-051 review item):** `S7Block::wire_requests()` reads the PDU the CPU negotiated
+  (shared with the driver that planned the block) and counts the split, so the worker's safety net and
+  `check` budget the real number of requests. A block planned by another driver instance (the registry
+  plans with its own) still counts the planned PDU: the worker's per-call budget is then one request short
+  for a block that splits.
+- **Multi-item read var:** the builder and parser take several items per request (tested), but the `Driver`
+  trait reads one block at a time, so the driver sends one item per request, like Python. Packing scattered
+  blocks of one cycle into one request needs a batch-read method on the trait (not part of this change).
+- **Error mapping (D-051):** item return codes 0x03, 0x05, 0x06, 0x07, 0x0A and header error 0x8104 are
+  `BlockConfig`; other item codes and header errors are `Comm` and keep the connection; a timeout, a
+  malformed reply or a PDU reference ahead of the request drops it; a reset or close is `ConnectionLost`.
+  A reply with an older PDU reference is skipped (up to 3), like python-snap7.
+- **Not ported / differences:** peripheral I/O (PI/PE/PQ/PA) is refused as in Python; USERDATA SZL parsing
+  covers the three lists `identity` reads, and a failing SZL read reports `<name>_error` with Rust's text.
+  Untested on real CPUs, like the Python driver (D-058).
+- **Licence:** no new dependency; `deny.toml` unchanged.
+
+### D-086 The Rust engine as a service: sd_notify by hand, a native Windows service (#57)
 - **Linux:** `deploy/opencapd.service` is `opencap.service` with `Type=notify`. The engine sends
   `READY=1` once the config has loaded, the poller has started and the API listens; `RELOADING=1`
   and `READY=1` around a SIGHUP reload; `STOPPING=1` on SIGTERM. It speaks the sd_notify protocol

@@ -28,6 +28,7 @@ opencap-api = { path = "crates/opencap-api" }
 opencap-serial = { path = "crates/opencap-serial" }
 opencap-driver-modbus-tcp = { path = "drivers/modbus_tcp" }
 opencap-driver-melsec-mc = { path = "drivers/melsec_mc" }
+opencap-driver-s7 = { path = "drivers/s7" }
 opencap-driver-ab-logix = { path = "drivers/ab_logix" }
 
 anyhow = "1"

@@ -35,6 +35,7 @@ from typing import Any
 import yaml
 
 from opencap.config.models import (
+    name_rule_problems,
     underscore_names,
     DEFAULT_TOPIC_PREFIX,
     Channel,
@@ -296,6 +297,7 @@ def load_config(config_dir: Path) -> LoadedConfig:
     if devices_file.version < 2:      # names starting with '_' are an error from v2 on (spec 3.2)
         warnings += [f"{DEVICES_FILE}: {text}; names starting with '_' are reserved for system tags"
                      for text in underscore_names(channels)]
+        warnings += [f"{DEVICES_FILE}: {text}" for _, text in name_rule_problems(channels)]
 
     # Final pass through the models (cheap, and catches cross-field rules).
     validated = DevicesFile(

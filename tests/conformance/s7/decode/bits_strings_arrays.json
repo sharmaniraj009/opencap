@@ -1,0 +1,24 @@
+{
+ "format": 1,
+ "area": "s7/decode",
+ "description": "Bits, strings and arrays.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"bit-set","description":"Bit 3 of a byte.","input":{"params":{},"tags":[{"name":"a","address":"M0.3","dtype":"bool"}],"reply":{"bytes":"08"}},"expected":{"values":{"a":{"t":"bool","v":true}}}},
+  {"id":"bit-clear","description":"Bit 3 clear.","input":{"params":{},"tags":[{"name":"a","address":"M0.3","dtype":"bool"}],"reply":{"bytes":"07"}},"expected":{"values":{"a":{"t":"bool","v":false}}}},
+  {"id":"bits-of-one-byte","description":"Several bits of one byte.","input":{"params":{},"tags":[{"name":"a","address":"M0.0","dtype":"bool"},{"name":"b","address":"M0.7","dtype":"bool"},{"name":"c","address":"M0.1","dtype":"bool"}],"reply":{"bytes":"81"}},"expected":{"values":{"a":{"t":"bool","v":true},"b":{"t":"bool","v":true},"c":{"t":"bool","v":false}}}},
+  {"id":"bit-of-word-big","description":"Bit 15 of a big-endian word is in the first byte.","input":{"params":{},"tags":[{"name":"a","address":"MW0.15","dtype":"bool"}],"reply":{"bytes":"8000"}},"expected":{"values":{"a":{"t":"bool","v":true}}}},
+  {"id":"bit-of-word-little","description":"Bit 15 of a little-endian word follows the byte order.","input":{"params":{"byte_order_big":false},"tags":[{"name":"a","address":"MW0.15","dtype":"bool"}],"reply":{"bytes":"0080"}},"expected":{"values":{"a":{"t":"bool","v":true}}}},
+  {"id":"bit-of-dword","description":"Bit 31 of a dword.","input":{"params":{},"tags":[{"name":"a","address":"MD0.31","dtype":"bool"}],"reply":{"bytes":"80000000"}},"expected":{"values":{"a":{"t":"bool","v":true}}}},
+  {"id":"bit-of-lword","description":"Bit 63 of an lword.","input":{"params":{},"tags":[{"name":"a","address":"DB1,LWORD0.63","dtype":"bool"}],"reply":{"bytes":"8000000000000000"}},"expected":{"values":{"a":{"t":"bool","v":true}}}},
+  {"id":"string-s7","description":"An S7 STRING: max length, actual length, characters.","input":{"params":{},"tags":[{"name":"a","address":"DB1,STRING0.10","dtype":"string"}],"reply":{"bytes":"0a0361626300000000000000"}},"expected":{"values":{"a":{"t":"str","v":"abc"}}}},
+  {"id":"string-actual-above-max","description":"An actual length above the max is clipped.","input":{"params":{},"tags":[{"name":"a","address":"DB1,STRING0.4","dtype":"string"}],"reply":{"bytes":"040961626364"}},"expected":{"values":{"a":{"t":"str","v":"abcd"}}}},
+  {"id":"string-nul","description":"A NUL ends the text.","input":{"params":{},"tags":[{"name":"a","address":"DB1,STRING0.6","dtype":"string"}],"reply":{"bytes":"0605616200636400"}},"expected":{"values":{"a":{"t":"str","v":"ab"}}}},
+  {"id":"string-latin1","description":"Latin-1 characters.","input":{"params":{},"tags":[{"name":"a","address":"DB1,STRING0.2","dtype":"string"}],"reply":{"bytes":"0202e9fc"}},"expected":{"values":{"a":{"t":"str","v":"éü"}}}},
+  {"id":"string-raw","description":"A raw string ends at the first NUL.","input":{"params":{},"tags":[{"name":"a","address":"DB1,B0.8","dtype":"string"}],"reply":{"bytes":"50554d5000000000"}},"expected":{"values":{"a":{"t":"str","v":"PUMP"}}}},
+  {"id":"string-raw-full","description":"A raw string using every byte.","input":{"params":{},"tags":[{"name":"a","address":"DB1,B0.4","dtype":"string"}],"reply":{"bytes":"41424344"}},"expected":{"values":{"a":{"t":"str","v":"ABCD"}}}},
+  {"id":"array-1d","description":"A one dimensional array.","input":{"params":{},"tags":[{"name":"a","address":"DB1,W0[3]","dtype":"int16"}],"reply":{"bytes":"0001fffe0003"}},"expected":{"values":{"a":{"t":"list","v":[{"t":"int","v":"1"},{"t":"int","v":"-2"},{"t":"int","v":"3"}]}}}},
+  {"id":"array-2d","description":"A two dimensional array, row by row.","input":{"params":{},"tags":[{"name":"a","address":"MD0[2][2]","dtype":"float32"}],"reply":{"bytes":"3fc00000c0000000404000003e800000"}},"expected":{"values":{"a":{"t":"list","v":[{"t":"list","v":[{"t":"float","v":"1.5"},{"t":"float","v":"-2.0"}]},{"t":"list","v":[{"t":"float","v":"3.0"},{"t":"float","v":"0.25"}]}]}}}},
+  {"id":"array-little","description":"An array with byte_order_big off.","input":{"params":{"byte_order_big":false},"tags":[{"name":"a","address":"DB1,W0[2]","dtype":"uint16"}],"reply":{"bytes":"01000200"}},"expected":{"values":{"a":{"t":"list","v":[{"t":"int","v":"1"},{"t":"int","v":"2"}]}}}}
+ ]
+}

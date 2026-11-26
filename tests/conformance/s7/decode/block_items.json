@@ -1,0 +1,13 @@
+{
+ "format": 1,
+ "area": "s7/decode",
+ "description": "Items at offsets inside a block; aliases; short, empty and long replies.",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"offsets","description":"Items at their offsets inside a merged block.","input":{"params":{},"tags":[{"name":"a","address":"DB1,W0","dtype":"uint16"},{"name":"b","address":"DB1,D4","dtype":"uint32"},{"name":"c","address":"DB1,W10","dtype":"uint16"}],"reply":{"bytes":"0001ffff0000002a0000ffff0007"}},"expected":{"values":{"a":{"t":"int","v":"1"},"b":{"t":"int","v":"42"},"c":{"t":"int","v":"65535"}}}},
+  {"id":"aliases","description":"Two names, one address.","input":{"params":{},"tags":[{"name":"a","address":"DB1,W0","dtype":"uint16"},{"name":"b","address":"DB1,W0","dtype":"uint16"},{"name":"c","address":"DB1,X0.0","dtype":"bool"}],"reply":{"bytes":"0005"}},"expected":{"values":{"a":{"t":"int","v":"5"},"b":{"t":"int","v":"5"},"c":{"t":"bool","v":false}}}},
+  {"id":"short-reply","description":"A reply shorter than the block fails only the items it cuts.","input":{"params":{},"tags":[{"name":"a","address":"DB1,W0","dtype":"uint16"},{"name":"b","address":"DB1,D2","dtype":"uint32"},{"name":"c","address":"DB1,W8","dtype":"uint16"}],"reply":{"bytes":"00010002"}},"expected":{"values":{"a":{"t":"int","v":"1"},"b":{"t":"decode_error","v":"DB1,D2 (uint32): short reply: need bytes up to 5 of the block, got 4"},"c":{"t":"decode_error","v":"DB1,W8 (uint16): short reply: need bytes up to 9 of the block, got 4"}}}},
+  {"id":"empty-reply","description":"No bytes: every item fails.","input":{"params":{},"tags":[{"name":"a","address":"DB1,W0","dtype":"uint16"},{"name":"b","address":"DB1,W2","dtype":"uint16"}],"reply":{"bytes":""}},"expected":{"values":{"a":{"t":"decode_error","v":"DB1,W0 (uint16): short reply: need bytes up to 1 of the block, got 0"},"b":{"t":"decode_error","v":"DB1,W2 (uint16): short reply: need bytes up to 3 of the block, got 0"}}}},
+  {"id":"long-reply","description":"Extra bytes are ignored.","input":{"params":{},"tags":[{"name":"a","address":"DB1,W0","dtype":"uint16"}],"reply":{"bytes":"0009010203"}},"expected":{"values":{"a":{"t":"int","v":"9"}}}}
+ ]
+}

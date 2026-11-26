@@ -27,6 +27,10 @@ tests/conformance/
   melsec_mc/decode/*.json  MELSEC words to values
   melsec_mc/frame/*.json   MC 3E batch-read request bytes as pymcprotocol builds them (needs pymcprotocol)
   melsec_mc/reply/*.json   MC 3E reply checks, end codes and their config/comm classification
+  s7/plan/*.json           S7 address parsing, block planning per area/DB and PDU span, params (D-049, D-051)
+  s7/decode/*.json         S7 block bytes to values (byte order, BCD timers and counters, strings)
+  s7/frame/*.json          S7 connection request, setup communication, read var (split by the negotiated PDU) and SZL frames as python-snap7 builds them (needs python-snap7)
+  s7/reply/*.json          S7 read var replies: data, item return codes, header errors, malformed replies
   config/              config model fixtures: an older, separate format, see config/compare.py
   simulator/vectors.json  simulator driver address grammar and values (D-071); see simulator/README.md
 ```
@@ -339,6 +343,22 @@ files equal it.
   the 3E binary request frames (generated through pymcprotocol).
 - reply `input`: `{"frame": hex, "words": n}`; `expected`: `{"frame_error"}`, `{"end_code", "kind": "config"|"comm",
   "message"}` or `{"words": [...]}` (exactly `n` words, never zero-filled).
+
+### `s7/plan`, `s7/decode`
+
+- plan `input`: `{"params", "tags"}`; `expected`: `{"blocks": [{area, db, start, count, describe, tags, items:
+  [{names, offset, text, dtype, kind, size, elements, bit, dims, str_len}]}], "invalid"}` or `{"error"}`. Blocks are
+  per (area, DB) in the order C, DB, I, M, Q, T. `count` is bytes, or timers/counters for T/C.
+- decode `input`: `{"params", "tags", "reply": {"bytes": hex}}` (tags plan to one block); `expected`: `{"values"}`.
+
+### `s7/frame`, `s7/reply`
+
+- frame `input`: `{"params", "tags", "pdu"}` (`pdu`: the negotiated PDU the blocks are split for, null = max_pdu);
+  `expected`: `{"connection_request", "setup", "szl": [0x001C, 0x0011, 0x0424 requests], "requests": [[read var PDU hex per
+  request] per block]}`; PDU references count from 1 per block (SZL and setup: 1).
+- reply `input`: `{"pdu": hex, "word_len", "count"}` (an S7 reply PDU to a one-item read var); `expected`:
+  `{"return_code", "data": hex}` (an item return code other than 0xFF has no data), `{"header_error", "message"}` or
+  `{"bad_reply": reason}`.
 
 ## Regenerating
 

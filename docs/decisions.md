@@ -1424,3 +1424,17 @@ ADR-0005 / 03 §3.2 would expect:
 - **Fault switches** (`fail_connect`, `fail_every_n_reads`, `latency_ms`, `bad_decode_tags`) act inside the
   driver, so the worker's own retry, timeout and demotion paths run unchanged; latency at or above
   `timeout_ms` fails the read after `timeout_ms`, like a silent device.
+
+### D-072 IoT Gateway JSON format for MQTT agents (#36)
+`publish.format: iotgw_json` writes KEPServerEX's IoT Gateway "standard template"
+(`{"timestamp","values":[{"id","v","q","t"}]}`, spec `docs/spec/payload-iotgw-json.md`). The field is per device
+(`PublishCfg.format`, default `subdevice_json`), so one broker can carry both formats. Where it goes beyond what a
+reader of the KEPServerEX manual would expect:
+- **Full snapshot, not changed tags only.** KEPServerEX can publish only the tags that changed; opencap keeps the
+  SubDevice rule (one full message per device, `on_change` decides *when*), so D-016 and the publisher are untouched.
+- **Bad tags are listed** with `q: false` and their last value (or `null`), instead of being left out as in
+  `Data`/`BadTags`. `payload.bad_tags_field` and `payload.timezone` do not apply; `t` and `timestamp` are UTC epoch ms.
+- **`t`** is `source_ts` (ADR-0006), the message `timestamp` when a tag has none; `timestamp` is the publish time.
+- **Not reproduced:** agent-level tag selection, custom templates, batching and payload-size splitting.
+- **Rust engine:** add `format` to its `PublishCfg` (schema already updated), dispatch in the MQTT plugin, and run the
+  vectors in `tests/conformance/payload/iotgw/` (area `payload/iotgw`).

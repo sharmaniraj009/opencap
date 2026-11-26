@@ -367,3 +367,77 @@ async def test_cancel_is_clean(mode):
     task.cancel()
     res = await asyncio.gather(task, return_exceptions=True)
     assert isinstance(res[0], asyncio.CancelledError)
+
+
+# ---------------------------------------------------------------------- iotgw_json (#36)
+
+def _iotgw_ids(msg: dict) -> dict[str, tuple]:
+    return {e["id"]: (e["v"], e["q"]) for e in msg["values"]}
+
+
+async def test_iotgw_interval_publishes_the_standard_template():
+    dev = make_device(interval_ms=100, format="iotgw_json")
+    plain = make_device("PLC 2", interval_ms=100)
+    cache, link = FakeCache(), FakeLink()
+    cache.set(dev.id, vals(flow=7.5, q_flow="bad_comm"))
+    cache.set(plain.id, vals())
+    async with running(Publisher([dev, plain], cache, link, CFG, Status())):
+        await settle(link, topic_of(dev), 2)
+        await settle(link, topic_of(plain), 1)
+    msg = link.data(topic_of(dev))[0]
+    assert list(msg) == ["timestamp", "values"]
+    assert _iotgw_ids(msg) == {"SITE A.PLC 1.FLOW_1": (7.5, False), "SITE A.PLC 1.PUMP_RUN": (True, True)}
+    assert msg["values"][1]["t"] == 1794824101000                    # T0 in ms; SPARE (disabled) is not listed
+    assert "SubDeviceId" in link.data(topic_of(plain))[0]            # the other device keeps SubDevice JSON
+    assert not any(m.retain for m in link.on(topic_of(dev)))
+    status = link.data("opencap/site_a/plc_1/status")[0]             # the status topic is unchanged
+    assert status == Status().default
+
+
+async def test_iotgw_on_change_rules_are_unchanged():
+    dev = make_device(mode="on_change", deadband=0.5, heartbeat_ms=60_000, format="iotgw_json")
+    cache, link = FakeCache(), FakeLink()
+    topic = topic_of(dev)
+    pub = Publisher([dev], cache, link, CFG, Status(), on_change_poll_s=5.0)
+
+    async def cycle(values, expect_publish: bool):
+        n = len(link.on(topic))
+        cache.set(dev.id, values)
+        pub.notify_cycle(dev.id)
+        if expect_publish:
+            await settle(link, topic, n + 1, timeout=1.0)
+        else:
+            await asyncio.sleep(0.05)
+            assert len(link.on(topic)) == n
+
+    async with running(pub):
+        await asyncio.sleep(0.01)
+        await cycle(vals(flow=10.0), True)
+        await cycle(vals(flow=10.3), False)                          # inside the deadband
+        await cycle(vals(flow=10.6), True)
+        await cycle(vals(flow=10.6, q_flow="bad_comm"), True)        # good -> bad
+    flows = [(e["v"], e["q"]) for m in link.data(topic) for e in m["values"] if e["id"].endswith("FLOW_1")]
+    assert flows == [(10.0, True), (10.6, True), (10.6, False)]
+
+
+async def test_iotgw_through_real_link_and_broker_with_outbox(mqtt_broker, tmp_path):
+    dev = make_device(interval_ms=100, format="iotgw_json")
+    cache = FakeCache()
+    cache.set(dev.id, vals(flow=123.40000152587891))
+    saf = StoreAndForward(tmp_path / "saf.sqlite", 10_000_000)
+    link = MqttLink(mqtt_broker.mqtt_cfg(), "e2e-iotgw", saf)
+    async with mqtt_broker.collector("opencap/#") as col:
+        link_task = asyncio.create_task(link.run())
+        try:
+            async with running(Publisher([dev], cache, link, CFG, Status(), status_check_s=0.05)):
+                data = await col.wait_count(topic_of(dev), 2)
+        finally:
+            await link.stop()
+            await asyncio.gather(link_task, return_exceptions=True)
+            saf.close()
+    p = data[0].json()
+    assert list(p) == ["timestamp", "values"] and isinstance(p["timestamp"], int)
+    assert p["values"] == [
+        {"id": "SITE A.PLC 1.FLOW_1", "v": 123.4, "q": True, "t": 1794824101000},
+        {"id": "SITE A.PLC 1.PUMP_RUN", "v": True, "q": True, "t": 1794824101000},
+    ]

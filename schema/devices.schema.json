@@ -180,6 +180,15 @@
           "title": "Env",
           "type": "string"
         },
+        "format": {
+          "default": "subdevice_json",
+          "enum": [
+            "subdevice_json",
+            "iotgw_json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
         "heartbeat_ms": {
           "default": 300000,
           "title": "Heartbeat Ms",

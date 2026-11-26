@@ -14,6 +14,7 @@ tests/conformance/
   modbus/decode/*.json Modbus register/bit decoding (D-006)
   scaling/*.json       tag scaling (linear, sqrt, clamps, negate)
   payload/*.json       SubDevice JSON payload bytes (D-017)
+  payload/iotgw/*.json KEPServerEX IoT Gateway JSON payload bytes (docs/spec/payload-iotgw-json.md)
   ab_logix/plan/*.json   Allen-Bradley Logix/Micro800 read groups and packing (D-008, D-025)
   ab_logix/decode/*.json Logix values coerced to the configured dtype
   ab_pccc/plan/*.json    PCCC (SLC/MicroLogix) address parsing and file blocks (D-008, D-027)
@@ -139,6 +140,14 @@ The SubDevice JSON message for one device, byte for byte.
 - `expected`: `{"bytes": "..."}`, the UTF-8 text of the encoded payload. The message contains
   `"FirmVersion":"<firm_version>"`; an engine with another release number replaces that one
   field before comparing, as the payload golden test does.
+
+### `payload/iotgw`
+
+The KEPServerEX IoT Gateway "standard template" message for one device (`publish.format:
+iotgw_json`), byte for byte. Same `input` as `payload` minus `firm_version` and `is_secure`:
+`{"device", "values", "cfg", "now"}`; `now` is the message `timestamp` (the publish time) and the
+`t` of a tag with no source timestamp. `expected` is `{"bytes": "..."}`. There is no
+version field to replace. Format and rules: `docs/spec/payload-iotgw-json.md`.
 
 ### `ab_logix/plan`
 

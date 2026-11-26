@@ -524,6 +524,17 @@ overrides; validation errors next to the field; Reload) · check (block plan and
 · import (KEPServerEX `project.json` or an opencap export, with a dry-run diff) · audit log.
 The UI never writes a PLC value.
 
+**Languages.** Every string the UI shows comes from one table per language in
+`src/opencap/api/ui/i18n/`: `en.json` (key → text) is the reference and the only table today. The
+UI follows the browser's preferred languages (in the desktop app, the system language), falls back
+to English, and a language picked in the header is kept for that browser tab. To add a language,
+copy `en.json` to `<code>.json` (a lowercase BCP 47 code such as `de` or `pt-br`) and translate the
+values. Keep each `{name}` placeholder and the `<code>`, `<strong>`, `<em>` and `<a href>` markup of
+the strings that have it, then list the language in `languages.json` (`"de": "Deutsch"`, its name in
+that language). A key the table lacks falls back to English. `tests/unit/test_ui.py` checks the new
+table's keys and placeholders. Messages from the server (validation and API errors) and identifiers
+such as quality codes and driver names stay as the server sends them.
+
 **Configuration API** (contract: [03 §3.6](docs/architecture/03-deep-dive.md)). Reads, lists
 included, return the config `revision` (also as `ETag`). **Every write needs `If-Match: <revision>`**: 428
 without it, 412 when someone changed the config since you read it. `PUT` replaces, `PATCH` is a

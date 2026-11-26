@@ -1,5 +1,9 @@
 # `Device.params` contract per driver
 
+The same keys, types and ranges are served by the API as JSON Schema: `GET /api/v1/drivers/{name}` (`params_schema`),
+generated from the drivers (`Driver.params_schema`), together with the dtypes and address examples. This page adds
+the KEPServer source of each key and the meaning.
+
 The importer (`config/kep_import.py`) writes these keys; the drivers read them with the
 defaults below when a key is absent. Hand edits go in `overrides.yaml` → `params`.
 

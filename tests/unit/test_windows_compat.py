@@ -11,6 +11,8 @@ import asyncio
 import signal
 import types
 
+import pytest
+
 from opencap.core import runtime
 
 
@@ -19,6 +21,7 @@ def _poller() -> runtime.Poller:
     return runtime.Poller.__new__(runtime.Poller)
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGHUP"), reason="SIGHUP is POSIX-only; test_signal_table_without_sighup covers Windows")
 def test_signal_table_on_unix_includes_reload():
     table = _poller()._signal_handlers()
     assert [sig for sig, _ in table] == [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]

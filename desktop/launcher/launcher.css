@@ -36,3 +36,4 @@ label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--t
 input { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
 .buttons { display: flex; gap: 8px; }
 .foot { padding: 12px 16px; max-width: 980px; margin: 0 auto; }
+.local { margin-bottom: 10px; }

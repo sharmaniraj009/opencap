@@ -425,7 +425,32 @@ reads the SPDX `license = "Apache-2.0"` expression and `license-files` (PEP 639)
   restarts on failure and rolls logs by size. That stop path was checked on Linux with
   `add_signal_handler` disabled, as on Windows: `poller_stopped` and every channel closed.
 - **Not tested on real Windows yet.** Both fixes are covered by unit tests on Linux; the
-  WinSW setup follows WinSW's documentation.
+  WinSW setup follows WinSW's documentation. *(Superseded by D-082: CI tests it on Windows.)*
+
+### D-082 Windows CI: what running on windows-latest found (#35)
+CI now runs the fast suite (and the acceptance suite nightly) on windows-latest with Python
+3.12, plus a WinSW service smoke test (`deploy/windows/service_smoke.py`). D-031's fixes hold:
+the shipped `opencap-service.xml` installs, starts, answers `/health` with MQTT connected, and on
+`stop` WinSW's Ctrl+C gives `poller_stopped` and exit code 0 in about half a second.
+- **Expected:** the tests would run unchanged. **Found:** they ran on asyncio's default Windows
+  loop (proactor), where aiomqtt cannot work, so every MQTT test hung to its timeout.
+  `tests/conftest.py` now selects the selector loop on Windows, as `opencap run` does. That loop
+  cannot start asyncio subprocesses on Windows, so test helpers start child processes with
+  `subprocess` in a worker thread (`run_process` in `tests/helpers/engine.py`).
+- **Platform differences, not product bugs**, handled in the tests: no POSIX mode bits, SIGKILL
+  or SIGHUP; a refused TCP connect is reported only after 1-2 s of SYN retries; a UDP datagram
+  to a closed port comes back as `ConnectionResetError`; a socket closed with unread data is
+  reset (WebSocket 1006 before 1009); `socket.socketpair()` is a loopback TCP connect; text-mode
+  writes turn `\r\n` into `\r\r\n`. Tests that need a POSIX pty skip with a reason.
+- **Python 3.12 on Windows:** `time.monotonic` ticks every ~15.6 ms and asyncio may run a timer
+  that early. Timing tests allow the clock's resolution. One product fix came out of it: the
+  system-tag tick (spec §2.1) fired up to ~22 ms before its UTC second, so `_System._DateTime`
+  read `19.978` for second 20 and second 19 was ticked twice; the task now waits out a wake that
+  is less than 250 ms early (a clock stepped back is not waited out). Cycle-time metrics are
+  quantised to that tick (a fast cycle reads 0 ms): #199 measures durations with `perf_counter`.
+- **WinSW 2.12 quirks:** `stop` can return before the service enters "stop pending", and
+  `status` prints `Started` for anything but Stopped, so the smoke test polls `status`. Logs are
+  named after the executable (`opencap-service.out.log`), not the service id.
 
 ## Rust engine
 
@@ -745,6 +770,16 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
 - A browser smoke test (`tests/ui/browser_smoke.js`, run by `tests/integration/test_ui_browser.py`,
   marker `acceptance`) drives Chromium through every page at desktop and phone width and fails on any
   script error or CSP violation; it is skipped where Node.js and Playwright are not installed.
+- **Amended by #126 (string tables):** every visible string comes from `ui/i18n/<lang>.json`
+  (`en.json` only; `languages.json` lists the tables), looked up with `t('key', {name: value})` in
+  templates and `tr()` in app.js. The language is the tab's choice (`sessionStorage`
+  `opencap.lang`), else the first of `navigator.languages` with a table (exact, then without the
+  region), else English; missing keys fall back to English. The CSP build refuses `x-html`, so
+  text with markup uses a small `x-rich` directive that builds only `code`, `strong`, `em` and
+  same-site `a` elements and fills values into text nodes. The tables are files of the bundle, so
+  app.js has a second `fetch` (relative `i18n/`, never the API base). The browser smoke test loads
+  a test-only pseudo table (every string in ⟦ ⟧) and fails on visible text outside the markers that
+  is not API data; `test_ui.py` checks the static half and that every key exists.
 
 ## Rust engine: API parity with #63
 
@@ -1363,7 +1398,9 @@ ADR-0005 / 03 §3.2 would expect:
   licensed Python FINS client validates the simulator over UDP and TCP.
 - **Done:** we followed PTC's *Omron FINS Ethernet Driver* manual (v1.083) for the syntax. It writes
   a banked EM word as `E<bank>:<word>` with a **decimal** bank (`E00:00100`, `E12:32767`; CJ2 up
-  to `E24:`), and the current bank as `E<word>`. `E0_100` is Omron's own notation (W342 5-2-2).
+  to `E24:`), and the current bank as `E<word>`. The source is the "Expansion Data Memory" rows:
+  CS1 p. 59, CJ1 p. 64 (`E00:00000-E12:32767`), CJ2 p. 68 (`E00:00000-E24:32767`), with the current bank
+  `E00000-E32767` on the same pages (re-checked for #166). `E0_100` is Omron's own notation (W342 5-2-2).
   The vectors list `E0_100` and `EM100` as invalid, so an importer cannot accept them silently.
   The same manual sets the rest of the vector set: data types (no 64-bit types and no Double),
   default types (BCD for timers and counters, DWord for IR), `H`/`L`/`D`/`E` strings, the `D`
@@ -1608,4 +1645,156 @@ reader would expect:
   is taken, `revision` on `config_reloaded`, and `engine`, `instance`, `revision` on `poller_started`.
 - **Secrets test.** `tests/unit/test_api_events.py` and `tests/integration/test_api_events_runtime.py` run the API with
   known token and broker-password values and fail if any captured event or audit line contains them.
+### D-080 melsec_mc in the Rust engine: a native MC 3E binary client, read commands only (#45)
+- **Decision:** `engine/drivers/melsec_mc` (`opencap-driver-melsec-mc`, feature `driver-melsec-mc`)
+  ports the Python driver (D-053 to D-057) with its own client instead of pymcprotocol (no Rust
+  crate exists; the framing is a 15-byte header plus a device spec). The address parser, planner,
+  decoder, params validation and error texts are the Python ones; conformance areas
+  `melsec_mc/plan`, `decode`, `frame` and `reply` (1,048 vectors generated from Python, request
+  bytes taken from pymcprotocol itself) pass in `opencap-conformance`.
+- **Whole frames (D-053):** a TCP reply is read as the 9-byte header and then exactly the bytes it
+  announces; the reply must carry exactly the words asked for, else `Comm` and the socket is
+  dropped. A reply split across segments reads correctly (unit test and the simulator's
+  `split_replies`). 3E has no sequence number, so a timeout also drops the socket.
+- **Read-only:** `frame.rs` can build only 0401/0000, 0401/0002 (iQ-R) and 0101/0000;
+  `check_read_only` runs before every send. Tests assert 0x1401/0x1402/remote run/stop and the
+  rest of the write list are refused and never named elsewhere in the sources.
+- **Error mapping (D-056):** same end-code classes: `BlockConfig` for 0xC051-0xC054, 0xC056,
+  0xC059, 0xC05B, 0xC05C, 0xC060, 0x4030, 0x4031, `Comm` otherwise; the socket stays open.
+- **Not ported:** ASCII frames and 4E (as in Python). Message text for OS errors differs from
+  Python's exception text. Untested on real PLCs, like the Python driver.
+- **Licence:** no new dependency; `deny.toml` unchanged.
+### D-081 Driver catalogue, params schemas, collection queries (#129)
 
+- **Schemas live next to each driver** as `Driver.params_schema` (JSON Schema draft 2020-12, built with
+  `drivers/_schema.py`), with `transport`, `dtypes`, `address_examples` and `supports_browse`; `supports_identity` is
+  true when the driver overrides `identity()`. `GET /api/v1/drivers[/{name}]` serves them (viewer role). The schemas
+  state types, ranges and enums; cross-key rules (OPC UA security policy needs a certificate, a Logix path with an odd
+  number of segments) stay in the driver and still surface at plan time.
+- **Lenient on purpose.** Unknown keys are allowed (drivers ignore them and the importer keeps provenance keys), and a
+  `null` value means the default, as in every driver. Booleans must be `true`/`false` and numbers numbers: the 0/1 and
+  string spellings some drivers still tolerate in hand-written YAML are not accepted on an API write. A `PATCH` that
+  leaves such a value in place therefore gets a 422 until it is corrected.
+- **Only API writes are checked** (device create, update, and channel create with devices). Loading files from disk,
+  `opencap check` and import are unchanged, so existing configs keep loading. The 422 `loc` of a bad param is now
+  `["params", "<key>"]` instead of `["params"]`; the message no longer comes from the driver constructor.
+  This tightens request validation inside `/api/v1`, which `api/README.md` calls a v2 matter; the issue asks for it
+  and the project is pre-release, so the contract moved to 1.4.0 (additive routes and parameters).
+- **Own validator, no new dependency.** `validate_params` implements `type`, `enum`, `minimum`, `maximum`,
+  `minLength`, `items` and `required`; tests run every schema through `jsonschema` (a dev dependency) and compare.
+- **Collections.** `q` matches `name` and `description` (channels and devices have no description, so only the name);
+  `sort` offers a documented field list per collection (channels: name, enabled, devices; devices: id, channel, name,
+  driver, host, port, enabled, tags; tags: name, address, dtype, scan_ms, enabled, description). Strings sort naturally
+  without case (`A2` before `A10`), numbers numerically; an item without a value goes last in both directions. Without
+  `limit` the whole collection is returned and `limit` is `null`; `total` counts after filtering. `/channels/{c}/devices`
+  is unchanged.
+- **Rust engine** (API-35, #140): serve the same `/drivers` entries (the schemas are data; generate a JSON file per driver
+  from the Python classes into the shared fixtures so both engines return identical documents), run the same schema check on
+  device writes with `loc` `["params", key]`, and add `q`, `sort`, `order`, `limit`, `offset` to the three list routes with
+  the natural-order comparison above (case-folded text split into digit and non-digit runs).
+
+### D-083 Broker restarts against Mosquitto with persistence lose nothing (#8)
+Closes what D-021 left open. `tests/integration/test_mosquitto_restart.py` (acceptance) restarts
+a real Mosquitto (`persistence true`, `max_queued_messages 0`, clean SIGTERM stop, same port and
+data directory; `tests/helpers/mosquitto.py`) three times, 2 s down each, while 10 simulated
+Modbus devices publish every second to a persistent QoS 1 subscriber (`clean_session` false).
+The first restart is with the subscriber connected. For the second and third the subscriber is
+away, so the broker holds messages it has already PUBACKed to opencap (whose outbox has deleted
+them) across the restart: the case persistence exists for. The check is D-018's: freeze what was
+produced once the outbox drains, then every frozen message must reach the subscriber, in order.
+- **Observed** (Mosquitto 2.0.18 binary, 20 runs with the Python engine, 1 with the Rust
+  engine): lost 0 every run. The outbox held about 20 messages per outage; the broker held
+  60–80 per away restart. Duplicates: 0 to 37 per run, mostly 0 or 7 (one on each of 7 devices):
+  QoS 1 redelivery of messages whose PUBACK the broker had not processed before the stop or the
+  subscriber's disconnect. They are allowed and counted, never compared away.
+- **The test can fail:** with `persistence false` (a negative control) every run lost 16
+  messages per device and no `mosquitto.db` was written; the test reports both.
+- **Test-client finding:** with aiomqtt as the subscriber, about 1 run in 15 lost one message.
+  aiomqtt 2.5.1's `MessagesIterator.__anext__` takes the next message off its queue in a separate
+  task; if the iterating task is cancelled (the test pausing the subscriber) or the connection
+  drops in the same instant, that message is discarded after paho has PUBACKed it. Reproduced
+  deterministically outside the test. The subscriber now uses paho directly and records each
+  message in `on_message`, which runs before the PUBACK. The aiomqtt `Collector` in
+  `tests/helpers/broker.py` iterated the same way; #220 moved it to paho's `on_message` too.
+- **Mosquitto as root** drops to its `mosquitto` user, which cannot write under pytest's 0700
+  `tmp_path` ("unable to remove mosquitto.db.new"): the helper adds `user root` when it runs the
+  binary as root. The Docker image (`eclipse-mosquitto:2.0.22`, pinned by digest) runs as the
+  test's own user (`--user uid:gid`): as root, its entrypoint chowns the bind-mounted data
+  directory to uid 1883, and the test could no longer manage its own temp directory (first CI run).
+- **CI:** the Linux acceptance jobs (`acceptance-pr`, nightly `acceptance`, the Rust engine's
+  acceptance) run it through Docker and set `OPENCAP_REQUIRE_MOSQUITTO`, so a missing broker
+  fails the job instead of skipping the test. Windows skips it with a reason (no binary, and the
+  runner's Docker runs Windows containers).
+- **Not covered: a broker crash.** Mosquitto writes its persistence file on a clean shutdown and
+  every `autosave_interval` (default 1800 s). After a SIGKILL or power loss it can lose what it
+  accepted since the last save, including messages opencap's outbox has already deleted after
+  their PUBACK. A production broker should save more often (`autosave_interval`, or
+  `autosave_on_changes`) as far as its disk allows.
+
+### D-084 Naming rules and the payload time zone in the Python engine (#112)
+- **Expected:** names that make tag paths ambiguous are caught at load, and a bad `payload.timezone`
+  fails before payloads are built; no name is ever altered.
+- **Done (Python half):** `name_rule_problems` in `config/models.py` lists, besides the `_` rule of
+  D-074, a channel or device name that is empty, has surrounding whitespace, or contains `"`, `.` or
+  `/`; a device named like a REST sub-resource (`tags`, `values`, `plan`, `identity`, `status`,
+  `read-once`); and a tag whose dot segment is empty, padded or contains `"`. For a v1
+  `devices.json` each is a loader warning (so `opencap check` shows it) and an API write that would
+  add one gets a 422 with the `loc` of the name; a name already on disk never blocks an unrelated
+  write. `payload.timezone` must be a tz-database name (or one of the three fixed-offset fallbacks
+  of `north.payload`), else the model is refused naming `payload.timezone`. Names with `%`, `#`,
+  `?`, `&` and `+` round-trip through their percent-encoded path (pinned by a test).
+- **Rust half:** `name_rule_problems` and `PayloadCfg::validate` in `opencap-core` give the same texts
+  and the same warnings (compared by `compare.py` on `valid/devices_bad_names.json`); the zone names
+  both engines accept or refuse are in `tests/conformance/timezones/zones.json`.
+- **Not done yet:** the v2 error severity (waits for #37), the importer reporting these names, and
+  `params.device_timezone` with its DST vectors (DEV-13).
+- **Why:** PRJ-13, API-07, LOG-21.
+
+### D-085 s7 in the Rust engine: a native S7comm read subset, read PDUs only (#44)
+- **Decision:** `engine/drivers/s7` (`opencap-driver-s7`, feature `driver-s7`) ports the Python driver
+  (D-048 to D-052) with its own client instead of python-snap7 (LGPL snap7 cannot be linked statically,
+  ADR-0007; no Rust crate with a usable licence). TPKT and COTP connect with rack/slot/link-type TSAPs,
+  setup communication (PDU negotiation), read var, SZL read for `identity` (0x001C, 0x0011, 0x0424, with
+  follow-up fragments). Address parser, planner, decoder, params validation and error texts are the Python
+  ones. Conformance areas `s7/plan`, `decode`, `frame` and `reply` (python-snap7 builds the frame bytes and
+  parses the replies) pass in `opencap-conformance`; one request/reply is also checked against the S7comm
+  field layout, independently of snap7 (`proto.rs` unit test), as the #60 review asked.
+- **Read-only:** `proto.rs` builds only setup communication, read var and the SZL read; `check_read_only`
+  runs before every send. Tests refuse write var (0x05), download/upload (0x1A-0x1F), PLC control (0x28),
+  stop (0x29) and other USERDATA groups, and scan the sources for them.
+- **PDU split counted (D-051 review item):** `S7Block::wire_requests()` reads the PDU the CPU negotiated
+  (shared with the driver that planned the block) and counts the split, so the worker's safety net and
+  `check` budget the real number of requests. A block planned by another driver instance (the registry
+  plans with its own) still counts the planned PDU: the worker's per-call budget is then one request short
+  for a block that splits.
+- **Multi-item read var:** the builder and parser take several items per request (tested), but the `Driver`
+  trait reads one block at a time, so the driver sends one item per request, like Python. Packing scattered
+  blocks of one cycle into one request needs a batch-read method on the trait (not part of this change).
+- **Error mapping (D-051):** item return codes 0x03, 0x05, 0x06, 0x07, 0x0A and header error 0x8104 are
+  `BlockConfig`; other item codes and header errors are `Comm` and keep the connection; a timeout, a
+  malformed reply or a PDU reference ahead of the request drops it; a reset or close is `ConnectionLost`.
+  A reply with an older PDU reference is skipped (up to 3), like python-snap7.
+- **Not ported / differences:** peripheral I/O (PI/PE/PQ/PA) is refused as in Python; USERDATA SZL parsing
+  covers the three lists `identity` reads, and a failing SZL read reports `<name>_error` with Rust's text.
+  Untested on real CPUs, like the Python driver (D-058).
+- **Licence:** no new dependency; `deny.toml` unchanged.
+
+### D-086 The Rust engine as a service: sd_notify by hand, a native Windows service (#57)
+- **Linux:** `deploy/opencapd.service` is `opencap.service` with `Type=notify`. The engine sends
+  `READY=1` once the config has loaded, the poller has started and the API listens; `RELOADING=1`
+  and `READY=1` around a SIGHUP reload; `STOPPING=1` on SIGTERM. It speaks the sd_notify protocol
+  itself (one datagram to `$NOTIFY_SOCKET`, path or abstract name, `src/sdnotify.rs`) rather than
+  linking libsystemd: no new dependency, and nothing happens outside systemd. Tested against the
+  real binary with a socket the test owns (`test_rust_engine_sdnotify.py`), and the unit with
+  `systemd-analyze verify`.
+- **Windows:** a native service through `windows-service` (MIT OR Apache-2.0), not WinSW:
+  `opencap-engine service install|uninstall|run`. Stop and shutdown reach the same stop future
+  as SIGTERM, so the shutdown path is the one the acceptance suites exercise. Recovery:
+  restart after 5 s, 5 s, 30 s, also on a non-zero exit. `%ProgramData%\opencap` is the working
+  directory; logs go to a file there, because a service has no console.
+- **Event log:** written with Windows' own `eventcreate.exe`, which registers the source on
+  first use (at install) with its message file, in which ids 1–1000 show the text as written;
+  uninstall removes the source with `reg delete`. The workspace forbids `unsafe`, so no FFI to
+  ReportEventW. Only start, stop and a fatal error are written there; the JSON log has the rest.
+- **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
+  over to this service (#58 left that to this issue's follow-up).

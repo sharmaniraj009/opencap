@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import ast
-import asyncio
 import math
 import sys
 from pathlib import Path
 
 from tests.helpers.configdir import write_config
+from tests.helpers.engine import run_process
 from tests.helpers.modbus_sim import ModbusSim, make_sim_devices
 
 OOPOLL = [sys.executable, "-m", "opencap"]
 
 
 async def _opencap(*args: str, cwd: Path) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *OOPOLL, *args, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-    )
-    out, _ = await asyncio.wait_for(proc.communicate(), 30)
-    return proc.returncode, out.decode()
+    return await run_process([*OOPOLL, *args], cwd=cwd, timeout=30)
 
 
 def _close(a, b) -> bool:

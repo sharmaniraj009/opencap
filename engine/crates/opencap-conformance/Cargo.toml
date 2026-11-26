@@ -18,6 +18,8 @@ serde_json.workspace = true
 opencap-north.workspace = true
 opencap-driver-modbus-tcp.workspace = true
 opencap-driver-ab-logix.workspace = true
+opencap-driver-melsec-mc.workspace = true
+opencap-driver-s7.workspace = true
 chrono.workspace = true
 
 [lints]

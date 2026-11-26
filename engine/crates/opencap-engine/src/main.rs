@@ -6,12 +6,20 @@
 //! opencap-engine identity "Site 008/Device1"               # vendor/model if the device reports it
 //! opencap-engine run [--config DIR] [--site NAME ...]      # poll, publish, serve the API
 //! opencap-engine drivers                                   # drivers this build implements (JSON)
+//! opencap-engine service install|uninstall|run [--config]  # Windows: a native service (#57)
 //! ```
+//!
+//! Under systemd (`deploy/opencapd.service`, `Type=notify`) `run` reports readiness once the
+//! config is loaded and the API listens, and reload/stop progress (`sdnotify`).
 //!
 //! Reads the same config directory as the Python `opencap` CLI.
 
 mod check;
 mod runtime;
+#[cfg(unix)]
+mod sdnotify;
+#[cfg(windows)]
+mod winsvc;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -73,7 +81,16 @@ enum Cmd {
     /// Print, as JSON, which of the drivers the config schema knows this build implements.
     /// The acceptance harness (tests/helpers/engine.py) skips suites for drivers not ported yet.
     Drivers,
+    /// The engine as a native Windows service (docs/deployment.md, "Rust engine on Windows").
+    #[cfg(windows)]
+    Service {
+        #[command(subcommand)]
+        action: winsvc::ServiceCmd,
+    },
 }
+
+/// Where `configure_logging` writes: stdout, or this file (a Windows service has no console).
+static LOG_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 fn configure_logging(level: &str) {
     let lvl = match level.to_ascii_uppercase().as_str() {
@@ -85,15 +102,18 @@ fn configure_logging(level: &str) {
     // Library chatter stays at WARN unless DEBUG is asked for (Python logsetup does the same).
     let libs = if lvl == "debug" { "debug" } else { "warn" };
     let filter = format!("{lvl},rumqttc={libs},tokio_modbus={libs},hyper={libs},axum={libs}");
-    let _ = tracing_subscriber::fmt()
+    let builder = tracing_subscriber::fmt()
         .json()
         .flatten_event(true)
         .with_current_span(false)
         .with_span_list(false)
         .with_target(true)
-        .with_writer(std::io::stdout)
-        .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
-        .try_init();
+        .with_env_filter(tracing_subscriber::EnvFilter::new(filter));
+    let file = LOG_FILE.get().and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
+    let _ = match file {
+        Some(f) => builder.with_writer(std::sync::Mutex::new(f)).try_init(),
+        None => builder.with_writer(std::io::stdout).try_init(),
+    };
 }
 
 fn find_device(config_dir: &Path, device_id: &str) -> Result<(LoadedConfig, Channel, Device)> {
@@ -187,7 +207,14 @@ async fn shutdown_signal() -> &'static str {
     }
 }
 
-async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
+/// `run`: poll, publish and serve the API until `stop` resolves (it names what stopped it).
+/// `on_ready` runs once the config is loaded, the poller started and the API listens.
+async fn cmd_run(
+    config_dir: &Path,
+    sites: Vec<String>,
+    stop: impl std::future::Future<Output = &'static str>,
+    on_ready: impl FnOnce(),
+) -> Result<i32> {
     let loaded = load_config(config_dir).map_err(|e| anyhow::anyhow!("{e}"))?;
     let known: Vec<&str> = loaded.channels.iter().map(|c| c.name.as_str()).collect();
     let unknown: Vec<&String> = sites.iter().filter(|s| !known.contains(&s.as_str())).collect();
@@ -228,17 +255,21 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
         let _ = api_stop_rx.await;
     }));
     info!(bind = %api_cfg.bind, port = api_cfg.port, health = %poller.health()["status"], "api_started");
+    on_ready();
 
     #[cfg(unix)]
     let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
-    let stop = shutdown_signal();
     tokio::pin!(stop);
     loop {
         #[cfg(unix)]
         {
             tokio::select! {
                 sig = &mut stop => { info!(signal = sig, "poller_stopping"); break; }
-                _ = hup.recv() => { let _ = poller.reload().await; }
+                _ = hup.recv() => {
+                    sdnotify::notify("RELOADING=1\nSTATUS=reloading the config");
+                    let _ = poller.reload().await;
+                    sdnotify::notify("READY=1\nSTATUS=running");
+                }
             }
         }
         #[cfg(not(unix))]
@@ -248,6 +279,8 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
             break;
         }
     }
+    #[cfg(unix)]
+    sdnotify::notify("STOPPING=1");
     let _ = api_stop_tx.send(());
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), api).await;
     poller.stop().await;
@@ -256,6 +289,18 @@ async fn cmd_run(config_dir: &Path, sites: Vec<String>) -> Result<i32> {
 
 fn main() {
     let cli = Cli::parse();
+    // The SCM runs `service run` and its dispatcher owns the thread; it starts its own runtime.
+    #[cfg(windows)]
+    if let Cmd::Service { action } = cli.cmd {
+        let code = match winsvc::dispatch(action) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime");
     let code = rt.block_on(async {
         match cli.cmd {
@@ -269,11 +314,19 @@ fn main() {
             )),
             Cmd::Read { device_id, tag, config } => cmd_read(&config, &device_id, tag.as_deref()).await,
             Cmd::Identity { device_id, config } => cmd_identity(&config, &device_id).await,
-            Cmd::Run { config, site } => cmd_run(&config, site).await,
+            Cmd::Run { config, site } => {
+                #[cfg(unix)]
+                let ready = || sdnotify::notify("READY=1\nSTATUS=running");
+                #[cfg(not(unix))]
+                let ready = || {};
+                cmd_run(&config, site, shutdown_signal(), ready).await
+            }
             Cmd::Drivers => {
                 println!("{}", drivers_json());
                 Ok(0)
             }
+            #[cfg(windows)]
+            Cmd::Service { .. } => unreachable!("handled before the runtime starts"),
         }
     });
     let code = match code {

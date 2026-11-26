@@ -396,6 +396,53 @@ impl ProfileStore {
         Ok(summary(p, has_token, None, notice))
     }
 
+    /// Create or update an app-managed profile with a fixed id (the bundled engine, #58): its
+    /// current address and a fresh token. Returns a notice when the keychain could not keep the
+    /// token; the profile is then saved without one, so no stale token is ever sent.
+    pub fn set_managed(
+        &self,
+        id: &str,
+        name: &str,
+        base_url: &str,
+        token: &str,
+    ) -> Result<Option<String>, ProfileError> {
+        let _guard = self.lock.lock().unwrap();
+        let base_url = normalize_base_url(base_url)?;
+        let mut profiles = self.load()?;
+        let idx = match profiles.iter().position(|p| p.id == id) {
+            Some(i) => {
+                profiles[i].name = name.to_string();
+                profiles[i].base_url = base_url.clone();
+                i
+            }
+            None => {
+                profiles.push(Profile {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    base_url: base_url.clone(),
+                    token_origin: None,
+                });
+                profiles.len() - 1
+            }
+        };
+        let notice = match self.secrets.set(id, token) {
+            Ok(()) => {
+                profiles[idx].token_origin = Some(base_url);
+                None
+            }
+            Err(e) => {
+                profiles[idx].token_origin = None;
+                let _ = self.secrets.delete(id);
+                Some(format!(
+                    "The keychain could not keep the engine's token ({e}). The app keeps it in \
+                     memory until it closes."
+                ))
+            }
+        };
+        self.save(&profiles)?;
+        Ok(notice)
+    }
+
     pub fn remove(&self, id: &str) -> Result<(), ProfileError> {
         let _guard = self.lock.lock().unwrap();
         let mut profiles = self.load()?;
@@ -656,6 +703,54 @@ mod tests {
         assert!(!is_cleartext_remote("http://127.0.0.1:8080"));
         assert!(!is_cleartext_remote("http://localhost:8080"));
         assert!(!is_cleartext_remote("http://[::1]:8080"));
+    }
+
+    #[test]
+    fn a_managed_profile_gets_a_fixed_id_and_a_token_bound_to_its_address() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = store(&dir);
+        assert_eq!(
+            s.set_managed(
+                "bundled",
+                "Engine on this computer",
+                "http://127.0.0.1:18765",
+                "t1"
+            )
+            .unwrap(),
+            None
+        );
+        let p = s.get("bundled").unwrap();
+        assert_eq!(p.base_url, "http://127.0.0.1:18765");
+        assert_eq!(p.token_origin.as_deref(), Some("http://127.0.0.1:18765"));
+        assert_eq!(s.token("bundled").unwrap().as_deref(), Some("t1"));
+        // the next start may use another port: same profile, new address, new token
+        s.set_managed(
+            "bundled",
+            "Engine on this computer",
+            "http://127.0.0.1:20001",
+            "t2",
+        )
+        .unwrap();
+        let all = s.summaries().unwrap();
+        assert_eq!(all.iter().filter(|p| p.id == "bundled").count(), 1);
+        assert_eq!(s.token("bundled").unwrap().as_deref(), Some("t2"));
+        assert_eq!(s.get("bundled").unwrap().base_url, "http://127.0.0.1:20001");
+    }
+
+    #[test]
+    fn a_managed_profile_without_a_keychain_is_saved_without_a_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = ProfileStore::new(dir.path().join("profiles.json"), Box::new(BrokenKeychain));
+        let notice = s
+            .set_managed(
+                "bundled",
+                "Engine on this computer",
+                "http://127.0.0.1:18765",
+                "t1",
+            )
+            .unwrap();
+        assert!(notice.unwrap().contains("in memory"));
+        assert_eq!(s.get("bundled").unwrap().token_origin, None);
     }
 
     struct BrokenKeychain;

@@ -91,7 +91,8 @@ def test_atomic_write_keeps_bak_and_mode(tmp_path):
     atomic_write(p, "new\n")
     assert p.read_text() == "new\n"
     assert (tmp_path / "f.yaml.bak").read_text() == "old\n"
-    assert oct(p.stat().st_mode & 0o777) == oct(0o640)
+    if os.name == "posix":                                       # Windows has no POSIX mode bits
+        assert oct(p.stat().st_mode & 0o777) == oct(0o640)
     atomic_write(p, "newer\n")
     assert (tmp_path / "f.yaml.bak").read_text() == "new\n"     # one generation
     assert sorted(x.name for x in tmp_path.iterdir()) == ["f.yaml", "f.yaml.bak"]   # no temp files left
@@ -165,7 +166,7 @@ def test_validation_error_has_field_location_and_writes_nothing(store: ConfigSto
 def test_driver_rejects_params_and_addresses(store: ConfigStore):
     with pytest.raises(Invalid) as exc:
         store.update_device(DEV, {"params": {"unit_id": 999}}, partial=True)
-    assert exc.value.errors[0]["loc"] == ["params"] and "0..255" in exc.value.errors[0]["msg"]
+    assert exc.value.errors[0]["loc"] == ["params", "unit_id"] and "<= 255" in exc.value.errors[0]["msg"]   # schema (#129)
     with pytest.raises(Invalid) as exc:
         store.create_tags(DEV, {"name": "X", "address": "999999", "dtype": "float32"})
     assert exc.value.errors[0]["loc"] == ["address"] and exc.value.errors[0]["type"] == "bad_config"
@@ -546,6 +547,9 @@ def test_writable_reports_why_not(store: ConfigStore, cfg: Path, monkeypatch):
     w = store.writable()
     assert w["writable"] is False and str(cfg) in w["reason"]
     monkeypatch.undo()
+
+    if not hasattr(os, "ST_RDONLY"):                            # writable() skips statvfs there too
+        pytest.skip("os.statvfs/ST_RDONLY are POSIX-only; the os.access() part above ran")
 
     class RO:
         f_flag = os.ST_RDONLY

@@ -202,7 +202,71 @@ Notes:
 - By default WinSW runs the service as LocalSystem. To run it as `NT AUTHORITY\LocalService`,
   uncomment `<serviceaccount>` in the XML and grant that account modify rights on
   `C:\ProgramData\opencap\data` and `\logs`.
-- Windows support has not been tested on real hardware yet. Please report what you find.
+- CI runs the test suite and this WinSW setup (install, start, `/health`, stop with a clean
+  exit 0, uninstall) on windows-latest; see `docs/decisions.md` D-082. It has not been tried on
+  plant hardware yet. Please report what you find.
+
+## Rust engine (opencap-engine) as a service
+
+The Rust engine reads the same config directory and behaves the same way (ADR-0002). It is a
+single binary, `opencap-engine`, so it needs no Python and no service wrapper. Run it **or**
+the Python `opencap` on a machine, not both: they share the config directory and the API port.
+`opencap-engine drivers` lists which drivers your build has.
+
+### Linux: systemd (`deploy/opencapd.service`)
+
+The same layout and hardening as `opencap.service` above, with two differences:
+`ExecStart=/usr/local/bin/opencap-engine run --config /etc/opencap`, and `Type=notify`. The
+engine tells systemd it is ready only once the config has loaded, the poller has started and
+the API listens, so `systemctl start opencapd` waits for that and fails when the config does
+not load. `systemctl reload opencapd` sends SIGHUP: a diff reload, reported to systemd as
+reloading and ready again.
+
+```bash
+sudo install -m 0755 opencap-engine /usr/local/bin/opencap-engine
+sudo useradd --system --home /var/lib/opencap --shell /usr/sbin/nologin opencap   # if not there yet
+sudo cp deploy/opencapd.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now opencapd
+journalctl -u opencapd -f -o cat
+```
+
+CI checks the unit with `systemd-analyze verify`, and the readiness, reload and stop
+notifications against the real binary (`tests/integration/test_rust_engine_sdnotify.py`).
+
+### Windows: a native service (no WinSW)
+
+From an elevated prompt:
+
+```bat
+opencap-engine.exe service install --config C:\ProgramData\opencap\config
+sc start opencap-engine
+sc query opencap-engine
+sc stop opencap-engine
+opencap-engine.exe service uninstall
+```
+
+- **Install** registers `opencap-engine` to start automatically as LocalSystem, with
+  `service run --config <dir>` as its command line (the config path is stored absolute). The
+  config defaults to `C:\ProgramData\opencap\config`.
+- **Recovery:** restart after 5 s, 5 s, then 30 s; the count resets after a day, and a stop with
+  a non-zero exit counts as a failure too.
+- **Files:** `C:\ProgramData\opencap\` is the working directory, so a relative `saf.path`
+  (`data\saf.sqlite`) lands there. Logs are JSON lines in `logs\opencap-engine.log`. Rotate or
+  trim that file yourself; the engine only appends to it.
+- **Stop and shutdown** do the same clean stop as SIGTERM on Linux: the API stops, PLC
+  connections close, the outbox keeps whatever the broker has not acknowledged, and `offline`
+  is published.
+- **Event log:** source `opencap-engine` under Application (created at install with
+  `eventcreate`), with "started", "stopped" and, if a run fails, the error that ended it.
+- **Uninstall** stops the service and removes it and its event log source. The config, the
+  outbox and the logs stay.
+- There is no reload on Windows yet: change the config, then `sc stop` and `sc start`.
+
+CI installs, starts (against a simulator and the test broker), checks `/health`, stops
+(exit code 0, `poller_stopped` in the log, the event log entries) and uninstalls the service
+on windows-latest (`deploy/windows/engine_service_smoke.py`). It has not been tried on plant
+hardware yet. Please report what you find.
 
 ## Commissioning a Siemens S7 or Mitsubishi PLC
 

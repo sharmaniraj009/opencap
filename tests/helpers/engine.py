@@ -116,16 +116,17 @@ def unsupported_reason(kind: str, drivers: tuple[str, ...]) -> str | None:
     return f"{NOT_PORTED}: {', '.join(missing)}"
 
 
-async def _run_cli(argv: list[str], cwd: Path | None, timeout: float) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(*argv, cwd=cwd, stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.STDOUT)
+async def run_process(argv: list[str], cwd: Path | None, timeout: float) -> tuple[int, str]:
+    """Run a child process to completion: (exit code, stdout + stderr). `subprocess` in a worker
+    thread, not an asyncio subprocess, so it works on every event loop, including the Windows
+    selector loop the tests use (tests/conftest.py, event_loop_policy). Raises TimeoutError."""
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout)
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        raise
-    return proc.returncode, out.decode(errors="replace")
+        done = await asyncio.to_thread(subprocess.run, [str(a) for a in argv], cwd=cwd,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        raise TimeoutError(f"{argv[0]} did not finish within {timeout} s") from e
+    return done.returncode, done.stdout.decode(errors="replace")
+
 
 
 class PythonEngine:
@@ -173,7 +174,7 @@ class PythonEngine:
 
     async def cli(self, *args: str, cwd: Path | None = None, timeout: float = 60) -> tuple[int, str]:
         """`opencap <args>` (the Python CLI, in a subprocess): (exit code, stdout + stderr)."""
-        return await _run_cli([sys.executable, "-m", "opencap", *args], cwd, timeout)
+        return await run_process([sys.executable, "-m", "opencap", *args], cwd, timeout)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.poller, name)
@@ -314,7 +315,7 @@ class RustEngine:
 
     async def cli(self, *args: str, cwd: Path | None = None, timeout: float = 60) -> tuple[int, str]:
         """`opencap-engine <args>`: (exit code, stdout + stderr)."""
-        return await _run_cli([str(self.binary), *args], cwd, timeout)
+        return await run_process([str(self.binary), *args], cwd, timeout)
 
     def log_tail(self, lines: int = 40) -> str:
         try:

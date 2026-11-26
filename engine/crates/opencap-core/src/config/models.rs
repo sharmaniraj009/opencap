@@ -54,6 +54,66 @@ pub fn underscore_names(channels: &[Channel]) -> Vec<String> {
     out
 }
 
+/// Device names the REST paths use as sub-resources. Python `API_DEVICE_NAMES`.
+pub const API_DEVICE_NAMES: [&str; 6] = ["tags", "values", "plan", "identity", "status", "read-once"];
+
+/// Rule violations of one name (PRJ-13). Python `_name_faults`.
+fn name_faults(name: &str, what: &str, dotted: bool) -> Vec<String> {
+    if name.is_empty() {
+        return vec![format!("{what} name is empty")];
+    }
+    let mut out = Vec::new();
+    // Python `str.strip()` trims Unicode whitespace, as `str::trim` does.
+    if name != name.trim() {
+        out.push(format!("{what} name {} has leading or trailing whitespace", py_repr_str(name)));
+    }
+    if name.contains('"') {
+        out.push(format!("{what} name {} contains '\"'", py_repr_str(name)));
+    }
+    if dotted {
+        for ch in [".", "/"] {
+            if name.contains(ch) {
+                out.push(format!("{what} name {} contains {}", py_repr_str(name), py_repr_str(ch)));
+            }
+        }
+    }
+    out
+}
+
+/// Names that break the naming rules other than the `_` one (PRJ-13), in file order, with the
+/// same texts as Python `name_rule_problems` (the `loc` is Python's and is not kept here).
+pub fn name_rule_problems(channels: &[Channel]) -> Vec<String> {
+    let mut out = Vec::new();
+    for ch in channels {
+        out.extend(name_faults(&ch.name, "channel", true));
+        for dev in &ch.devices {
+            out.extend(name_faults(&dev.name, "device", true).into_iter().map(|t| format!("{}: {t}", dev.id)));
+            if API_DEVICE_NAMES.contains(&dev.name.as_str()) {
+                out.push(format!("{}: device name {} is used by the REST paths", dev.id, py_repr_str(&dev.name)));
+            }
+            for tag in &dev.tags {
+                if tag.name.is_empty() {
+                    out.push(format!("{}: tag name is empty", dev.id));
+                    continue;
+                }
+                for seg in tag.name.split('.') {
+                    out.extend(
+                        name_faults(seg, "tag segment", false)
+                            .into_iter()
+                            .map(|t| format!("{}: {t} (in tag {})", dev.id, py_repr_str(&tag.name))),
+                    );
+                }
+            }
+        }
+    }
+    out
+}
+
+/// An IANA zone name the payload can use. Python `is_known_zone`.
+pub fn is_known_zone(name: &str) -> bool {
+    name.parse::<chrono_tz::Tz>().is_ok()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DType {
@@ -759,6 +819,16 @@ pub struct PayloadCfg {
     pub bad_tags_field: bool,
     #[serde(default = "d_tz")]
     pub timezone: String,
+}
+
+impl PayloadCfg {
+    /// Python's `PayloadCfg._known_zone` validator, same message.
+    pub fn validate(&self) -> Result<(), String> {
+        if !is_known_zone(&self.timezone) {
+            return Err(format!("payload.timezone {} is not a known IANA time zone name", py_repr_str(&self.timezone)));
+        }
+        Ok(())
+    }
 }
 
 impl Default for PayloadCfg {

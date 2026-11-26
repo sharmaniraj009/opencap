@@ -1,0 +1,98 @@
+{
+  "document": "devices",
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "A.B",
+        "devices": [
+          {
+            "id": "A.B/PLC1",
+            "channel": "A.B",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Padded ",
+        "devices": [
+          {
+            "id": "Padded /PLC 2 ",
+            "channel": "Padded ",
+            "name": "PLC 2 ",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "Group. X",
+                "address": "400001",
+                "dtype": "int16"
+              },
+              {
+                "name": "A..B",
+                "address": "400001",
+                "dtype": "int16"
+              },
+              {
+                "name": "Say\"Hi",
+                "address": "400001",
+                "dtype": "int16"
+              },
+              {
+                "name": "A.",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SITE",
+        "devices": [
+          {
+            "id": "SITE/tags",
+            "channel": "SITE",
+            "name": "tags",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "Fine.Name",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          },
+          {
+            "id": "SITE/P/Q",
+            "channel": "SITE",
+            "name": "P/Q",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

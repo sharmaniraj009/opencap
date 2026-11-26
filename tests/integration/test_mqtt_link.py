@@ -197,6 +197,7 @@ async def test_lwt_and_retained_status_after_kill(tmp_path):
             import asyncio, sys
             sys.path.insert(0, {str(SRC)!r})
             from opencap.config.models import MqttCfg
+            from opencap.core.runtime import event_loop_factory
             from opencap.north.mqtt import MqttLink
             from opencap.north.saf import StoreAndForward
 
@@ -211,24 +212,26 @@ async def test_lwt_and_retained_status_after_kill(tmp_path):
                 print("READY", flush=True)
                 await task
 
-            asyncio.run(main())
+            asyncio.run(main(), loop_factory=event_loop_factory())   # selector loop on Windows (D-031)
         """)
-        proc = await asyncio.create_subprocess_exec(sys.executable, "-c", script,
-                                                    stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.STDOUT)
+        # subprocess.Popen + readline in a thread, not an asyncio subprocess: this test's own loop
+        # also runs an MQTT client, and on Windows only the selector loop can (tests/conftest.py)
+        proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT)
         try:
             out: list[bytes] = []
 
             async def ready() -> None:                          # skip the child's log lines
-                while (line := await proc.stdout.readline()) and line.strip() != b"READY":
+                while (line := await asyncio.to_thread(proc.stdout.readline)) and line.strip() != b"READY":
                     out.append(line)
                 assert line, b"".join(out)                        # child exited early
 
             await asyncio.wait_for(ready(), timeout=30)
             await early.wait_payload(lwt_topic("killme"), b"online")
         finally:
-            proc.kill()                                         # SIGKILL: no DISCONNECT, no "offline" from us
-            await proc.wait()
+            proc.kill()                                         # SIGKILL (TerminateProcess on Windows): no DISCONNECT
+            await asyncio.to_thread(proc.wait)
+            proc.stdout.close()
         await broker.wait_client("killme", connected=False, timeout=10)
         await early.wait_payload(lwt_topic("killme"), b"offline", timeout=10)   # the broker sent the LWT
 

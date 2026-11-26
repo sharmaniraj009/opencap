@@ -34,6 +34,7 @@ fn check(document: &str, data: Value) -> Result<(), String> {
             let p = from_json::<PollerConfig>(data)?;
             p.mqtt.validate().map_err(|e| format!("mqtt: {e}"))?;
             p.api.validate().map_err(|e| format!("api: {e}"))?;
+            p.payload.validate()?;
             p.opcua_server.validate()
         }
         other => panic!("fixture document {other:?} has no Rust model: add it here"),
@@ -86,4 +87,19 @@ fn errors_name_the_field_like_pydantic() {
     let fx = load(&fixtures("invalid").into_iter().find(|p| p.ends_with("devices_port_not_int.json")).unwrap());
     let e = check("devices", fx["data"].clone()).unwrap_err();
     assert!(e.starts_with("channels.0.devices.0.port: invalid type"), "{e}");
+}
+
+/// The shared zone fixture (`tests/conformance/timezones/zones.json`, LOG-21): both engines accept
+/// and refuse the same `payload.timezone` names.
+#[test]
+fn timezone_fixture_is_accepted_and_refused_alike() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../tests/conformance/timezones/zones.json");
+    let fx = load(&path);
+    for (key, ok) in [("valid", true), ("invalid", false)] {
+        for name in fx[key].as_array().unwrap() {
+            let cfg =
+                opencap_core::config::PayloadCfg { timezone: name.as_str().unwrap().into(), ..Default::default() };
+            assert_eq!(cfg.validate().is_ok(), ok, "{name}");
+        }
+    }
 }

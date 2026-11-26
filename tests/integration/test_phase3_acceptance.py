@@ -35,7 +35,6 @@ from opencap.config.models import Device, Tag  # noqa: E402
 from opencap.logsetup import configure_logging  # noqa: E402
 from tests.helpers.broker import TestBroker  # noqa: E402
 from tests.helpers.configdir import write_config  # noqa: E402
-from tests.helpers.modbus_sim import free_port  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.integration.test_ab_pccc_sim import DIRECTORY_READ, SYSTEM_FILES, TAGS, TYPED_READ, expected  # noqa: E402
 
@@ -102,7 +101,7 @@ async def test_phase3_acceptance(tmp_path, engine_factory):
         asked = _record_files_asked(sims[0])
         async with asyncio.timeout(240), TestBroker() as broker, broker.collector("opencap/#") as col:
             await col.wait_ready()
-            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=free_port(),
+            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=stable_port(),
                                       poller={"stats_interval_s": 3, "log_level": "INFO"},
                                       publish={"interval_ms": INTERVAL_MS})
             engine = engine_factory(config_dir)     # the Python Poller, or the Rust engine (--engine=rust)
@@ -113,7 +112,7 @@ async def test_phase3_acceptance(tmp_path, engine_factory):
                 await engine.stop()
             stats = engine.log_events("device.stats")
             assert {e["device"] for e in stats} >= {d.id for d in devices}, "every device logged its cycle time"
-            assert all(e["mean_cycle_ms"] > 0 for e in stats)
+            assert all(e["mean_cycle_ms"] > 0 for e in stats), stats
         assert [s.write_attempts for s in sims] == [0] * N_DEVICES, "a write reached a PLC"
         assert 99 not in asked and {7, 8, 20, 21} <= asked, sorted(asked)    # the ghost was never sent
     finally:

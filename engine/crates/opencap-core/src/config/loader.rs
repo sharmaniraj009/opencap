@@ -242,6 +242,7 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
     let poller: PollerConfig = model(&poller_path, Json::Object(read_yaml(&poller_path)?))?;
     poller.mqtt.validate().map_err(|e| invalid(format!("{}: mqtt: {e}", poller_path.display())))?;
     poller.api.validate().map_err(|e| invalid(format!("{}: api: {e}", poller_path.display())))?;
+    poller.payload.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     poller.opcua_server.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
     let devices_file = load_devices(&config_dir.join(DEVICES_FILE))?;
     let ov_path = config_dir.join(OVERRIDES_FILE);
@@ -383,6 +384,9 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
         // names starting with '_' are an error from v2 on (spec 3.2)
         for text in underscore_names(&channels) {
             warnings.push(format!("{DEVICES_FILE}: {text}; names starting with '_' are reserved for system tags"));
+        }
+        for text in name_rule_problems(&channels) {
+            warnings.push(format!("{DEVICES_FILE}: {text}"));
         }
     }
 

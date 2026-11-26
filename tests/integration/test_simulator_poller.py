@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import threading
 from datetime import datetime
 
 import httpx
+import paho.mqtt.client as paho_client
 import pytest
 
 from opencap.config.models import Device, Tag
@@ -32,7 +34,11 @@ from tests.helpers.modbus_sim import free_port
 N_DEVICES = 50
 CHANNELS = 5
 INTERVAL_MS = 1000
-SCAN_MS = 250
+# 500 ms, not 250: with 10 devices per channel (one request on the wire, D-015) and STALE_FACTOR 3, a
+# 250 ms scan leaves a 750 ms stale window, which a loaded CI runner overran: a whole device went
+# stale and its payload had DataValid false (seen on #177 and #208). 1.5 s absorbs the scheduling
+# delay; the publish cadence (INTERVAL_MS) and the formula checks are unchanged.
+SCAN_MS = 500
 API_TOKEN = "simulator-integration-token"
 
 # (name, address, dtype); K1 is set per device through params.memory
@@ -88,17 +94,42 @@ def outbound(monkeypatch):
     """Every address this process connects a socket to (TCP or UDP), from now on."""
     peers: list[object] = []
     real_connect, real_connect_ex = socket.socket.connect, socket.socket.connect_ex
+    real_socketpair = socket.socketpair
+    pairing = threading.local()
+
+    def socketpair(*args, **kwargs):
+        # Windows emulates socketpair() (the event loop's wake-up pipe) with a loopback TCP
+        # connect inside this process: not a peer the engine talks to, so it is not recorded.
+        pairing.active = True
+        try:
+            return real_socketpair(*args, **kwargs)
+        finally:
+            pairing.active = False
 
     def connect(self, address):
-        peers.append(address)
+        if not getattr(pairing, "active", False):
+            peers.append(address)
         return real_connect(self, address)
 
     def connect_ex(self, address):
-        peers.append(address)
+        if not getattr(pairing, "active", False):
+            peers.append(address)
         return real_connect_ex(self, address)
 
+    def paho_socketpair():
+        # paho's network thread (the test's Collector, #220) builds the same kind of wake-up pair
+        # with a loopback TCP connect of its own: not a peer either.
+        pairing.active = True
+        try:
+            return real_paho_socketpair()
+        finally:
+            pairing.active = False
+
+    real_paho_socketpair = paho_client._socketpair_compat                # noqa: SLF001
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    monkeypatch.setattr(socket, "socketpair", socketpair)
+    monkeypatch.setattr(paho_client, "_socketpair_compat", paho_socketpair)
     return peers
 
 

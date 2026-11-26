@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import signal
 import subprocess
 import sys
 import textwrap
@@ -143,10 +144,12 @@ def test_survives_process_kill(tmp_path):
         s = StoreAndForward({str(path)!r}, max_bytes=10_000_000)
         ids = [s.put("op/s/d/data", b"%d" % i) for i in range(200)]
         s.ack(ids[:50])
-        os.kill(os.getpid(), signal.SIGKILL)
+        os.kill(os.getpid(), getattr(signal, "SIGKILL", signal.SIGTERM))
     """)
     proc = subprocess.run([sys.executable, "-c", script], capture_output=True, timeout=60)
-    assert proc.returncode == -9, proc.stderr.decode()
+    # Windows has no SIGKILL: os.kill() with any other signal is TerminateProcess, just as abrupt,
+    # and the exit code is the signal number.
+    assert proc.returncode == (-9 if hasattr(signal, "SIGKILL") else signal.SIGTERM), proc.stderr.decode()
     s = StoreAndForward(path, max_bytes=10_000_000)
     msgs = s.peek(1000)
     assert [m.payload for m in msgs] == [b"%d" % i for i in range(50, 200)]

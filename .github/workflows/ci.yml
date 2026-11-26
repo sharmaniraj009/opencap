@@ -1,10 +1,10 @@
 name: CI
 
 # Which checks run when (also in CONTRIBUTING.md, "Opening a PR"):
-#   push to main          tests (3.12, 3.13), package
-#   pull request          tests (3.12, 3.13), package, and acceptance-pr (3.12) when the PR
+#   push to main          tests (3.12, 3.13), package, windows (fast suite + service smoke test)
+#   pull request          tests (3.12, 3.13), package, windows, and acceptance-pr (3.12) when the PR
 #                         touches the paths the acceptance suite exercises (see the changes job)
-#   nightly, or manual    acceptance (3.12, 3.13)
+#   nightly, or manual    acceptance (3.12, 3.13), windows (acceptance + service smoke test)
 # Pushes to other branches do not run CI: their pull request does, so nothing runs twice.
 # Release tags trigger the release workflow (#34), not this one.
 
@@ -18,6 +18,12 @@ on:
     inputs:
       outage_s:
         description: "Broker outage in the Phase 1 acceptance test, seconds (600 = the plan's 10 minutes)"
+        required: false
+        default: "8"
+  workflow_call:          # the release workflow runs these checks first (#34)
+    inputs:
+      outage_s:
+        type: string
         required: false
         default: "8"
 
@@ -82,6 +88,45 @@ jobs:
             opencap:ci import-kep /in/project_sample.json
           docker run --rm -v /tmp/ci-config:/opencap/config:ro opencap:ci check
           test "$(docker run --rm --entrypoint id opencap:ci -u)" = "10001"
+
+  windows:
+    name: Windows (Python 3.12)
+    # FR-13, ADR-0010: Windows is a target platform. Push and PR: the fast suite. Nightly and
+    # manual: the acceptance suite. Always: the WinSW service smoke test (D-031). Tests that
+    # cannot run on Windows are skipped with a reason (`needs_pty`), shown by -ra.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      WINSW_URL: https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe
+      # sha256 of WinSW-x64.exe v2.12.0, computed from the release download (#35)
+      WINSW_SHA256: 05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,all]'
+      - name: Test (not acceptance)
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: pytest -m "not acceptance" -ra
+      - name: Acceptance tests
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          OPENCAP_OUTAGE_S: ${{ inputs.outage_s || '8' }}
+        run: pytest -m acceptance -ra
+      - name: WinSW v2.12.0 (download, check SHA-256)
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'WinSW-x64.exe'
+          Invoke-WebRequest -Uri $env:WINSW_URL -OutFile $exe
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          if ($hash -ne $env:WINSW_SHA256) { throw "WinSW-x64.exe SHA-256 mismatch: $hash" }
+      - name: Service smoke test (install, start, /health, stop, clean exit 0, uninstall)
+        run: python deploy/windows/service_smoke.py --winsw (Join-Path $env:RUNNER_TEMP 'WinSW-x64.exe')
 
   changes:
     name: changed paths, action pins
@@ -149,9 +194,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev,all]'          # every driver extra, so every acceptance test runs
-      - name: Acceptance tests (8 s broker outage)
+      - name: Acceptance tests (8 s broker outage, 3 Mosquitto restarts)
         env:
           OPENCAP_OUTAGE_S: "8"
+          OPENCAP_REQUIRE_MOSQUITTO: "1"   # #8: Docker is on ubuntu-latest, so the Mosquitto restart test must run, not skip
         run: pytest -m acceptance -ra
 
   acceptance:
@@ -177,4 +223,5 @@ jobs:
       - name: Acceptance tests
         env:
           OPENCAP_OUTAGE_S: ${{ inputs.outage_s || '8' }}
+          OPENCAP_REQUIRE_MOSQUITTO: "1"   # #8: Docker is on ubuntu-latest, so the Mosquitto restart test must run, not skip
         run: pytest -m acceptance -ra

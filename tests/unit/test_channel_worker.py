@@ -295,19 +295,25 @@ async def test_demotion_after_failed_cycles_probe_and_resume():
         health = worker.health(d.id)
         async with running(worker):
             await wait_until(lambda: health.state == "demoted", 1.0)
-            demoted_at = time.monotonic()
+            # The probe may not start before demoted_until, set from the worker's monotonic clock
+            # when it demoted the device. connect_attempts are stamped with that same clock, so
+            # the check is exact on every OS. A time this test takes after it notices the
+            # demotion would lag by its polling step (a whole 15.6 ms tick on Windows).
+            probe_due = health.demoted_until
             connects = len(s.connect_attempts)
             assert connects == 2                 # one per failed cycle, then demoted
             await asyncio.sleep(0.15)
             assert len(s.connect_attempts) == connects      # skipped while demoted
             await wait_until(lambda: len(s.connect_attempts) == connects + 1, 0.5)   # the probe
-            assert time.monotonic() - demoted_at >= 0.24
+            assert s.connect_attempts[connects] >= probe_due
             await asyncio.sleep(0.03)
             assert health.state == "demoted"     # probe failed: demoted again
             assert len(s.connect_attempts) == connects + 1
+            next_probe_due = health.demoted_until
+            assert next_probe_due >= probe_due + 0.25       # demote_for_ms counts from the failed probe
             s.down = False
             await wait_until(lambda: health.state == "ok", 1.0)  # next probe passes
-            assert time.monotonic() - demoted_at >= 0.48
+            assert s.connect_attempts[connects + 1] >= next_probe_due
             await wait_until(lambda: cache.get(d.id, "A_0").quality == "good", 0.5)
     events = [e["event"] for e in logs]
     assert events.count("device.demoted") == 1   # one INFO line per state change
@@ -676,8 +682,25 @@ async def test_periodic_cycle_stats_log_line():
     assert stats, [e["event"] for e in logs]
     first = stats[0]
     assert first["device"] == dev.id and first["log_level"] == "info"
-    assert first["cycles"] >= 3 and first["mean_cycle_ms"] >= 5 and first["max_cycle_ms"] >= first["mean_cycle_ms"]
+    assert first["cycles"] >= 3 and first["max_cycle_ms"] >= first["mean_cycle_ms"]
+    assert first["mean_cycle_ms"] >= 4, first      # a 5 ms read, with room for timer granularity
     assert first["state"] == "ok" and first["bad_cycles"] == 0
+
+
+async def test_cycle_times_do_not_depend_on_the_scheduling_clock(monkeypatch):
+    """With a coarse monotonic clock (Windows, Python 3.12: ~15.6 ms) cycles still measure > 0 (#199)."""
+    tick = 0.0156
+    monkeypatch.setattr("opencap.core.channel_worker._mono", lambda: (time.monotonic() // tick) * tick)
+    name = uniq()
+    dev = device(name, "PLC", tags("A", 2), scan_ms=30)
+    worker, factory, _ = make_worker(channel(name, [dev]), stats_interval_s=0.3)
+    factory.script(dev.id).delay_s = 0.005
+    with capture_logs() as logs:
+        async with running(worker):
+            await asyncio.sleep(0.8)
+    stats = [e for e in logs if e["event"] == "device.stats"]
+    assert stats and all(e["mean_cycle_ms"] >= 4 and e["max_cycle_ms"] < 1000 for e in stats), stats
+    assert 0 < worker.device_status(dev.id)["cycle_ms"] < 1000
 
 
 async def test_cycle_stats_can_be_turned_off():

@@ -21,6 +21,9 @@ from opencap.core.cache import TagValue
 
 T = TypeVar("T")
 
+ALL_DTYPES: tuple[str, ...] = ("bool", "int16", "uint16", "int32", "uint32", "int64", "uint64",
+                               "float32", "float64", "string")
+
 
 class CommError(Exception):
     """One read attempt failed on the wire (timeout, transient device error).
@@ -104,6 +107,13 @@ class Driver(ABC):
     # SourceTimestamp: when it last changed) rather than when the reply arrived. The worker then
     # judges staleness by when `read()` last returned the tag good (docs/decisions.md D-045).
     stale_by_read_time: ClassVar[bool] = False
+    # What the driver catalogue (API-16, GET /api/v1/drivers) says about the driver. Declared
+    # next to each driver's params code, never hand-copied into docs or the API layer.
+    transport: ClassVar[str] = "tcp"                       # how it reaches the device
+    supports_browse: ClassVar[bool] = False                # can list the device's tags (Driver.browse)
+    dtypes: ClassVar[tuple[str, ...]] = ALL_DTYPES         # dtypes it reads (some addresses allow fewer)
+    address_examples: ClassVar[tuple[str, ...]] = ()       # documentation addresses, no site data
+    params_schema: ClassVar[dict[str, Any]] = {}           # JSON Schema of `Device.params` (_schema.py)
 
     def __init__(self, device: Device, executor: Executor | None = None) -> None:
         self.device = device
@@ -133,6 +143,11 @@ class Driver(ABC):
 
     async def read(self, block: Block) -> dict[str, TagValue]:
         raise NotImplementedError(f"{self.name}: read() not implemented yet")
+
+    @classmethod
+    def supports_identity(cls) -> bool:
+        """True when the driver overrides `identity()`."""
+        return cls.identity is not Driver.identity
 
     async def identity(self) -> dict[str, Any]:
         return {}

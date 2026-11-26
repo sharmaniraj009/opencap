@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from opencap.config.models import Tag
+from tests.helpers.netcut import stable_port
 
 SIM_HOST = "127.0.0.1"
 DEFAULT_CPU_TYPE = "Q03UDVCPU"
@@ -168,9 +169,18 @@ class McSim:
         return len(self._writers)
 
     async def _listen(self) -> None:
+        # With no port given, candidates come from stable_port() (random, below the ephemeral
+        # range), as in fins_sim: an ephemeral TCP port and then UDP on the same number can fail
+        # 20 times in a row on Windows.
         loop = asyncio.get_running_loop()
         for _ in range(20):
-            server = await asyncio.start_server(self._serve_tcp, self.host, self.port, reuse_address=True)
+            port = self.port or stable_port(self.host)
+            try:
+                server = await asyncio.start_server(self._serve_tcp, self.host, port, reuse_address=True)
+            except OSError:
+                if self.port:
+                    raise
+                continue
             port = server.sockets[0].getsockname()[1]
             if self.udp:
                 try:

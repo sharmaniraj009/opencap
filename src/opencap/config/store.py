@@ -63,6 +63,8 @@ from opencap.config.loader import (
     load_config,
 )
 from opencap.config.models import (
+    API_DEVICE_NAMES,
+    name_rule_problems,
     underscore_names,
     Channel,
     Device,
@@ -79,7 +81,7 @@ from opencap.config.models import (
 
 CONFIG_FILES = (POLLER_FILE, DEVICES_FILE, MAP_FILE, OVERRIDES_FILE)
 # `/api/v1/devices/{id}/<suffix>` routes: a device with one of these names would be ambiguous
-RESERVED_DEVICE_NAMES = frozenset({"tags", "values", "plan", "identity", "status", "read-once"})
+RESERVED_DEVICE_NAMES = frozenset(API_DEVICE_NAMES)
 EXPORT_FORMAT = "opencap-config"
 MAP_TEMPLATE = DEVICES_MAP_HEADER + "defaults: {}\ndevices: {}\n"
 MAX_IMPORT_BYTES = 64 * 1024 * 1024
@@ -170,6 +172,15 @@ def _validate(model: type[BaseModel], data: Any, prefix: tuple = ()) -> BaseMode
         return model.model_validate(data)
     except ValidationError as exc:
         raise Invalid(f"invalid {model.__name__}", _pyd_errors(exc, prefix)) from None
+
+
+def _check_driver_params(dev: Device, prefix: tuple = ()) -> None:
+    """422 with `loc` under `params` when the device's params break its driver's schema (API-16)."""
+    from opencap.drivers.catalogue import check_params
+
+    errors = check_params(dev.driver, dev.params, (*prefix, "params"))
+    if errors:
+        raise Invalid(f"invalid params for driver {dev.driver!r}", errors)
 
 
 def merge_patch(target: Any, patch: Any) -> Any:
@@ -912,6 +923,12 @@ class ConfigStore:
                         raise Invalid("names starting with '_' are reserved for system tags",
                                       [_err((), f"{t}; names starting with '_' are reserved for system tags")
                                        for t in added])
+                    old_rules = {t for _, t in name_rule_problems(
+                        DevicesFile.model_validate(base).channels)} if state.devices else set()
+                    added_rules = [(loc, t) for loc, t in name_rule_problems(model.channels) if t not in old_rules]
+                    if added_rules:    # the other naming rules: the same split between disk and writes
+                        raise Invalid("a name breaks the naming rules",
+                                      [_err(loc, t, "value_error") for loc, t in added_rules])
                 texts[DEVICES_FILE] = devices_json_text(model)
             for name, doc, model, template, renames in (
                 (MAP_FILE, txn.dmap, DeviceMap, MAP_TEMPLATE, txn.map_renames),
@@ -972,6 +989,8 @@ class ConfigStore:
                               [_err(("devices", i, "id"), f"device id must be {derived!r}")])
             data["devices"].append({"tags": [], **dev, "id": derived, "channel": name})
         ch = _validate(Channel, data)
+        for i, d in enumerate(ch.devices):
+            _check_driver_params(d, ("devices", i))
 
         def apply(txn: _Txn):
             if txn.has_channel(name):
@@ -1056,6 +1075,7 @@ class ConfigStore:
             raise Invalid("channel comes from the URL", [_err(("channel",), f"must be {channel!r}")])
         data = self._device_body({"tags": [], **body}, channel, body.get("name"), given_id=body.get("id"))
         dev = _validate(Device, data)
+        _check_driver_params(dev)
 
         def apply(txn: _Txn):
             ch = txn.channel(channel)
@@ -1079,6 +1099,7 @@ class ConfigStore:
             new_name = merged.get("name", old["name"])
             data = self._device_body(merged, new_channel, new_name, given_id=body.get("id"))
             dev = _validate(Device, data)
+            _check_driver_params(dev)
             dumped = _dump(dev)
             if dev.id != dev_id:
                 if dev.id in txn.device_ids():

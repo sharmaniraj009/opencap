@@ -34,6 +34,9 @@ for _p in (ROOT, ROOT / "scripts"):        # the repo (opencap, tests) and the A
 
 import gen_conformance_ab  # noqa: E402
 import gen_conformance_system_tags  # noqa: E402
+import gen_conformance_fins  # noqa: E402
+import gen_conformance_mc  # noqa: E402
+import gen_conformance_s7  # noqa: E402
 
 from opencap import FIRM_VERSION  # noqa: E402
 from opencap.config.models import Device, PayloadCfg, PublishCfg, Scale, Tag  # noqa: E402
@@ -1004,6 +1007,45 @@ def payload_datetime() -> list[Case]:
     ]
 
 
+# --- quality -------------------------------------------------------------------------------------
+
+QUALITIES = ("good", "stale", "bad_comm", "bad_decode", "bad_config")      # best to worst
+
+
+def quality_map() -> list[Case]:
+    meaning = {"good": "the last read was good", "stale": "no good read within 3 x the scan rate",
+               "bad_comm": "the last attempt failed on the wire", "bad_decode": "the reply could not be converted",
+               "bad_config": "the address is unusable or rejected"}
+    cases: list[Case] = []
+    for q in QUALITIES:
+        for ever_good in (True, False):
+            history = ("with a last good value" if ever_good else
+                       "with ever_good false (ignored for good)" if q == "good" else "never read good (no last value)")
+            cases.append((f"{q.replace('_', '-')}-{'ever-good' if ever_good else 'never-good'}",
+                          f"{q} ({meaning[q]}), {history}: OPC UA, OPC DA, Sparkplug and SubDevice JSON.",
+                          {"op": "map", "quality": q, "ever_good": ever_good}))
+    return cases
+
+
+def quality_worst() -> list[Case]:
+    cases: list[Case] = [("empty", "The worst of no qualities is good.", {"op": "worst", "qualities": []})]
+    for a in QUALITIES:
+        cases.append((f"one-{a.replace('_', '-')}", f"A single {a}.", {"op": "worst", "qualities": [a]}))
+    for a in QUALITIES:
+        for b in QUALITIES:
+            if a != b:
+                cases.append((f"{a.replace('_', '-')}-vs-{b.replace('_', '-')}", f"The worst of {a} and {b}.",
+                              {"op": "worst", "qualities": [a, b]}))
+    cases += [
+        ("all-best-first", "All five, best first: bad_config.", {"op": "worst", "qualities": list(QUALITIES)}),
+        ("all-worst-first", "All five, worst first: bad_config.", {"op": "worst", "qualities": list(QUALITIES[::-1])}),
+        ("repeats", "Repeats do not matter.", {"op": "worst", "qualities": ["stale", "good", "stale", "good"]}),
+        ("bad-without-config", "Without bad_config, bad_decode is the worst.",
+         {"op": "worst", "qualities": ["bad_comm", "good", "bad_decode", "stale"]}),
+    ]
+    return cases
+
+
 # --- files ---------------------------------------------------------------------------------------
 
 # --- payload/iotgw -------------------------------------------------------------------------------
@@ -1136,6 +1178,14 @@ SPECS: dict[str, list[FileSpec]] = {
 
 SPECS.update(gen_conformance_ab.SPECS)      # Allen-Bradley Logix and PCCC (#5)
 SPECS.update(gen_conformance_system_tags.SPECS)   # system and diagnostic tags (#120)
+SPECS.update(gen_conformance_fins.SPECS)    # Omron FINS address parsing (#13, #166)
+SPECS.update(gen_conformance_mc.SPECS)      # Mitsubishi MELSEC MC 3E (#45)
+SPECS["quality"] = [
+    ("map", "Each quality in every north model, with and without a last good value (ADR-0006).", quality_map()),
+    ("worst", "The worst of several qualities: bad_config > bad_decode > bad_comm > stale > good.",
+     quality_worst()),
+]
+SPECS.update(gen_conformance_s7.SPECS)      # Siemens S7 (#44)
 
 
 def build() -> dict[Path, str]:

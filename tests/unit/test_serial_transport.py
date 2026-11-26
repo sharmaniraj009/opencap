@@ -6,9 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-import pty
 import time
-import tty
 
 import pytest
 
@@ -28,7 +26,7 @@ from opencap.drivers._serial import (
 )
 from opencap.drivers.base import ConnectionLost
 from tests.helpers.modbus_sim import free_port
-from tests.helpers.pty_bridge import needs_pyserial
+from tests.helpers.pty_bridge import needs_pty, needs_pyserial, pty, tty
 
 
 def _device(**kw) -> Device:
@@ -278,6 +276,7 @@ async def _read_master(master: int, n: int, timeout: float = 2.0) -> bytes:
 
 
 @needs_pyserial
+@needs_pty
 async def test_serial_transport_over_a_pty(pty_pair):
     master, path = pty_pair
     t = SerialTransport(path, SerialSettings(baudrate=9600))     # a pty takes parity only once
@@ -305,6 +304,7 @@ async def test_serial_transport_missing_device_is_connection_lost(tmp_path):
 
 
 @needs_pyserial
+@needs_pty
 async def test_serial_transport_hangup_is_transport_closed(pty_pair):
     master, path = pty_pair
     t = SerialTransport(path, SerialSettings())
@@ -321,6 +321,7 @@ async def test_serial_transport_hangup_is_transport_closed(pty_pair):
 # --- RFC 2217 (pyserial's client against pyserial's own port manager) --------------------------------
 
 @needs_pyserial
+@needs_pty
 async def test_rfc2217_transport_round_trip(pty_pair):
     from tests.helpers.pty_bridge import Rfc2217Server
 

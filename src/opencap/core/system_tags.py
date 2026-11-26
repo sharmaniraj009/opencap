@@ -39,6 +39,9 @@ ENGINE = "python"
 U32 = 2**32
 TICK_ALIGN_TOLERANCE_S = 0.05      # spec §2.1: ticks are aligned to the UTC second within 50 ms
 COALESCE_S = 0.05                  # event updates arriving together are computed once
+# asyncio may run a timer up to one clock resolution early (~15.6 ms on Windows with Python 3.12):
+# a tick that wakes less than this before its second waits out the rest (_wait_out_early_wake).
+EARLY_WAKE_MAX_S = 0.25
 
 CLIENT_KINDS = {"mqtt", "sparkplug", "rest_client"}
 SERVER_KINDS = {"opcua_server", "modbus_server", "opcda_server"}
@@ -549,6 +552,23 @@ def split_path(path: str) -> tuple[str, str]:
     return head, name
 
 
+async def _wait_out_early_wake(boundary: float, clock: Callable[[], float] = time.time) -> None:
+    """Return once `clock()` has reached `boundary`, if the timer fired just before it.
+
+    asyncio runs a timer that is due within one clock resolution of now, so on Windows (Python 3.12,
+    ~15.6 ms) a tick could land before its second: _System._DateTime read 19.978 for second 20, and
+    the second before was ticked twice. Spec §2.1 aligns ticks to the UTC second, so the rest is
+    waited out. Only a short gap is: a clock stepped back (NTP) is not waited out, the next
+    `seconds_to_next_tick` follows the new time instead.
+    """
+    resolution = time.get_clock_info("monotonic").resolution
+    for _ in range(5):
+        left = boundary - clock()
+        if not 0.0 < left < EARLY_WAKE_MAX_S:
+            return
+        await asyncio.sleep(left + resolution)
+
+
 class SystemTagTask:
     """Recomputes the system tags and writes the changed ones into the poller's `ValueCache`.
 
@@ -653,10 +673,13 @@ class SystemTagTask:
     async def _run(self) -> None:
         while True:
             tick = False
+            now = time.time()
+            boundary = math.floor(now) + 1.0             # the UTC second this wait ends on
             try:
-                await asyncio.wait_for(self._wake.wait(), self.seconds_to_next_tick(time.time()))
+                await asyncio.wait_for(self._wake.wait(), self.seconds_to_next_tick(now))
                 await asyncio.sleep(COALESCE_S)          # let simultaneous events settle
             except TimeoutError:
+                await _wait_out_early_wake(boundary)
                 tick = True
             self._wake.clear()
             second = int(time.time())

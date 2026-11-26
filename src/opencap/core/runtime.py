@@ -10,6 +10,7 @@ import signal
 import sys
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from concurrent.futures import Executor
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,8 @@ from opencap.config.models import Channel, Device
 from opencap.core.cache import TagValue, ValueCache
 from opencap.core.channel_worker import ChannelWorker
 from opencap.core.registry import Registry
+from opencap.core.system_tags import SystemTagTask
+from opencap.core.system_tags import SystemTagTask
 from opencap.drivers.base import Driver
 from opencap.north.mqtt import MqttLink
 from opencap.north.opcua_server import OpcUaNorth
@@ -87,6 +90,9 @@ class Poller:
         self._ready_ms: int | None = None          # initial scan duration; set once, never cleared
         self._t0 = time.monotonic()
 
+        self.started_at = datetime.now(UTC)          # `_System._StartTime`
+        self.system_tags = SystemTagTask(self, revision=self._config_revision)
+
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
         cfg = self.loaded.poller
@@ -102,6 +108,7 @@ class Poller:
         except Exception as exc:     # as on reload: keep polling and publishing without it
             self._opcua_error = str(exc)
             log.error("opcua_server_start_failed", error=str(exc))
+        await self.system_tags.start()
         if self._serve_api:
             await self._start_api()
         self._started_at = time.monotonic()
@@ -134,6 +141,7 @@ class Poller:
         self._stop_event.set()
 
     async def stop(self) -> None:
+        await self.system_tags.stop()
         await self._stop_opcua()
         if self._api_server is not None:
             self._api_server.should_exit = True
@@ -202,8 +210,15 @@ class Poller:
             await self._stop_old(worker, task)
         self._channel_cfg.pop(name, None)
 
+    def _config_revision(self) -> str:
+        from opencap.config.store import ConfigStore
+
+        return ConfigStore(self.config_dir).revision()
+
     def _on_cycle(self, device_id: str) -> None:
         self._check_ready()
+
+        self.system_tags.notify(device_id)
         if self.publisher is not None:
             self.publisher.notify_cycle(device_id)
         if self.opcua is not None:
@@ -241,6 +256,7 @@ class Poller:
             await self._stop_publisher()
             self._restart_publisher()
             await self._reload_opcua()
+            self.system_tags.reconfigure()
             log.info("config_reloaded", **{k: len(v) for k, v in changed.items()})
             return changed
 

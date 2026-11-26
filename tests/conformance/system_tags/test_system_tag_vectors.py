@@ -1,12 +1,16 @@
-"""System-tag conformance vectors (`docs/spec/system-tags.md` §13).
+"""System-tag conformance (`docs/spec/system-tags.md` §13).
 
-Checks that the vectors are well formed, agree with the catalogue, and agree with the spec as
-evaluated by the test oracle in `reference.py`; and that the spec documents every catalogue name.
-The Rust engine (#56) runs the same vectors through its own state -> tags function.
+The vector files `tests/conformance/system_tags/*.json` are generated like every other area (their
+`expected` is what `opencap.core.system_tags` makes of the input: `tests/unit/test_conformance_vectors.py`
+checks them). This file is the independent check: the hand-written cases in
+`scripts/conformance_system_tags/` carry the values the spec says, and the product function must
+produce exactly those. It also checks the catalogue against the product's dtype table and the spec.
+The Rust engine (#56) runs the generated vectors through its own state -> tags function.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import re
@@ -15,12 +19,15 @@ from typing import Any
 
 import pytest
 
-from tests.conformance.system_tags import reference
+from opencap.core import system_tags
+from tests.conformance import reference
+from tests.conformance.vectors import decode_value
 
 HERE = Path(__file__).resolve().parent
-SPEC = HERE.parents[2] / "docs" / "spec" / "system-tags.md"
-CATALOGUE = json.loads((HERE / "catalogue.json").read_text(encoding="utf-8"))
-VECTOR_FILES = sorted((HERE / "vectors").glob("*.json"))
+ROOT = HERE.parents[2]
+SPEC = ROOT / "docs" / "spec" / "system-tags.md"
+CATALOGUE = json.loads((HERE.parent / "system_tags_catalogue.json").read_text(encoding="utf-8"))
+VECTOR_FILES = sorted((ROOT / "scripts" / "conformance_system_tags").glob("*.json"))
 LEVELS = set(CATALOGUE["levels"])
 DTYPES = set(CATALOGUE["dtypes"])
 DTYPE_OF = {(t["level"], t["name"]): t["dtype"] for t in CATALOGUE["tags"]}
@@ -36,6 +43,16 @@ def _cases() -> list[tuple[str, dict[str, Any]]]:
     return out
 
 
+def _generator():
+    spec = importlib.util.spec_from_file_location("gen_conformance_system_tags",
+                                                  ROOT / "scripts" / "gen_conformance_system_tags.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+gen = _generator()
 CASES = _cases()
 SNAPSHOTS = [(cid, c) for cid, c in CASES if c["kind"] == "snapshot"]
 SEQUENCES = [(cid, c) for cid, c in CASES if c["kind"] == "device_sequence"]
@@ -94,6 +111,10 @@ def test_spec_documents_every_catalogue_tag():
     assert not missing, f"catalogue tags not in docs/spec/system-tags.md: {missing}"
 
 
+def test_product_dtype_table_is_the_catalogue():
+    assert system_tags.DTYPES == DTYPE_OF
+
+
 def test_vectors_exist_for_every_kind():
     assert SNAPSHOTS and SEQUENCES
 
@@ -124,26 +145,34 @@ def test_vector_is_well_formed(cid: str, case: dict[str, Any]):
 
 @pytest.mark.parametrize(("cid", "case"), SNAPSHOTS, ids=[c for c, _ in SNAPSHOTS])
 def test_snapshot_vector_matches_the_spec(cid: str, case: dict[str, Any]):
-    got = reference.evaluate(case["state"])
+    got = system_tags.evaluate(case["state"])
     for path, e in case["expect"].items():
         assert path in got, f"{cid}: {path} missing"
         assert got[path] == (e["dtype"], e["value"]), f"{cid}: {path}"
     for path in case.get("absent", []):
         assert not any(p == path or p.startswith(path + ".") for p in got), f"{cid}: {path} must be absent"
+    # and through the conformance adapter, whose output the generated vector files hold
+    expected = reference.system_tags(gen.to_input(case))
+    assert expected["absent"] == case.get("absent", [])
+    for path, e in case["expect"].items():
+        assert expected["tags"][path]["dtype"] == e["dtype"]
+        assert decode_value(expected["tags"][path]["value"]) == e["value"]
 
 
 @pytest.mark.parametrize(("cid", "case"), SEQUENCES, ids=[c for c, _ in SEQUENCES])
 def test_sequence_vector_matches_the_spec(cid: str, case: dict[str, Any]):
-    results = dict(reference.run_sequence(case))
+    results = reference.system_tags(gen.to_input(case))["steps"]
     for index, step in enumerate(case["steps"]):
         for name, e in step.get("expect", {}).items():
-            assert results[index][name] == (e["dtype"], e["value"]), f"{cid}: step {index} {name}"
+            got = results[str(index)][name]
+            assert got["dtype"] == e["dtype"], f"{cid}: step {index} {name}"
+            assert decode_value(got["value"]) == e["value"], f"{cid}: step {index} {name}"
 
 
 def test_every_snapshot_tag_is_in_the_catalogue():
-    """The oracle never produces a tag the catalogue does not list (and with the right dtype)."""
+    """The product never produces a tag the catalogue does not list (and with the right dtype)."""
     for cid, case in SNAPSHOTS:
-        for path, (dtype, value) in reference.evaluate(case["state"]).items():
+        for path, (dtype, value) in system_tags.evaluate(case["state"]).items():
             assert DTYPE_OF.get(_level(path)) == dtype, f"{cid}: {path}"
             assert _type_ok(dtype, value), f"{cid}: {path} = {value!r}"
 

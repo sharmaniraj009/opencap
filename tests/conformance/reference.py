@@ -178,6 +178,70 @@ def ab_pccc_decode(inp: dict[str, Any]) -> dict[str, Any]:
     return {"values": {name: encode_value(decoded[name]) for name in sorted(decoded)}}
 
 
+# --- system_tags ---------------------------------------------------------------------------------
+
+def _tagged(dtype_value: tuple[str, Any]) -> dict[str, Any]:
+    dtype, value = dtype_value
+    return {"dtype": dtype, "value": encode_value(value)}
+
+
+def system_tags(inp: dict[str, Any]) -> dict[str, Any]:
+    """Two kinds of input (docs/spec/system-tags.md §13).
+
+    `snapshot`: `{kind, state, paths, absent}` -> `{tags: {path: {dtype, value}}, absent: [paths]}`:
+    the listed tags of `opencap.core.system_tags.evaluate(state)`, and those of `absent` that really
+    are absent (a path also counts as present when a tag lives below it).
+
+    `device_sequence`: `{kind, device, start, steps: [{at, event, error?, cycle_ms?, observe?}]}` ->
+    `{steps: {"<index>": {name: {dtype, value}}}}`: feed the events into `DeviceHealth` plus the two
+    status fields of §9, and read the device's status tags after each step that has `observe`.
+    """
+    from opencap.core import system_tags as st
+    from opencap.core.health import DeviceHealth, iso_utc
+
+    if inp["kind"] == "snapshot":
+        got = st.evaluate(inp["state"])
+        absent = [p for p in inp.get("absent", []) if not any(g == p or g.startswith(p + ".") for g in got)]
+        return {"tags": {p: _tagged(got[p]) for p in inp["paths"]}, "absent": absent}
+
+    dev = inp["device"]
+    start = st.parse_ts(inp["start"])
+    assert start is not None
+    health = DeviceHealth(int(dev.get("demote_after", 3)), int(dev.get("demote_for_ms", 30_000)))
+    flags: dict[str, Any] = {"connected": False, "last_connect_failed": False, "last_error": None, "cycle_ms": 0.0}
+    steps: dict[str, Any] = {}
+    for index, step in enumerate(inp["steps"]):
+        at = st.parse_ts(step["at"])
+        assert at is not None
+        mono = (at - start).total_seconds()
+        event = step["event"]
+        if event == "connect_ok":
+            flags.update(connected=True, last_connect_failed=False)
+        elif event == "connect_failed":
+            flags.update(connected=False, last_connect_failed=True)
+        elif event == "cycle_good":
+            health.record_good(mono, at)
+            flags.update(last_error=step.get("error"), cycle_ms=step.get("cycle_ms", 0.0))
+        elif event == "cycle_failed":
+            ev = health.record_failure(mono, at)
+            flags.update(last_error=step["error"], cycle_ms=step.get("cycle_ms", 0.0))
+            if ev in ("demoted", "redemoted"):
+                flags["connected"] = False          # the worker drops the connection on demotion
+        elif event == "cycle_neutral":
+            flags["cycle_ms"] = step.get("cycle_ms", 0.0)
+            if step.get("error") is not None:
+                flags["last_error"] = step["error"]
+        elif event != "tick":
+            raise ValueError(f"step {index}: unknown event {event!r}")
+        if step.get("observe"):
+            status = {**flags, "state": health.state, "consecutive_failures": health.consecutive_failures,
+                      "error_since": iso_utc(health.error_since), "last_good": iso_utc(health.last_good),
+                      "errors": health.errors}
+            tags = st.device_status_tags(dev, status, at, disabled=False)
+            steps[str(index)] = {n: _tagged((st.DTYPES[("device", n)], tags[n])) for n in step["observe"]}
+    return {"steps": steps}
+
+
 ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "modbus/plan": modbus_plan,
     "modbus/decode": modbus_decode,
@@ -188,6 +252,7 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "ab_logix/decode": ab_logix_decode,
     "ab_pccc/plan": ab_pccc_plan,
     "ab_pccc/decode": ab_pccc_decode,
+    "system_tags": system_tags,
 }
 
 

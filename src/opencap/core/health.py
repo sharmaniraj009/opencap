@@ -22,7 +22,8 @@ States:
              runs. Good probe -> ok ("resumed"). Failed probe -> demoted again for another
              `demote_for_ms` ("redemoted", not a state change).
 
-`errors` counts failed cycles since start.
+`errors` counts failed cycles since start. `error_since` is the (reporting) time of the cycle that took
+`consecutive_failures` from 0 to 1, cleared by a good cycle; neutral cycles change nothing.
 """
 
 from __future__ import annotations
@@ -60,6 +61,7 @@ class DeviceHealth:
         self.errors = 0                       # failed cycles since start
         self.consecutive_failures = 0
         self.last_good: datetime | None = None
+        self.error_since: datetime | None = None   # UTC of the cycle that opened the failure run (system tags, spec §9)
         self.demoted_until: float | None = None
         self.demotions = 0                    # times the device entered "demoted"
 
@@ -76,6 +78,7 @@ class DeviceHealth:
         self.state = "ok"
         self.consecutive_failures = 0
         self.demoted_until = None
+        self.error_since = None
         self.last_good = at
         if prev == "demoted":
             return EV_RESUMED
@@ -83,8 +86,10 @@ class DeviceHealth:
             return EV_OK
         return None
 
-    def record_failure(self, now: float) -> str | None:
+    def record_failure(self, now: float, at: datetime | None = None) -> str | None:
         prev = self.state
+        if self.consecutive_failures == 0:
+            self.error_since = at
         self.errors += 1
         self.consecutive_failures += 1
         if self.demotion_enabled and self.consecutive_failures >= self.demote_after:

@@ -451,26 +451,27 @@ and 12. If a site finds otherwise, the fix is a decision-log entry and a vector 
 
 ### 13.1 Vectors
 
-[`tests/conformance/system_tags/`](../../tests/conformance/system_tags/):
+The vectors are the shared conformance area [`tests/conformance/system_tags/`](../../tests/conformance/system_tags/)
+(format and regeneration: [`tests/conformance/README.md`](../../tests/conformance/README.md)), plus
+[`tests/conformance/system_tags_catalogue.json`](../../tests/conformance/system_tags_catalogue.json):
+every tag of this spec as data (level, name, dtype, update class, presence condition, KEPServerEX
+name or not). An engine's address-space test compares its system folders against it.
 
-- `catalogue.json`: every tag of this spec as data (level, name, dtype, update class, presence
-  condition, KEPServerEX name or not). An engine's address-space test compares its system folders
-  against it.
-- `vectors/*.json`, two kinds:
-  - `snapshot`: an engine state (node, north agents, channels with device config, status and
-    counters, at a fixed `now` and zone) → the expected `{path: {dtype, value}}` for the listed
-    paths, plus paths that must be `absent`. Both engines implement the pure function
-    *state → system tags* and run every snapshot vector against it.
-  - `device_sequence`: a device config and a list of timed events (`connect_ok`,
-    `connect_failed`, `cycle_good`, `cycle_failed`, `cycle_neutral`, `tick`) with the expected
-    device `_System` tags after given steps. Both engines feed the events into their
-    `DeviceHealth` plus the two status fields of §9.
-- `reference.py`: the test oracle that evaluates both kinds; `test_system_tag_vectors.py`
-  checks that every vector agrees with it and with `catalogue.json`, and that every catalogue name
-  is documented here. When the Python implementation lands, the test runs against the product
-  function instead and the oracle is deleted.
+Two kinds of vector:
 
-The vector file format is described in `tests/conformance/system_tags/README.md`.
+- `snapshot`: an engine state (node, north agents, channels with device config, status and
+  counters, at a fixed `now` and zone) → the expected `{path: {dtype, value}}` for the listed
+  paths, plus paths that must be `absent`. Both engines implement the pure function
+  *state → system tags* (`opencap.core.system_tags.evaluate`) and run every snapshot vector against it.
+- `device_sequence`: a device config and a list of timed events (`connect_ok`,
+  `connect_failed`, `cycle_good`, `cycle_failed`, `cycle_neutral`, `tick`) with the expected
+  device `_System` tags after given steps. Both engines feed the events into their
+  `DeviceHealth` plus the two status fields of §9.
+
+The vector files are generated from the Python engine; the cases and the values this spec demands are
+written by hand in `scripts/conformance_system_tags/`, and
+`tests/conformance/system_tags/test_system_tag_vectors.py` checks the engine against those values
+and that every catalogue name is documented here.
 
 ### 13.2 Acceptance tests each engine must pass
 
@@ -496,7 +497,7 @@ The vector file format is described in `tests/conformance/system_tags/README.md`
 
 | Issue | What | Status |
 |---|---|---|
-| [#120](https://github.com/sharmaniraj009/opencap/issues/120) | core: system-tag evaluation and status fields (Python): the state → tags function, `error_since`, `last_connect_failed`, `poll_failed_reads_total`, in-flight tracking; the conformance test switches from the oracle to it | `ready` |
+| [#120](https://github.com/sharmaniraj009/opencap/issues/120) | core: system-tag evaluation and status fields (Python): the state → tags function, `error_since`, `last_connect_failed`, `poll_failed_reads_total`, in-flight tracking; the conformance test runs against it | in review |
 | [#122](https://github.com/sharmaniraj009/opencap/issues/122) | north: OPC UA server serves the full catalogue (Python), with the §9 changes to D-046 | `blocked` on #120 |
 | [#125](https://github.com/sharmaniraj009/opencap/issues/125) | north: `publish.include_system_tags` (config in both engines, Python payload) | `blocked` on #120 |
 | [#127](https://github.com/sharmaniraj009/opencap/issues/127) | api: `GET /api/v1/system/tags`, `include_system` on device values (Python, OpenAPI) | `blocked` on #120 |
@@ -508,9 +509,9 @@ The north-agent tags that need SAF-06 and SAF-14 (`_OutboxBytes`, `_OutboxAgeS`,
 `_OutboxCapacityBytes`, `_OutboxFull`, `_OutboxDiskFreeBytes`, `_OutboxDiskLow`) hold their
 placeholder until those features are filed and built.
 
-## 15. Open questions for review
+## 15. Decisions from the review (#146)
 
-- Should the node-level clock tags be suppressible (`system_tags.clock: false`) for OPC UA servers
-  with very many subscribed clients? Proposed: no, until a measurement shows a cost.
-- `_ClientCount` excludes API and UI sessions (they are not data clients). A separate
+- The node-level clock tags are **not** suppressible (no `system_tags.clock: false`) until a
+  measurement shows a cost for OPC UA servers with very many subscribed clients.
+- `_ClientCount` **excludes** API and UI sessions (they are not data clients). A separate
   `_ApiClientCount` can be added when the WebSocket feed (#31) exists.

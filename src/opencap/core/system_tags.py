@@ -523,7 +523,8 @@ def snapshot(poller: Poller, now: datetime | None = None, *, revision: str | Non
     return {
         "now": iso_ms(now),
         "node": {"product_version": __version__, "engine": ENGINE, "instance": cfg.instance,
-                 "project_name": Path(poller.config_dir).name, "project_title": "",
+                 "project_name": getattr(poller.loaded, "project_name", None) or Path(poller.config_dir).name,
+                 "project_title": getattr(poller.loaded, "project_title", "") or "",
                  "project_revision": revision or "", "start_time": iso_ms(poller.started_at),
                  "timezone": cfg.payload.timezone, "sessions": sessions, "redundancy": None},
         "north": north, "channels": channels}

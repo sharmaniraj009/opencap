@@ -97,9 +97,8 @@ thread-pool server (measured within 15 %), and `optimization_target=latency` doe
 host's own work per read (block lookup, value conversion) is ~0.15 ms; verified block payloads are
 cached, so the HMAC check and unpickling happen once per block per process. In context: one request
 on the wire per channel means ~1 ms more per block, so a PCCC device with 23 blocks at 60 ms RTT
-(~1.4 s cycle) spends ~1.6 % longer per cycle. If this ever matters, the options are a
-leaner transport for a `v2` (length-prefixed protobuf on the socket, no HTTP/2) or porting the
-driver; D-088.
+(~1.4 s cycle) spends ~1.6 % longer per cycle. The fix is tracked in #252 (batched reads per
+call, a leaner `v2` transport without HTTP/2, or the native PCCC port in #48); D-092.
 
 ### Store-and-forward sizing
 ```

@@ -1838,7 +1838,7 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
 
-### D-088 Out-of-process plugin protocol v1 and the Python driver host as built (#49)
+### D-092 Out-of-process plugin protocol v1 and the Python driver host as built (#49)
 `proto/opencap/plugin/v1/driver.proto`, `engine/crates/opencap-plugin`, `src/opencap/plugin_host.py`. Where they go
 beyond ADR-0004 §3 / 03 §3.3:
 - **Opt-in per device: `plugin: python`** (devices.json or overrides.yaml; `plugins.python` in poller.yaml says how to
@@ -1867,8 +1867,8 @@ beyond ADR-0004 §3 / 03 §3.3:
   (push drivers are served through `Read`, as in the Python engine); `stale_by_read_time` is reported but the Rust
   worker does not use read times (D-045) yet.
 - **Overhead target missed:** ~0.6 ms p50 / ~1.1 ms p99 added per read (target < 0.5 ms p99), almost all of it the
-  fixed per-call cost of Python grpcio (04 §4.1). Kept: small against PLC round trips; a leaner `v2` transport is
-  the option if it ever matters.
+  fixed per-call cost of Python grpcio (04 §4.1). Kept for now (small against PLC round trips); #252 tracks the
+  target (batched reads per call, a leaner `v2` transport, or the native PCCC port in #48), so #49 stays open.
 - **Codegen:** Rust compiles the `.proto` with protox in `build.rs` (no `protoc` on build machines); tonic is pinned
   at 0.14.5 for the workspace's Rust 1.85. Python stubs are committed (grpcio-tools 1.85.4), with a drift test; the
   `plugin` extra needs protobuf >= 7.35.1 and grpcio >= 1.85.4, the stubs' gencode versions.

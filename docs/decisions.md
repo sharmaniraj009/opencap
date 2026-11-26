@@ -1767,3 +1767,23 @@ produced once the outbox drains, then every frozen message must reach the subscr
   covers the three lists `identity` reads, and a failing SZL read reports `<name>_error` with Rust's text.
   Untested on real CPUs, like the Python driver (D-058).
 - **Licence:** no new dependency; `deny.toml` unchanged.
+
+### D-086 The Rust engine as a service: sd_notify by hand, a native Windows service (#57)
+- **Linux:** `deploy/opencapd.service` is `opencap.service` with `Type=notify`. The engine sends
+  `READY=1` once the config has loaded, the poller has started and the API listens; `RELOADING=1`
+  and `READY=1` around a SIGHUP reload; `STOPPING=1` on SIGTERM. It speaks the sd_notify protocol
+  itself (one datagram to `$NOTIFY_SOCKET`, path or abstract name, `src/sdnotify.rs`) rather than
+  linking libsystemd: no new dependency, and nothing happens outside systemd. Tested against the
+  real binary with a socket the test owns (`test_rust_engine_sdnotify.py`), and the unit with
+  `systemd-analyze verify`.
+- **Windows:** a native service through `windows-service` (MIT OR Apache-2.0), not WinSW:
+  `opencap-engine service install|uninstall|run`. Stop and shutdown reach the same stop future
+  as SIGTERM, so the shutdown path is the one the acceptance suites exercise. Recovery:
+  restart after 5 s, 5 s, 30 s, also on a non-zero exit. `%ProgramData%\opencap` is the working
+  directory; logs go to a file there, because a service has no console.
+- **Event log:** written with Windows' own `eventcreate.exe`, which registers the source on
+  first use (at install) with its message file, in which ids 1–1000 show the text as written;
+  uninstall removes the source with `reg delete`. The workspace forbids `unsafe`, so no FFI to
+  ReportEventW. Only start, stop and a fatal error are written there; the JSON log has the rest.
+- **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
+  over to this service (#58 left that to this issue's follow-up).

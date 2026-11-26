@@ -96,8 +96,8 @@ policy-level summary, reconciled with it after #64.
 | IEC 104 test peer | c104 2.2.1 (Python, wraps lib60870) | GPL-3.0 ([v2.2.1](https://github.com/Fraunhofer-FIT-DIEN/iec104-python/blob/v2.2.1/LICENSE), verified #16) | Test-only: installed by a separate CI job, never in the `dev` extra, never vendored or shipped |
 | S7 test server | python-snap7 server | MIT | Test-only |
 | Omron FINS client (validates `fins_sim`) | fins-driver 0.3.1 | MIT ([LICENSE at v0.3.1](https://github.com/indrarudianto/fins-driver/blob/v0.3.1/LICENSE), verified) | Test-only (FINS/UDP only: its "tcp" mode lacks the FINS/TCP header) |
-| DNP3 master/outstation peer (opendnp3) | yadnp3 3.2.1.5 | Apache-2.0 ([v3.2.1.5](https://github.com/f0rw4rd/opendnp3/blob/v3.2.1.5/LICENSE), verified #14) | Test-only (spike #14; `dev` extra in the DNP3 simulator issue) |
-| DNP3 master/outstation peer (pure Python) | dnp3py 0.6.0 | MIT ([v0.6.0](https://github.com/craigpnnl/dnp3py/blob/v0.6.0/LICENSE), verified #14) | Test-only (same) |
+| DNP3 master/outstation peer (opendnp3) | yadnp3 3.2.1.5 | Apache-2.0 ([v3.2.1.5](https://github.com/f0rw4rd/opendnp3/blob/v3.2.1.5/LICENSE), verified #14) | Test-only: `dev` extra (#178), the second master validating `tests/helpers/dnp3_sim.py`. Wheels for Linux x86_64 and Windows AMD64 only (platform marker); they bundle OpenSSL 1.1.1k (OpenSSL/SSLeay licence, permissive) |
+| DNP3 master/outstation peer (pure Python) | dnp3py 0.6.0 | MIT ([v0.6.0](https://github.com/craigpnnl/dnp3py/blob/v0.6.0/LICENSE), verified #14) | Test-only: `dev` extra (#178), the application layer and point database of `tests/helpers/dnp3_sim.py` and its first validating master |
 | Docs site | mkdocs-material | MIT | Test-only (build tool) |
 | Python licence report | pip-licenses | MIT | Test-only |
 | MSI build | WiX Toolset | MS-RL (*verify*) | Build tool only; output is not encumbered (*verify*) |

@@ -242,6 +242,24 @@ def system_tags(inp: dict[str, Any]) -> dict[str, Any]:
     return {"steps": steps}
 
 
+def omron_fins_addresses(inp: dict[str, Any]) -> dict[str, Any]:
+    """input {address, dtype?, model?} -> {area_code, word, bit, kind, dims, str_len, str_order, bcd,
+    words}, or {error: "syntax" | "range" | "unsupported"}. The reference is the FINS simulator's own
+    parser (there is no Python FINS driver, ADR-0002); scripts/gen_conformance_fins.py also carries a
+    hand-written expectation for every case, which tests/unit/test_fins_sim.py checks."""
+    from tests.helpers import fins_sim
+
+    dtype = inp.get("dtype")
+    try:
+        a = fins_sim.parse_address(inp["address"], dtype, model=inp.get("model", "CJ1"))
+    except fins_sim.AddressError as exc:
+        return {"error": exc.reason}
+    code, word = a.codes()
+    return {"area_code": f"0x{code:02X}", "word": word, "bit": a.bit, "kind": a.kind, "dims": list(a.dims),
+            "str_len": a.str_len, "str_order": a.str_order, "bcd": a.bcd,
+            "words": a.words(dtype if dtype not in ("bool", "string") else None)}
+
+
 ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "modbus/plan": modbus_plan,
     "modbus/decode": modbus_decode,
@@ -253,6 +271,7 @@ ADAPTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "ab_pccc/plan": ab_pccc_plan,
     "ab_pccc/decode": ab_pccc_decode,
     "system_tags": system_tags,
+    "omron_fins/addresses": omron_fins_addresses,
 }
 
 

@@ -14,13 +14,13 @@ own parser.
 from __future__ import annotations
 
 import asyncio
-import json
 import socket
 import struct
 from pathlib import Path
 
 import pytest
 
+from tests.conformance.vectors import load as load_vectors
 from tests.helpers.fins_sim import (
     END_ADDRESS,
     END_AREA,
@@ -30,12 +30,12 @@ from tests.helpers.fins_sim import (
     END_TOO_SHORT,
     END_UNSUPPORTED,
     MAX_READ_WORDS,
+    AddressError,
     FinsSim,
     parse_address,
 )
 from tests.helpers.netcut import stable_port
 
-VECTORS = Path(__file__).resolve().parents[1] / "conformance" / "omron_fins" / "addresses.json"
 NODE = 10            # the simulator's FINS node (DA1)
 CLIENT = 0xEF        # our source node (SA1) on UDP
 
@@ -585,34 +585,42 @@ async def test_value_round_trips_and_word_order() -> None:
             sim.set("E05:0", 1)                                               # bank 5 is not fitted
 
 
-def _vectors() -> dict:
-    return json.loads(VECTORS.read_text(encoding="utf-8"))
+def _hand_written() -> dict[str, list[tuple[dict, dict]]]:
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "gen_conformance_fins.py"
+    spec = importlib.util.spec_from_file_location("gen_conformance_fins", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.hand_written()
 
 
-@pytest.mark.parametrize("vector", _vectors()["valid"], ids=lambda v: f"{v['address']}-{v.get('dtype', '')}")
-def test_address_vectors_valid(vector: dict) -> None:
-    dtype = vector.get("dtype")
-    a = parse_address(vector["address"], dtype, model=vector.get("model", "CJ1"))
-    want = vector["expect"]
-    code, word = a.codes()
-    assert (f"0x{code:02X}", word, a.bit, a.kind) == (want["area_code"], want["word"], want["bit"], want["kind"])
-    assert a.dims == tuple(want.get("dims", ()))
-    assert a.bcd == want.get("bcd", False)
-    if a.kind == "string":
-        assert (a.str_len, a.str_order) == (want["str_len"], want["str_order"])
-    assert a.words(dtype if dtype not in ("bool", "string") else None) == vector["words"]
+def _vectors(stem: str) -> list:
+    return [v for v in load_vectors("omron_fins/addresses") if v.file.endswith(f"/{stem}.json")]
 
 
-@pytest.mark.parametrize("vector", _vectors()["invalid"], ids=lambda v: f"{v['address']}-{v.get('dtype', '')}")
-def test_address_vectors_invalid(vector: dict) -> None:
-    with pytest.raises(ValueError):
-        parse_address(vector["address"], vector.get("dtype"), model=vector.get("model", "CJ1"))
+@pytest.mark.parametrize("stem", ["valid", "invalid"])
+def test_vectors_equal_the_hand_written_table(stem: str) -> None:
+    """The format-1 files (generated from the simulator's parser) must equal the expectations written
+    by hand from the PTC manual and W342 in scripts/gen_conformance_fins.py: a parser bug cannot
+    silently become a vector."""
+    files = [(v.input, v.expected) for v in _vectors(stem)]
+    assert files == _hand_written()[stem]
+
+
+@pytest.mark.parametrize("vector", _vectors("invalid"), ids=lambda v: v.key)
+def test_invalid_vectors_raise_address_error(vector) -> None:
+    with pytest.raises(AddressError) as exc:
+        parse_address(vector.input["address"], vector.input.get("dtype"), model=vector.input.get("model", "CJ1"))
+    assert exc.value.reason == vector.expected["error"]
 
 
 def test_vectors_cover_every_area_and_kind() -> None:
-    valid = _vectors()["valid"]
-    codes = {v["expect"]["area_code"] for v in valid}
+    valid = [v.expected for v in _vectors("valid")]
+    codes = {e["area_code"] for e in valid}
     assert {"0xB0", "0x30", "0xB1", "0x31", "0xB2", "0x32", "0xB3", "0x33", "0x82", "0x02", "0xA0", "0x20",
             "0x60", "0xE0", "0x98", "0x0A", "0x89", "0x09", "0x06", "0xDC", "0xBC"} <= codes
-    assert {v["expect"]["kind"] for v in valid} == {"word", "bit", "flag", "string"}
-    assert {v["expect"].get("str_order") for v in valid} >= {"H", "L", "D", "E"}
+    assert {e["kind"] for e in valid} == {"word", "bit", "flag", "string"}
+    assert {e["str_order"] for e in valid} >= {"H", "L", "D", "E"}
+    assert {v.expected["error"] for v in _vectors("invalid")} == {"syntax", "range", "unsupported"}

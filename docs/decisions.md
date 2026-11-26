@@ -1363,7 +1363,9 @@ ADR-0005 / 03 §3.2 would expect:
   licensed Python FINS client validates the simulator over UDP and TCP.
 - **Done:** we followed PTC's *Omron FINS Ethernet Driver* manual (v1.083) for the syntax. It writes
   a banked EM word as `E<bank>:<word>` with a **decimal** bank (`E00:00100`, `E12:32767`; CJ2 up
-  to `E24:`), and the current bank as `E<word>`. `E0_100` is Omron's own notation (W342 5-2-2).
+  to `E24:`), and the current bank as `E<word>`. The source is the "Expansion Data Memory" rows:
+  CS1 p. 59, CJ1 p. 64 (`E00:00000-E12:32767`), CJ2 p. 68 (`E00:00000-E24:32767`), with the current bank
+  `E00000-E32767` on the same pages (re-checked for #166). `E0_100` is Omron's own notation (W342 5-2-2).
   The vectors list `E0_100` and `EM100` as invalid, so an importer cannot accept them silently.
   The same manual sets the rest of the vector set: data types (no 64-bit types and no Double),
   default types (BCD for timers and counters, DWord for IR), `H`/`L`/`D`/`E` strings, the `D`

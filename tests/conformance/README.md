@@ -23,6 +23,10 @@ tests/conformance/
   system_tags_catalogue.json  every system tag as data (level, name, dtype, update class, presence)
 
   omron_fins/addresses/*.json  KEPServerEX Omron FINS address parsing (#13, #166; no Python driver, see below)
+  melsec_mc/plan/*.json    MELSEC MC address parsing, block planning, params (D-054, D-055)
+  melsec_mc/decode/*.json  MELSEC words to values
+  melsec_mc/frame/*.json   MC 3E batch-read request bytes as pymcprotocol builds them (needs pymcprotocol)
+  melsec_mc/reply/*.json   MC 3E reply checks, end codes and their config/comm classification
   config/              config model fixtures: an older, separate format, see config/compare.py
   simulator/vectors.json  simulator driver address grammar and values (D-071); see simulator/README.md
 ```
@@ -306,6 +310,20 @@ files equal it.
   - `words` is how many elements a read covers.
 - `expected` for a refused address: `{"error": "syntax" | "range" | "unsupported"}`, a category
   rather than a message.
+### `melsec_mc/plan`, `melsec_mc/decode`
+
+- plan `input`: `{"params", "tags"}`; `expected`: `{"blocks": [{device, start, count, head_number, last_number,
+  describe, tags, items: [{names, offset, text, dtype, words, bit, dims, str_len, str_order}]}], "invalid"}`
+  or `{"error"}` when the params are refused.
+- decode `input`: `{"params", "tags", "reply": {"words": [u16, ...]}}` (tags plan to one block);
+  `expected`: `{"values": {...}}`.
+
+### `melsec_mc/frame`, `melsec_mc/reply`
+
+- frame `input`: `{"params", "tags", "timeout_ms"}`; `expected`: `{"requests": [hex per block], "cpu_model": hex}`,
+  the 3E binary request frames (generated through pymcprotocol).
+- reply `input`: `{"frame": hex, "words": n}`; `expected`: `{"frame_error"}`, `{"end_code", "kind": "config"|"comm",
+  "message"}` or `{"words": [...]}` (exactly `n` words, never zero-filled).
 
 ## Regenerating
 

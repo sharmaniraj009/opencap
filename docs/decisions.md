@@ -1610,6 +1610,25 @@ reader would expect:
   is taken, `revision` on `config_reloaded`, and `engine`, `instance`, `revision` on `poller_started`.
 - **Secrets test.** `tests/unit/test_api_events.py` and `tests/integration/test_api_events_runtime.py` run the API with
   known token and broker-password values and fail if any captured event or audit line contains them.
+### D-080 melsec_mc in the Rust engine: a native MC 3E binary client, read commands only (#45)
+- **Decision:** `engine/drivers/melsec_mc` (`opencap-driver-melsec-mc`, feature `driver-melsec-mc`)
+  ports the Python driver (D-053 to D-057) with its own client instead of pymcprotocol (no Rust
+  crate exists; the framing is a 15-byte header plus a device spec). The address parser, planner,
+  decoder, params validation and error texts are the Python ones; conformance areas
+  `melsec_mc/plan`, `decode`, `frame` and `reply` (1,048 vectors generated from Python, request
+  bytes taken from pymcprotocol itself) pass in `opencap-conformance`.
+- **Whole frames (D-053):** a TCP reply is read as the 9-byte header and then exactly the bytes it
+  announces; the reply must carry exactly the words asked for, else `Comm` and the socket is
+  dropped. A reply split across segments reads correctly (unit test and the simulator's
+  `split_replies`). 3E has no sequence number, so a timeout also drops the socket.
+- **Read-only:** `frame.rs` can build only 0401/0000, 0401/0002 (iQ-R) and 0101/0000;
+  `check_read_only` runs before every send. Tests assert 0x1401/0x1402/remote run/stop and the
+  rest of the write list are refused and never named elsewhere in the sources.
+- **Error mapping (D-056):** same end-code classes: `BlockConfig` for 0xC051-0xC054, 0xC056,
+  0xC059, 0xC05B, 0xC05C, 0xC060, 0x4030, 0x4031, `Comm` otherwise; the socket stays open.
+- **Not ported:** ASCII frames and 4E (as in Python). Message text for OS errors differs from
+  Python's exception text. Untested on real PLCs, like the Python driver.
+- **Licence:** no new dependency; `deny.toml` unchanged.
 ### D-081 Driver catalogue, params schemas, collection queries (#129)
 
 - **Schemas live next to each driver** as `Driver.params_schema` (JSON Schema draft 2020-12, built with

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import statistics
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -142,13 +143,15 @@ async def test_interval_publishes_full_snapshot_every_interval():
     # message gets a looser bound (150 ms) than the rest (50 ms). Drift is caught separately:
     # the median gap (robust to one late message) must equal the interval within 8 ms.
     # asyncio may run a timer up to one clock resolution early: ~1 ns on Linux, ~15.6 ms for
-    # time.monotonic on Windows with Python 3.12. `res` widens every bound by that much.
+    # time.monotonic on Windows with Python 3.12. `res` widens every bound by that much, and a
+    # gap by twice that: both of its ends are stamped with that clock (Windows CI once measured
+    # gaps of 78, 78, 125, 125 ms for a 100 ms grid, every message within its lateness bound).
     res = time.get_clock_info("monotonic").resolution
     lateness = [m.t - (t_start + (k + 1) * 0.1) for k, m in enumerate(msgs)]
     assert -0.005 - res < lateness[0] < 0.15 + res, lateness
     assert all(-0.005 - res < late < 0.05 + res for late in lateness[1:]), lateness
-    gaps = sorted(b.t - a.t for a, b in zip(msgs, msgs[1:]))
-    assert abs(gaps[len(gaps) // 2] - 0.1) < 0.008 + res, gaps
+    gaps = [b.t - a.t for a, b in zip(msgs, msgs[1:])]
+    assert abs(statistics.median(gaps) - 0.1) < 0.008 + 2 * res, gaps
     assert msgs[0].t - link.sent[0].t >= 0.08 - res  # status at start, first data one interval later
     assert 4 <= len(link.on("acme/custom/plc2")) <= 6
 

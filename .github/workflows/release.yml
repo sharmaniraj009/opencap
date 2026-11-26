@@ -1,0 +1,324 @@
+name: Release
+
+# A tagged release (docs/release.md): the CI checks, then wheel + sdist, the container image for
+# linux/amd64 and linux/arm64 (each smoke-tested, then pushed to GHCR), SBOMs (syft), provenance
+# attestations (GitHub's attestation action) and a GitHub Release with SHA256SUMS.
+#
+# Publishes only for a pushed tag `v<__version__>` (or a manual run on such a tag with
+# dry_run off). Everything else is a dry run that builds and tests all of it and publishes
+# nothing: manual runs by default, and pull requests that touch this file, the Dockerfile or
+# pyproject.toml. Only GITHUB_TOKEN is used. PyPI is ready but gated by the owner (job `pypi`).
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml", "Dockerfile", "pyproject.toml"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: build and test everything, publish nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: version and mode
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      image: ${{ steps.plan.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          version="$(python3 -c 'import ast, pathlib
+          tree = ast.parse(pathlib.Path("src/opencap/__init__.py").read_text())
+          print(next(n.value.value for n in tree.body if isinstance(n, ast.Assign)
+                     and any(getattr(t, "id", "") == "__version__" for t in n.targets)))')"
+          publish=false
+          if [ "$REF_TYPE" = tag ]; then
+            if [ "$REF_NAME" != "v$version" ]; then
+              echo "::error::tag $REF_NAME does not match opencap.__version__ $version (expected v$version)"
+              exit 1
+            fi
+            if [ "$EVENT" = push ] || { [ "$EVENT" = workflow_dispatch ] && [ "$DRY_RUN_INPUT" = false ]; }; then
+              publish=true
+            fi
+          fi
+          # PEP 440 pre-releases (0.2.0rc1, 0.2.0b1, 0.2.0.dev1) are GitHub pre-releases and do not move :latest.
+          if [[ "$version" =~ [a-z] ]]; then prerelease=true; else prerelease=false; fi
+          image="ghcr.io/${OWNER,,}/opencap"
+          {
+            echo "version=$version"; echo "publish=$publish"; echo "prerelease=$prerelease"; echo "image=$image"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::opencap $version, ref $REF, publish=$publish, prerelease=$prerelease, image $image"
+
+  ci:
+    name: CI checks
+    needs: plan
+    uses: ./.github/workflows/ci.yml
+
+  dist:
+    name: wheel and sdist
+    needs: [plan, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build (pypa/build, MIT)
+        run: |
+          python -m pip install --upgrade pip
+          pip install build==1.6.1
+          python -m build --sdist --wheel --outdir dist
+          ls -l dist
+      - name: Check names and versions
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          test -f "dist/opencap-$VERSION-py3-none-any.whl"
+          test -f "dist/opencap-$VERSION.tar.gz"
+      - name: Install the wheel and the sdist in clean venvs
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          for artefact in "dist/opencap-$VERSION-py3-none-any.whl" "dist/opencap-$VERSION.tar.gz"; do
+            rm -rf /tmp/v && python -m venv /tmp/v
+            /tmp/v/bin/pip install --quiet "${artefact}[all]"
+            /tmp/v/bin/opencap --help > /dev/null
+            test "$(/tmp/v/bin/python -c 'import opencap; print(opencap.__version__)')" = "$VERSION"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  image-test:
+    name: image ${{ matrix.arch }} (build, smoke test, SBOM)
+    needs: [plan, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build linux/${{ matrix.arch }} into the local image store
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"     # no *.dockerbuild artifact (not a release asset)
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: opencap:smoke
+          provenance: false
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
+      - name: Smoke test (the CI package job's checks, under QEMU for arm64)
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -x
+          plat=(--platform "linux/$ARCH")
+          want=$([ "$ARCH" = arm64 ] && echo aarch64 || echo x86_64)
+          test "$(docker run --rm "${plat[@]}" --entrypoint uname opencap:smoke -m)" = "$want"
+          mkdir -p /tmp/ci-config && chmod 777 /tmp/ci-config
+          docker run --rm "${plat[@]}" opencap:smoke --help
+          docker run --rm "${plat[@]}" -v /tmp/ci-config:/opencap/config -v "$PWD/tests/fixtures:/in:ro" \
+            opencap:smoke import-kep /in/project_sample.json
+          docker run --rm "${plat[@]}" -v /tmp/ci-config:/opencap/config:ro opencap:smoke check
+          test "$(docker run --rm "${plat[@]}" --entrypoint id opencap:smoke -u)" = "10001"
+      - name: SBOM (syft, SPDX JSON)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: opencap:smoke
+          format: spdx-json
+          output-file: opencap-${{ needs.plan.outputs.version }}-image-linux-${{ matrix.arch }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ matrix.arch }}
+          path: opencap-${{ needs.plan.outputs.version }}-image-linux-${{ matrix.arch }}.spdx.json
+          if-no-files-found: error
+
+  image-push:
+    name: image linux/amd64 + linux/arm64 (push to GHCR, provenance)
+    needs: [plan, image-test, dist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write          # push to ghcr.io with GITHUB_TOKEN
+      id-token: write          # provenance attestation (Sigstore)
+      attestations: write
+    env:
+      IMAGE: ${{ needs.plan.outputs.image }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      PUBLISH: ${{ needs.plan.outputs.publish }}
+      PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Tags
+        id: tags
+        run: |
+          tags="$IMAGE:$VERSION"
+          if [ "$PRERELEASE" = false ]; then tags="$tags,$IMAGE:latest"; fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "::notice::image tags: $tags (push: $PUBLISH)"
+      - name: Log in to ghcr.io (GITHUB_TOKEN)
+        if: needs.plan.outputs.publish == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build both platforms from the tested layers; push on a release
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ needs.plan.outputs.publish == 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: org.opencontainers.image.version=${{ needs.plan.outputs.version }}
+          provenance: false     # the attestation below is the provenance record
+          cache-from: |
+            type=gha,scope=image-amd64
+            type=gha,scope=image-arm64
+      - name: Provenance attestation for the image
+        if: needs.plan.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.plan.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Container image"
+            echo "- tags: \`${{ steps.tags.outputs.tags }}\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- pushed: $PUBLISH"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: GitHub Release
+    needs: [plan, dist, image-test, image-push]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write          # create the release
+      id-token: write          # provenance attestation (Sigstore)
+      attestations: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      # Only this workflow's own artifacts: the run also holds docker/build-push-action's build
+      # records (*.dockerbuild), which are not release assets.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sbom-*
+          path: assets
+          merge-multiple: true
+      - name: The release attaches exactly these files
+        working-directory: assets
+        run: |
+          expected="opencap-$VERSION-image-linux-amd64.spdx.json
+          opencap-$VERSION-image-linux-arm64.spdx.json
+          opencap-$VERSION-py3-none-any.whl
+          opencap-$VERSION.tar.gz"
+          actual="$(find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)"
+          if [ "$actual" != "$(echo "$expected" | sed 's/^ *//' | LC_ALL=C sort)" ]; then
+            echo "::error::unexpected release assets:"; echo "$actual"; exit 1
+          fi
+      - name: SHA256SUMS
+        working-directory: assets
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Provenance attestation for the wheel and sdist
+        if: needs.plan.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            assets/opencap-${{ needs.plan.outputs.version }}-py3-none-any.whl
+            assets/opencap-${{ needs.plan.outputs.version }}.tar.gz
+      - name: Create the release (gh, GITHUB_TOKEN)
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          flags=(--verify-tag --generate-notes --title "opencap $VERSION")
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
+          gh release create "$TAG" "${flags[@]}" assets/*
+      - name: Dry run summary
+        if: needs.plan.outputs.publish != 'true'
+        run: |
+          {
+            echo "### Dry run: nothing was published"
+            echo "A release of opencap $VERSION would attach:"
+            echo '```'
+            ls -l assets
+            echo
+            cat assets/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  pypi:
+    name: PyPI (gated, owner setup in docs/release.md)
+    needs: [plan, release]
+    # Off until the owner has set up PyPI trusted publishing and the repository variable
+    # PYPI_PUBLISH=true (docs/release.md, "PyPI"). No token or secret is involved.
+    if: needs.plan.outputs.publish == 'true' && vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/opencap/${{ needs.plan.outputs.version }}/
+    permissions:
+      id-token: write          # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

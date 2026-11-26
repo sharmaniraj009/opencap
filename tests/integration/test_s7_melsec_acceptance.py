@@ -43,6 +43,7 @@ from opencap.config.models import Device, Tag  # noqa: E402
 from opencap.core.runtime import Poller  # noqa: E402
 from opencap.logsetup import configure_logging  # noqa: E402
 from tests.helpers.broker import TestBroker  # noqa: E402
+from tests.helpers.clock import COARSE_CYCLE_CLOCK  # noqa: E402
 from tests.helpers.configdir import write_config  # noqa: E402
 from tests.helpers.engine import run_process  # noqa: E402
 from tests.helpers.mc_sim import McSim, make_mc_tags  # noqa: E402
@@ -190,7 +191,7 @@ async def test_s7_melsec_acceptance(tmp_path):
                     await poller.stop()
             stats = [e for e in logs if e.get("event") == "device.stats"]
             assert {e["device"] for e in stats} >= {d.id for d in devices}, "every device logged its cycle time"
-            assert all(e["mean_cycle_ms"] > 0 for e in stats)
+            assert all(e["mean_cycle_ms"] > 0 or COARSE_CYCLE_CLOCK for e in stats), stats   # #199
             pdu_logs = [e for e in logs if e.get("event") == "s7.pdu_negotiated"]
             assert {e["device"] for e in pdu_logs} == {units[2].device.id}
         assert all(u.sim.write_attempts == 0 for u in units)

@@ -411,6 +411,7 @@ async def _drain_master(master: int, n: int, timeout: float = 5.0) -> bytes:
 
 
 @needs_pyserial
+@needs_pty
 async def test_serial_write_never_blocks_the_loop_on_a_full_output_buffer(pty_pair, no_gc):
     """#68: the old write slept on the event loop (up to 1 s) while the tty's buffer was full."""
     master, path = pty_pair
@@ -444,6 +445,7 @@ async def test_serial_write_never_blocks_the_loop_on_a_full_output_buffer(pty_pa
 
 
 @needs_pyserial
+@needs_pty
 async def test_serial_write_stall_loses_the_line(pty_pair):
     master, path = pty_pair
     t = SerialTransport(path, SerialSettings())

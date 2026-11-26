@@ -29,6 +29,7 @@ fn model(document: &str, data: Value) -> Result<Value, String> {
             let p = from_json::<PollerConfig>(data)?;
             p.mqtt.validate().map_err(|e| format!("mqtt: {e}"))?;
             p.api.validate().map_err(|e| format!("api: {e}"))?;
+            p.payload.validate()?;
             p.opcua_server.validate()?;
             dump(serde_json::to_value(p))
         }

@@ -1,0 +1,78 @@
+{
+  "document": "devices",
+  "data": {
+    "version": 1,
+    "channels": [
+      {
+        "name": "_Spare",
+        "devices": [
+          {
+            "id": "_Spare/PLC1",
+            "channel": "_Spare",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SITE_A",
+        "devices": [
+          {
+            "id": "SITE_A/_Backup",
+            "channel": "SITE_A",
+            "name": "_Backup",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "int16"
+              },
+              {
+                "name": "Pumps._Spare.Speed",
+                "address": "400001",
+                "dtype": "int16"
+              },
+              {
+                "name": "_Spare",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          },
+          {
+            "id": "SITE_A/PLC2",
+            "channel": "SITE_A",
+            "name": "PLC2",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "_System_Like",
+                "address": "400001",
+                "dtype": "int16"
+              },
+              {
+                "name": "Systems._System",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

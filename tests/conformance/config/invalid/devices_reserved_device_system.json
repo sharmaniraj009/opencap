@@ -1,0 +1,29 @@
+{
+  "document": "devices",
+  "expected_error": "reserved word '_System'",
+  "semantic": true,
+  "data": {
+    "channels": [
+      {
+        "name": "SITE",
+        "devices": [
+          {
+            "id": "SITE/_system",
+            "channel": "SITE",
+            "name": "_system",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "tags": [
+              {
+                "name": "T1",
+                "address": "400001",
+                "dtype": "int16"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -379,6 +379,13 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
         }
     }
 
+    if devices_file.version < 2 {
+        // names starting with '_' are an error from v2 on (spec 3.2)
+        for text in underscore_names(&channels) {
+            warnings.push(format!("{DEVICES_FILE}: {text}; names starting with '_' are reserved for system tags"));
+        }
+    }
+
     let validated = DevicesFile {
         version: devices_file.version,
         generated_from: devices_file.generated_from.clone(),
@@ -445,6 +452,50 @@ mod tests {
              "host": "192.0.2.2", "port": 502, "publish": {"env": "test", "topic": "x/y"},
              "tags": [{"name": "FLOW_1", "address": "400045", "dtype": "float32"}]}
         ]}]})
+    }
+
+    #[test]
+    fn underscore_names_are_warnings_and_reserved_words_errors() {
+        let fx: Json = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../tests/conformance/config/valid/devices_underscore_names.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let d = dir("underscore");
+        std::fs::write(d.join(DEVICES_FILE), fx["data"].to_string()).unwrap();
+        let tail = "; names starting with '_' are reserved for system tags";
+        let got: Vec<String> = load_config(&d).unwrap().warnings.into_iter().filter(|w| w.contains("'_'")).collect();
+        let want: Vec<String> = [
+            "devices.json: channel name '_Spare' starts with '_'",
+            "devices.json: SITE_A/_Backup: device name '_Backup' starts with '_'",
+            "devices.json: SITE_A/_Backup: tag name 'Pumps._Spare.Speed' has a segment starting with '_'",
+            "devices.json: SITE_A/_Backup: tag name '_Spare' has a segment starting with '_'",
+            "devices.json: SITE_A/PLC2: tag name '_System_Like' has a segment starting with '_'",
+            "devices.json: SITE_A/PLC2: tag name 'Systems._System' has a segment starting with '_'",
+        ]
+        .iter()
+        .map(|w| format!("{w}{tail}"))
+        .collect();
+        assert_eq!(got, want);
+
+        for (data, expect) in [
+            (
+                json!({"channels": [{"name": "_SYSTEM", "devices": []}]}),
+                "channel name '_SYSTEM' is the reserved word '_System'",
+            ),
+            (
+                json!({"channels": [{"name": "S", "devices": [{"id": "S/_statistics", "channel": "S", "name": "_statistics",
+                    "driver": "modbus_tcp", "host": "192.0.2.1", "port": 502, "tags": []}]}]}),
+                "device name '_statistics' is the reserved word '_Statistics'",
+            ),
+        ] {
+            std::fs::write(d.join(DEVICES_FILE), data.to_string()).unwrap();
+            let e = load_config(&d).unwrap_err().to_string();
+            assert!(e.contains(expect), "{e}");
+        }
     }
 
     #[test]

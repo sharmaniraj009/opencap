@@ -63,6 +63,7 @@ from opencap.config.loader import (
     load_config,
 )
 from opencap.config.models import (
+    underscore_names,
     Channel,
     Device,
     DeviceMap,
@@ -881,6 +882,13 @@ class ConfigStore:
             base = state.devices if state.devices is not None else {"version": 1, "channels": [], "excluded": []}
             if txn.devices != base and DEVICES_FILE not in txn.raw_texts:
                 model = _validate(DevicesFile, txn.devices, (DEVICES_FILE,))
+                if model.version < 2:
+                    old = set(underscore_names(DevicesFile.model_validate(base).channels)) if state.devices else set()
+                    added = [t for t in underscore_names(model.channels) if t not in old]
+                    if added:    # PRJ-13: an error for new writes (a warning for what is already on disk)
+                        raise Invalid("names starting with '_' are reserved for system tags",
+                                      [_err((), f"{t}; names starting with '_' are reserved for system tags")
+                                       for t in added])
                 texts[DEVICES_FILE] = devices_json_text(model)
             for name, doc, model, template, renames in (
                 (MAP_FILE, txn.dmap, DeviceMap, MAP_TEMPLATE, txn.map_renames),

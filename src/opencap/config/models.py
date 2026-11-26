@@ -59,6 +59,32 @@ class Scale(_Model):
 # Each device's diagnostics live under `<channel>.<device>._System` (OPC UA server, D-046), so no
 # tag or tag group may use that name (compared without case, as KEPServerEX compares names).
 RESERVED_GROUP = "_System"
+# System-tag folders (docs/spec/system-tags.md section 3.2, PRJ-13, LOG-07). Compared without case.
+RESERVED_CHANNEL_NAMES = ("_System",)
+RESERVED_DEVICE_NAMES = ("_System", "_Statistics")
+RESERVED_TAG_GROUPS = ("_System", "_Statistics")
+
+
+def reserved_word(name: str, reserved: tuple[str, ...]) -> str | None:
+    """The reserved word `name` equals (case-insensitively), or None."""
+    return next((w for w in reserved if w.lower() == name.lower()), None)
+
+
+def underscore_names(channels: Any) -> list[str]:
+    """Names with a segment starting with `_` (the warning of spec 3.2; reserved words are errors
+    and never get here). One text per name, in file order: the loader reports them, and API writes
+    refuse the ones they would add (PRJ-13)."""
+    out: list[str] = []
+    for ch in channels:
+        if ch.name.startswith("_"):
+            out.append(f"channel name {ch.name!r} starts with '_'")
+        for dev in ch.devices:
+            if dev.name.startswith("_"):
+                out.append(f"{dev.id}: device name {dev.name!r} starts with '_'")
+            for tag in dev.tags:
+                if any(seg.startswith("_") for seg in tag.name.split(".")):
+                    out.append(f"{dev.id}: tag name {tag.name!r} has a segment starting with '_'")
+    return out
 
 
 class Tag(_Model):
@@ -109,10 +135,16 @@ class Device(_Model):
         dupes = sorted({t.name for t in self.tags if t.name in seen or seen.add(t.name)})
         if dupes:
             raise ValueError(f"{self.id}: duplicate tag names {dupes}")
-        reserved = sorted(t.name for t in self.tags if t.name.split(".", 1)[0].lower() == RESERVED_GROUP.lower())
-        if reserved:
-            raise ValueError(f"{self.id}: tag names {reserved} use the reserved group name {RESERVED_GROUP!r} "
-                             "(the per-device diagnostics folder of the OPC UA server, D-046)")
+        word = reserved_word(self.name, RESERVED_DEVICE_NAMES)
+        if word:
+            raise ValueError(f"{self.id}: device name {self.name!r} is the reserved word {word!r} "
+                             "(system-tag folder, docs/spec/system-tags.md 3.2)")
+        for word in RESERVED_TAG_GROUPS:
+            reserved = sorted(t.name for t in self.tags if t.name.split(".", 1)[0].lower() == word.lower())
+            if reserved:
+                raise ValueError(f"{self.id}: tag names {reserved} use the reserved group name {word!r} "
+                                 + ("(the per-device diagnostics folder of the OPC UA server, D-046)"
+                                    if word == RESERVED_GROUP else "(system-tag folder, docs/spec/system-tags.md 3.2)"))
         return self
 
     def effective_rate_ms(self, tag: Tag) -> int:
@@ -131,6 +163,15 @@ class Channel(_Model):
     name: str                      # KEPServer channel name = site
     enabled: bool = True
     devices: list[Device]
+
+    @field_validator("name")
+    @classmethod
+    def _not_reserved(cls, value: str) -> str:
+        word = reserved_word(value, RESERVED_CHANNEL_NAMES)
+        if word:
+            raise ValueError(f"channel name {value!r} is the reserved word {word!r} "
+                             "(system-tag folder, docs/spec/system-tags.md 3.2)")
+        return value
 
 
 class ExcludedDevice(_Model):

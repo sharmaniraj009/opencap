@@ -127,6 +127,10 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
   A skipped `acceptance-pr` shows as skipped on the PR; the job's log in "changed paths"
   says why. The path lists live in `.github/workflows/ci.yml` (job `changes`) and in each
   workflow's `paths:`.
+  The Linux acceptance jobs also restart a real Mosquitto three times
+  (`tests/integration/test_mosquitto_restart.py`, #8). They set `OPENCAP_REQUIRE_MOSQUITTO`,
+  so if neither a `mosquitto` binary nor Docker is there, the job fails instead of skipping
+  the test. Locally the test skips with a reason; `apt install mosquitto` makes it run.
 - Tests must exercise behaviour, not just lines: a driver against its simulator, a planner
   against vectors, a fault path by switching on the simulator's fault.
 - A test with a wall-clock bound (a cadence, a gap, a timeout under ~1 s) uses the `no_gc`

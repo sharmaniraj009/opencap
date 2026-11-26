@@ -147,6 +147,7 @@ jobs:
           OPENCAP_ENGINE: rust
           OPENCAP_ENGINE_BIN: engine/target/release/opencap-engine
           OPENCAP_OUTAGE_S: ${{ inputs.outage_s || '8' }}
+          OPENCAP_REQUIRE_MOSQUITTO: "1"   # #8: Docker is on ubuntu-latest, so the Mosquitto restart test must run, not skip
         run: pytest -m acceptance -ra -s
       - name: Engine log on failure
         if: failure()

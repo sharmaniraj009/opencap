@@ -194,9 +194,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev,all]'          # every driver extra, so every acceptance test runs
-      - name: Acceptance tests (8 s broker outage)
+      - name: Acceptance tests (8 s broker outage, 3 Mosquitto restarts)
         env:
           OPENCAP_OUTAGE_S: "8"
+          OPENCAP_REQUIRE_MOSQUITTO: "1"   # #8: Docker is on ubuntu-latest, so the Mosquitto restart test must run, not skip
         run: pytest -m acceptance -ra
 
   acceptance:
@@ -222,4 +223,5 @@ jobs:
       - name: Acceptance tests
         env:
           OPENCAP_OUTAGE_S: ${{ inputs.outage_s || '8' }}
+          OPENCAP_REQUIRE_MOSQUITTO: "1"   # #8: Docker is on ubuntu-latest, so the Mosquitto restart test must run, not skip
         run: pytest -m acceptance -ra

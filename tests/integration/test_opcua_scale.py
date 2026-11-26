@@ -1,4 +1,4 @@
-"""OPC UA server scale (#28, docs/decisions.md D-087): 100,000 variables, 20,000 monitored items
+"""OPC UA server scale (#28, docs/decisions.md D-088): 100,000 variables, 20,000 monitored items
 at 1 s, values changing at OPENCAP_UA_SCALE_RATE per second (default 2,000 = 10 % of the
 monitored items each second). Prints build time, memory and CPU; asserts every item is created
 and every change is delivered. The subscriber is a separate process."""

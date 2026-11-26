@@ -197,7 +197,7 @@ Addresses and data types:
 NodeIds, `ns=2;s=<channel>.<device>[.<group>].<tag>` (tag groups are folders), plus
 `<channel>.<device>._System._Error`, `_State`, `_LastGood`, ... per device. An existing SCADA
 client changes only its endpoint URL. Every write is answered `Bad_NotWritable`; method calls
-and node changes are refused (D-046, D-087). Scaled tags carry `EURange` and `EngineeringUnits`,
+and node changes are refused (D-046, D-088). Scaled tags carry `EURange` and `EngineeringUnits`,
 arrays their `ArrayDimensions`. Secure by default:
 
 - anonymous clients are refused unless `anonymous: true`; set users with

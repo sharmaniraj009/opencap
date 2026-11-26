@@ -48,7 +48,7 @@ defaults:                        # used by `opencap import-kep` when KEPServer h
 check:                           # `opencap check` cycle-time estimate
   est_rtt_ms: 60.0               # assumed round trip per wire request over the IPsec link
 
-opcua_server:                    # northbound OPC UA server for SCADA/HMI clients (PLAN Phase 6, D-046, D-068)
+opcua_server:                    # northbound OPC UA server for SCADA/HMI clients (PLAN Phase 6, D-046, D-088)
   enabled: false                 # off by default
   endpoint: opc.tcp://127.0.0.1:4840/opencap   # bind address (+ advertised URL); 0.0.0.0 = all interfaces
   advertised_endpoint: null      # URL GetEndpoints returns instead (NAT, container port mapping);

@@ -1,4 +1,4 @@
-"""PKI folders and client certificate checks for the northbound OPC UA server (D-068).
+"""PKI folders and client certificate checks for the northbound OPC UA server (D-088).
 
     <pki_dir>/own/cert.der           server certificate (generated self-signed on first start)
     <pki_dir>/own/private/key.pem    its private key (mode 0600)

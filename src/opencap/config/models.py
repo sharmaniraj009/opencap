@@ -432,7 +432,7 @@ class OpcUaUserCfg(_Model):
 
 
 class OpcUaServerCfg(_Model):
-    """Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046, D-068): the cache as a
+    """Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046, D-088): the cache as a
     read-only, KEPServer-style address space. Off by default."""
 
     enabled: bool = False
@@ -443,7 +443,7 @@ class OpcUaServerCfg(_Model):
     namespace_uri: str = "urn:opencap"                    # registered first, so it is ns=2
     kepserverex_namespace_index: bool = True   # the tag namespace must be ns=2, as in KEPServerEX
     security_policies: list[OpcUaServerPolicy] = Field(default_factory=lambda: ["None"])
-    pki_dir: str | None = None             # own/ trusted/ issuers/ crl/ rejected/ users/ (D-068)
+    pki_dir: str | None = None             # own/ trusted/ issuers/ crl/ rejected/ users/ (D-088)
     certificate: str | None = None         # server certificate (DER/PEM); generated if missing with the key
     private_key: str | None = None
     trusted_certs_dir: str | None = None   # when set, only client certificates found here are accepted

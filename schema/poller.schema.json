@@ -208,7 +208,7 @@
     },
     "OpcUaServerCfg": {
       "additionalProperties": false,
-      "description": "Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046, D-068): the cache as a\nread-only, KEPServer-style address space. Off by default.",
+      "description": "Northbound OPC UA server (PLAN Phase 6, docs/decisions.md D-046, D-088): the cache as a\nread-only, KEPServer-style address space. Off by default.",
       "properties": {
         "advertised_endpoint": {
           "anyOf": [

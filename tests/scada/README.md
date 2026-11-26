@@ -90,7 +90,7 @@ Notes from the runs:
   but gives up while the port refuses connections, so the client reconnects then; asyncua has
   no session recovery, so the client runs the usual reconnect loop. Recovery took 3.5-7.5 s
   after a graceful restart of the engine.
-- **Found by this suite and fixed in #28** (docs/decisions.md D-068): the absolute deadband was
+- **Found by this suite and fixed in #28** (docs/decisions.md D-088): the absolute deadband was
   checked against the previous sample instead of the last reported value (OPC UA Part 4,
   7.22.2 DataChangeFilter), so a value ramping by less than the deadband per sample was never
   reported; and the server ignored RequestedMaxReferencesPerNode and answered BrowseNext with

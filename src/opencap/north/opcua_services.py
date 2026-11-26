@@ -1,4 +1,4 @@
-"""asyncua service overrides for the northbound OPC UA server (docs/decisions.md D-068).
+"""asyncua service overrides for the northbound OPC UA server (docs/decisions.md D-088).
 
 Everything here is per server instance (subclasses installed on our `Server` only), not a
 global patch of asyncua, so other asyncua servers and clients in the process are unchanged:
@@ -202,7 +202,7 @@ class _MonitoredItems(MonitoredItemService):
     async def datachange_callback(self, handle: int, value: ua.DataValue, error: ua.StatusCode | None = None) -> None:
         """asyncua's callback with a shallow copy of the value instead of a deep copy (the server
         writes a new DataValue for every change; deepcopy was over half of the CPU at 20k
-        changes/s, D-068). Same trigger, filter and queue logic."""
+        changes/s, D-088). Same trigger, filter and queue logic."""
         mid = self._monitored_datachange.get(handle)
         mdata = self._monitored_items.get(mid) if mid is not None else None
         if error or mdata is None:

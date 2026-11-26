@@ -1,4 +1,4 @@
-"""OPC UA server hardening (#28, docs/decisions.md D-068) against a real asyncua client:
+"""OPC UA server hardening (#28, docs/decisions.md D-088) against a real asyncua client:
 address space metadata, limits, browse paging, data-change filters, PKI folders with rejected
 and CA-signed client certificates, several users, X.509 user tokens, the advertised URL.
 (Cross-stack checks with Eclipse Milo and open62541: tests/scada, the L1 suite.)"""
@@ -282,7 +282,7 @@ async def test_absolute_deadband_is_checked_against_the_last_reported_value(nort
         for value in range(1, 20):
             await push(srv, cache, client, "Ramp", float(value))
         await wait_for(lambda: coll.values.get(0, [None])[-1] == 19.0, what="every sample")
-        assert coll.values[1] == [0.0, 6.0, 12.0, 18.0]           # asyncua alone: [0.0] (D-068)
+        assert coll.values[1] == [0.0, 6.0, 12.0, 18.0]           # asyncua alone: [0.0] (D-088)
         # a status change inside the deadband is reported
         await push(srv, cache, client, "Ramp", 19.0, quality="stale")
         await wait_for(lambda: len(coll.status[1]) == 5, what="the status change")

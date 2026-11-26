@@ -1838,7 +1838,7 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
 
-### D-087 OPC UA server hardening (#28)
+### D-088 OPC UA server hardening (#28)
 Builds on D-046; the L1 suite (#29, `tests/scada/`) checks it with Eclipse Milo, open62541 and asyncua.
 - **Per-server asyncua overrides, no global patch** (`north/opcua_services.py`): a `Server` subclass
   whose binary server hands every connection a processor subclass (it answers BrowseNext; asyncua's

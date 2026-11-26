@@ -1,4 +1,4 @@
-"""Pure parts of the OPC UA server hardening (#28, D-068): array dimensions from addresses,
+"""Pure parts of the OPC UA server hardening (#28, D-088): array dimensions from addresses,
 engineering units, the deadband rule, browse paging, interval revision, config validation."""
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def test_a_status_change_is_always_reported_even_inside_the_deadband():
 
 
 def test_a_slow_ramp_crosses_the_deadband_in_the_end():
-    """The bug asyncua has (D-068): +1 per sample under a deadband of 5 must report every 6th."""
+    """The bug asyncua has (D-088): +1 per sample under a deadband of 5 must report every 6th."""
     reported, last = [], None
     for value in range(20):
         current = dv(float(value))

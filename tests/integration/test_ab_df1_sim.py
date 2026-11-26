@@ -416,6 +416,7 @@ async def test_line_failure_drops_every_station(sim):
     try:
         await a.connect()
         await b.connect()
+        await _accepted(sim, 1)                                    # the line must exist before we cut it
         for line in list(sim._lines):
             line.writer.transport.abort()                          # the gateway drops the TCP connection
         with pytest.raises(ConnectionLost):
@@ -424,7 +425,7 @@ async def test_line_failure_drops_every_station(sim):
         await b.connect()
         await a.connect()
         _assert_values(sim, PATTERN_TAGS, await _read_all(a))
-        assert sim.connections == 2
+        await _accepted(sim, 2)
     finally:
         await a.close()
         await b.close()

@@ -18,13 +18,13 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 | [07 Tag management and system tags](features/07-tag-management-and-system-tags.md) | 13 | 0 | 0 | 11 | 0 | 2 |
 | [08 Communications management: modems, phonebook, auto-dial](features/08-communications-management.md) | 4 | 0 | 0 | 3 | 0 | 1 |
 | [09 Administration and security](features/09-administration-and-security.md) | 23 | 8 | 0 | 10 | 3 | 2 |
-| [10 Configuration API](features/10-configuration-api.md) | 35 | 14 | 0 | 19 | 0 | 2 |
+| [10 Configuration API](features/10-configuration-api.md) | 35 | 17 | 0 | 16 | 0 | 2 |
 | [11 Store and forward](features/11-store-and-forward.md) | 20 | 10 | 0 | 9 | 0 | 1 |
 | [12 Diagnostics](features/12-diagnostics.md) | 13 | 3 | 0 | 6 | 3 | 1 |
 | [13 iFIX](features/13-ifix.md) | 12 | 2 | 0 | 5 | 3 | 2 |
 | [14 UI and tools](features/14-ui-and-tools.md) | 20 | 7 | 0 | 9 | 2 | 2 |
 | [15 Event log messages](features/15-event-log-messages.md) | 54 | 10 | 0 | 31 | 4 | 9 |
-| **Total** | **297** | **98** | **0** | **146** | **19** | **34** |
+| **Total** | **297** | **101** | **0** | **143** | **19** | **34** |
 
 ## [01 Runtime and process modes](features/01-runtime-and-process-modes.md)
 
@@ -213,9 +213,9 @@ of each feature file: edit the feature file, then re-run the script. `[x]` = don
 - [x] **API-13** Transaction log of configuration changes (audit) (Adapt · Done · #63 · M1)
 - [ ] **API-14** Records of refused requests (Adapt · Planned (#135) · #135 · M5)
 - [x] **API-15** Content retrieval: response shapes and definitions (Adapt · Done · #63 · M1)
-- [ ] **API-16** Driver catalogue (Adapt · Planned (#129) · #129 · M3)
-- [ ] **API-17** Filtering and sorting collections (Adapt · Planned (#129) · #129 · M3)
-- [ ] **API-18** Paging collections (Adapt · Planned (#129) · #129 · M3)
+- [x] **API-16** Driver catalogue (Adapt · Done (Python, #129) · #129 · M3)
+- [x] **API-17** Filtering and sorting collections (Adapt · Done (Python, #129) · #129 · M3)
+- [x] **API-18** Paging collections (Adapt · Done (Python, #129) · #129 · M3)
 - ~~API-19 Localised responses~~ (Out of scope · Out of scope)
 - [ ] **API-20** Server (node) settings through the API (Adapt · Planned (#132) · #132 · M4)
 - [x] **API-21** Creating objects: single, several, with children (Adapt · Done · #63 · M1)

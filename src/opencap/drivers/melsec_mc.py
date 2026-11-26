@@ -56,6 +56,7 @@ import structlog
 from opencap.config.models import Device, Tag
 from opencap.core.cache import TagValue
 from opencap.drivers._cip_common import Attempt
+from opencap.drivers import _schema as sc
 from opencap.drivers.base import (
     Block,
     BlockConfigError,
@@ -782,6 +783,24 @@ class MelsecMcDriver(Driver):
 
     name: ClassVar[str] = "melsec_mc"
     is_async: ClassVar[bool] = False
+    transport: ClassVar[str] = "tcp or udp (MC protocol 3E)"
+    address_examples: ClassVar[tuple[str, ...]] = ("D100", "D0000002", "M10", "X1F", "D100.05", "DSH100.020", "ZR500")
+    params_schema: ClassVar[dict[str, Any]] = sc.params_schema("melsec_mc params", {
+        "plc_type": sc.string("PLC family; only iQ-R changes the frames", "Q", enum=PLC_TYPES),
+        "protocol": sc.string("transport", "tcp", enum=PROTOCOLS),
+        "first_word_low": sc.boolean("the first word of a 32/64-bit value is the low word", True),
+        "frame": sc.string("MC protocol frame (only 3E, binary)", "3E", enum=FRAMES),
+        "max_words": sc.integer("words per batch read (the MC 3E limit is 960)", MAX_WORDS,
+                                minimum=_INT_RANGES["max_words"][0], maximum=_INT_RANGES["max_words"][1]),
+        "max_gap": sc.integer("unused words allowed between merged tags", 16, minimum=0, maximum=1_000_000),
+        "nonnormal_float": sc.string("NaN, Inf and denormal floats: replace with zero or pass unmodified",
+                                     "zero", enum=NONNORMAL_FLOAT_MODES),
+        "network": sc.integer("3E header: network number (0 = local)", 0, minimum=0, maximum=0xFF),
+        "pc": sc.integer("3E header: PC number (255 = the connected station)", 0xFF, minimum=0, maximum=0xFF),
+        "dest_moduleio": sc.integer("3E header: destination module I/O (1023 = own CPU)", 0x3FF,
+                                    minimum=0, maximum=0xFFFF),
+        "dest_modulesta": sc.integer("3E header: destination module station", 0, minimum=0, maximum=0xFF),
+    })
 
     def __init__(self, device: Device, executor: Any = None) -> None:
         super().__init__(device, executor)

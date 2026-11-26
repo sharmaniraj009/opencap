@@ -40,3 +40,8 @@ The running server does not serve this document (`openapi_url=None`, D-019).
   accepts what pydantic coerces (e.g. `"502"` for an integer); clients should send the documented types.
 - The Rust engine must pass the same contract; the dual-engine acceptance suite (#42) will run
   `tests/unit/test_openapi_contract.py`-style checks against both.
+- **Driver catalogue and collections** (since 1.4.0, #129): `GET /api/v1/drivers` and `/api/v1/drivers/{name}` describe
+  each implemented driver (JSON Schema of `params`, dtypes, address examples); a device write whose `params` break that
+  schema is a 422 with `loc` under `params` (D-077). The list routes `/channels`, `/devices` and `/devices/{id}/tags`
+  take `q`, `sort`, `order`, `limit` and `offset`, and answer with `total`, `limit` (null when not given) and `offset`
+  next to the list.

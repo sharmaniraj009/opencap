@@ -159,6 +159,15 @@ def _validate(model: type[BaseModel], data: Any, prefix: tuple = ()) -> BaseMode
         raise Invalid(f"invalid {model.__name__}", _pyd_errors(exc, prefix)) from None
 
 
+def _check_driver_params(dev: Device, prefix: tuple = ()) -> None:
+    """422 with `loc` under `params` when the device's params break its driver's schema (API-16)."""
+    from opencap.drivers.catalogue import check_params
+
+    errors = check_params(dev.driver, dev.params, (*prefix, "params"))
+    if errors:
+        raise Invalid(f"invalid params for driver {dev.driver!r}", errors)
+
+
 def merge_patch(target: Any, patch: Any) -> Any:
     """RFC 7386 JSON merge patch: objects merge, `null` deletes a key, anything else replaces."""
     if not isinstance(patch, dict):
@@ -949,6 +958,8 @@ class ConfigStore:
                               [_err(("devices", i, "id"), f"device id must be {derived!r}")])
             data["devices"].append({"tags": [], **dev, "id": derived, "channel": name})
         ch = _validate(Channel, data)
+        for i, d in enumerate(ch.devices):
+            _check_driver_params(d, ("devices", i))
 
         def apply(txn: _Txn):
             if txn.has_channel(name):
@@ -1033,6 +1044,7 @@ class ConfigStore:
             raise Invalid("channel comes from the URL", [_err(("channel",), f"must be {channel!r}")])
         data = self._device_body({"tags": [], **body}, channel, body.get("name"), given_id=body.get("id"))
         dev = _validate(Device, data)
+        _check_driver_params(dev)
 
         def apply(txn: _Txn):
             ch = txn.channel(channel)
@@ -1056,6 +1068,7 @@ class ConfigStore:
             new_name = merged.get("name", old["name"])
             data = self._device_body(merged, new_channel, new_name, given_id=body.get("id"))
             dev = _validate(Device, data)
+            _check_driver_params(dev)
             dumped = _dump(dev)
             if dev.id != dev_id:
                 if dev.id in txn.device_ids():

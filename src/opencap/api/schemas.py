@@ -201,6 +201,26 @@ class Status(_Open):
     config: Pending
 
 
+# --- driver catalogue (API-16) -------------------------------------------------------------------
+
+class DriverSummary(_Open):
+    name: str
+    transport: str
+    supports_identity: bool
+    supports_browse: bool
+
+
+class DriverList(_Open):
+    drivers: list[DriverSummary]
+
+
+class DriverEntry(DriverSummary):
+    params_schema: Obj = Field(description="JSON Schema (draft 2020-12) of `Device.params`; unknown keys are "
+                                           "allowed and a null value means the default")
+    dtypes: list[str]
+    address_examples: list[str]
+
+
 # --- configuration ------------------------------------------------------------------------------
 
 class Revisioned(_Open):
@@ -214,7 +234,16 @@ class ChannelListItem(_Open):
     override: Obj | None = None
 
 
-class ChannelList(Revisioned):
+class Paged(Revisioned):
+    """Paging of a list route (API-18): `total` counts the items after `q`, before `limit` and `offset`;
+    `limit` is null when the whole collection was asked for. `revision` is the whole config's."""
+
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
+
+
+class ChannelList(Paged):
     channels: list[ChannelListItem]
 
 
@@ -225,7 +254,7 @@ class ChannelResource(Revisioned):
     devices: list[Obj]
 
 
-class DeviceList(Revisioned):
+class DeviceList(Paged):
     devices: list[Obj]
 
 
@@ -235,7 +264,7 @@ class DeviceResource(Revisioned):
     override: Obj | None = None
 
 
-class TagList(Revisioned):
+class TagList(Paged):
     tags: list[Obj]
 
 

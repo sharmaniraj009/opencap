@@ -1720,3 +1720,21 @@ produced once the outbox drains, then every frozen message must reach the subscr
   accepted since the last save, including messages opencap's outbox has already deleted after
   their PUBACK. A production broker should save more often (`autosave_interval`, or
   `autosave_on_changes`) as far as its disk allows.
+
+### D-084 Naming rules and the payload time zone in the Python engine (#112)
+- **Expected:** names that make tag paths ambiguous are caught at load, and a bad `payload.timezone`
+  fails before payloads are built; no name is ever altered.
+- **Done (Python half):** `name_rule_problems` in `config/models.py` lists, besides the `_` rule of
+  D-074, a channel or device name that is empty, has surrounding whitespace, or contains `"`, `.` or
+  `/`; a device named like a REST sub-resource (`tags`, `values`, `plan`, `identity`, `status`,
+  `read-once`); and a tag whose dot segment is empty, padded or contains `"`. For a v1
+  `devices.json` each is a loader warning (so `opencap check` shows it) and an API write that would
+  add one gets a 422 with the `loc` of the name; a name already on disk never blocks an unrelated
+  write. `payload.timezone` must be a tz-database name (or one of the three fixed-offset fallbacks
+  of `north.payload`), else the model is refused naming `payload.timezone`. Names with `%`, `#`,
+  `?`, `&` and `+` round-trip through their percent-encoded path (pinned by a test).
+- **Not done yet:** the same checks in the Rust models and shared fixtures (they would fail
+  `compare.py` until both engines agree), the v2 error severity (waits for #37), the importer
+  reporting these names, and `params.device_timezone` with its DST vectors (DEV-13).
+- **Why:** PRJ-13, API-07, LOG-21; the shared-fixture comparison is the reason the Python rules
+  are not yet fixtures.

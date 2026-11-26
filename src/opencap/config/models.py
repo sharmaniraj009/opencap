@@ -87,6 +87,54 @@ def underscore_names(channels: Any) -> list[str]:
     return out
 
 
+# Device names the REST paths use as sub-resources (`/devices/<channel>/<device>/tags`): a device
+# cannot have one of them as its name (case-sensitive, as the paths are).
+API_DEVICE_NAMES = ("tags", "values", "plan", "identity", "status", "read-once")
+
+
+def _name_faults(name: str, what: str, *, dotted: bool) -> list[str]:
+    """Rule violations of one name (PRJ-13). `dotted`: a channel or device name, where `.` and `/`
+    would make tag paths and device ids ambiguous. The `_` rule is `underscore_names`'."""
+    out: list[str] = []
+    if not name:
+        return [f"{what} name is empty"]
+    if name != name.strip():
+        out.append(f"{what} name {name!r} has leading or trailing whitespace")
+    if '"' in name:
+        out.append(f"{what} name {name!r} contains '\"'")
+    if dotted:
+        for ch in (".", "/"):
+            if ch in name:
+                out.append(f"{what} name {name!r} contains {ch!r}")
+    return out
+
+
+def name_rule_problems(channels: Any) -> list[tuple[tuple[Any, ...], str]]:
+    """Names that break the naming rules other than the `_` one (PRJ-13): empty, surrounding
+    whitespace, `"`, `.` or `/` in a channel or device name, an empty or padded dot segment of a tag
+    name, a device name the REST paths use. One `(loc, text)` per problem, in file order; `loc` is
+    the pydantic-style path of the name. Names are never changed: the loader reports these as
+    warnings and API writes refuse the ones they would add."""
+    out: list[tuple[tuple[Any, ...], str]] = []
+    for ci, ch in enumerate(channels):
+        loc: tuple[Any, ...] = ("channels", ci)
+        out += [((*loc, "name"), t) for t in _name_faults(ch.name, "channel", dotted=True)]
+        for di, dev in enumerate(ch.devices):
+            dloc = (*loc, "devices", di)
+            out += [((*dloc, "name"), f"{dev.id}: {t}") for t in _name_faults(dev.name, "device", dotted=True)]
+            if dev.name in API_DEVICE_NAMES:
+                out.append(((*dloc, "name"), f"{dev.id}: device name {dev.name!r} is used by the REST paths"))
+            for ti, tag in enumerate(dev.tags):
+                tloc = (*dloc, "tags", ti, "name")
+                if tag.name == "":
+                    out.append((tloc, f"{dev.id}: tag name is empty"))
+                    continue
+                for seg in tag.name.split("."):
+                    out += [(tloc, f"{dev.id}: {t} (in tag {tag.name!r})")
+                            for t in _name_faults(seg, "tag segment", dotted=False)]
+    return out
+
+
 class Tag(_Model):
     name: str                      # "PUMP_1_CURRENT_R" or "LTI002.Pv" (group path kept, dot-joined)
     address: str                   # native address: "400131", "F34:1", "FT_01", "MD232"
@@ -313,10 +361,29 @@ class ApiCfg(_Model):
         return self
 
 
+def is_known_zone(name: str) -> bool:
+    """An IANA zone name the payload can use (the fixed-offset zones cover images without tzdata,
+    as `north.payload.zone` does)."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return name in ("Asia/Kolkata", "Asia/Calcutta", "UTC")
+    return True
+
+
 class PayloadCfg(_Model):
     float_decimals: int = 4
     bad_tags_field: bool = True
     timezone: str = "Asia/Kolkata"
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_zone(cls, value: str) -> str:
+        if not is_known_zone(value):
+            raise ValueError(f"payload.timezone {value!r} is not a known IANA time zone name")
+        return value
 
 
 class DeviceDefaults(_Model):

@@ -2091,6 +2091,21 @@ Spec: `docs/spec/payload-sparkplug.md`. Code: `engine/north/sparkplug`. Vectors:
     labels belong to #142.
   - The TCK has no headless runner; the tck-ids the integration test covers are listed in spec §8.5.
 
+
+### D-093 Readiness, about and support information in the Rust engine (#194)
+The Rust half of D-075: `/health/ready`, `/health/live`, `GET /api/v1/about` (open), `GET /api/v1/support` (viewer),
+`initial_scan_complete` / `initial_scan_ms` in `/health`, and `opencap-engine info [--json]`. Same rules as D-075 (ready =
+north side started and every enabled, polled device has finished one poll cycle or is demoted; sticky; latched from the
+worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpose:
+- **`about`** is identical to Python's except `engine: "rust"` (dual-engine test); `config_schema_version` is
+  `opencap_core::config::SCHEMA_VERSION`, kept equal to Python's `SCHEMA_VERSION` by that test.
+- **`support`/`info`**: `toolchain` is `{"rust": <rustc version at build time>}`; `drivers` lists the compiled-in drivers
+  with `library: null` ("built in"; there is no separate protocol library to version); `north_interfaces` lists what
+  this engine runs (`mqtt`, `api`), so `opcua_server` is absent even when enabled in the config until the Rust OPC UA
+  server exists (#46); `os` uses Python's `platform.system()` names (Linux, Windows, Darwin) and `arch` Rust's.
+- **`config_revision`** is computed exactly as Python's `ConfigStore.revision()` (`opencap_core::config::config_revision`,
+  SHA-256 via `ring`, already in the tree); a unit test pins it to the Python value for the same directory.
+
 ### D-096 Serial follow-ups from #62 (#68)
 - **Non-blocking serial writes.** `SerialTransport` hands the tty what it takes now. The rest is queued and
   written by the event loop's writer callback when the port becomes writable; it never sleeps on the loop. If the

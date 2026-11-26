@@ -25,3 +25,7 @@ dist/
 # Written by the config API next to the config files (previous versions, temp files)
 config/*.bak
 config/.*.tmp
+
+# mkdocs build output and a local docs venv (#9)
+site/
+.docs-venv/

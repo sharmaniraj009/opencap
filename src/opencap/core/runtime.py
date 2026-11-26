@@ -135,6 +135,10 @@ class Poller:
         self._link_task = asyncio.create_task(self.link.run(), name="mqtt-link")
         self._apply_channels(self.loaded.channels)
         self._restart_publisher()
+        if self.loaded.poller.sparkplug.enabled:
+            # Served by the Rust engine (#51); polling, MQTT and the OPC UA server run as usual.
+            log.warning("sparkplug_not_started",
+                        error="the Python engine has no Sparkplug B edge node; the Rust engine serves it (#51)")
         try:
             await self._start_opcua()
         except Exception as exc:     # as on reload: keep polling and publishing without it

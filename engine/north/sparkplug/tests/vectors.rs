@@ -331,3 +331,19 @@ fn state_vectors() {
         }
     }
 }
+
+#[test]
+fn quality_matches_the_shared_vectors() {
+    use opencap_north_sparkplug::quality::{is_null, quality_code};
+    let path = vectors_dir().join("../quality/map.json");
+    let doc: J = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut n = 0;
+    for v in doc["vectors"].as_array().unwrap() {
+        let (q, ever) = (quality_of(&v["input"]["quality"]), v["input"]["ever_good"].as_bool().unwrap());
+        let want = &v["expected"]["sparkplug"];
+        assert_eq!(J::from(quality_code(q, ever)), want["Quality"], "{}", v["id"]);
+        assert_eq!(J::Bool(is_null(q, ever)), want["is_null"], "{}", v["id"]);
+        n += 1;
+    }
+    assert_eq!(n, 10);
+}

@@ -1,0 +1,13 @@
+{
+  "document": "poller",
+  "expected_error": "sparkplug: two devices map to the same Sparkplug device id",
+  "semantic": true,
+  "data": {
+    "sparkplug": {
+      "devices": {
+        "Plant A/PLC1": "PLC",
+        "Plant A/PLC2": "PLC"
+      }
+    }
+  }
+}

@@ -1103,7 +1103,7 @@
     "quality": "stale",
     "ts_ms": 1700000000123
    },
-   "metric_b64": "CgVMRVZFTBAHGPvQlf+8MSACOAFKDwoHUXVhbGl0eRIECAMYRA==",
+   "metric_b64": "CgVMRVZFTBAHGPvQlf+8MSACOAFKDwoHUXVhbGl0eRIECAMYAA==",
    "decoded": {
     "name": "LEVEL",
     "alias": 7,
@@ -1114,7 +1114,7 @@
      [
       "Quality",
       "Int32",
-      68
+      0
      ]
     ]
    }

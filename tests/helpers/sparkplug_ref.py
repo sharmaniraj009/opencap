@@ -44,9 +44,8 @@ INTS = {
 }
 PACK = {"Int8": "b", "Int16": "h", "Int32": "i", "Int64": "q", "UInt8": "B", "UInt16": "H", "UInt32": "I",
         "UInt64": "Q", "Float": "f", "Double": "d", "DateTime": "Q"}
-# §3.3 / ADR-0006
-QUALITY = {"good": 0xC0, "bad_comm": 0x18, "bad_config": 0x04, "bad_decode": 0x00, "stale": 0x44}
-WITHHOLD = {"bad_config", "bad_decode"}
+# §3.2 / ADR-0006: the Python engine's one quality table (tests/conformance/quality/map.json)
+from opencap.core.quality import to_sparkplug  # noqa: E402
 QOS = {"NDEATH": 1, "NBIRTH": 0, "NDATA": 0, "DBIRTH": 0, "DDATA": 0, "DDEATH": 0}
 NODE_TYPES = ("NBIRTH", "NDEATH", "NDATA", "NCMD")
 DEVICE_TYPES = ("DBIRTH", "DDEATH", "DDATA", "DCMD")
@@ -166,10 +165,11 @@ def metric_name(tag_name: str) -> str:
     return tag_name.replace(".", "/")
 
 
-def _properties(metric, quality: str | None, units: str | None = None, eng_range=None) -> None:
+def _properties(metric, quality: str | None, ever_good: bool = True, units: str | None = None,
+                eng_range=None) -> None:
     entries = []
     if quality is not None:
-        entries.append(("Quality", "Int32", "int_value", QUALITY[quality]))
+        entries.append(("Quality", "Int32", "int_value", to_sparkplug(quality, ever_good)["Quality"]))
     if units is not None:
         entries.append(("engUnit", "String", "string_value", units))
     if eng_range is not None:
@@ -183,7 +183,7 @@ def _properties(metric, quality: str | None, units: str | None = None, eng_range
 
 
 def _value(metric, datatype: str, sample: dict) -> None:
-    if sample["value"] is None or sample["quality"] in WITHHOLD:
+    if sample["value"] is None or to_sparkplug(sample["quality"], True)["is_null"]:
         metric.is_null = True
         return
     field, raw = encode_value(datatype, sample["value"])
@@ -193,14 +193,14 @@ def _value(metric, datatype: str, sample: dict) -> None:
 def birth_metric(tag: dict, alias: int, sample: dict):
     datatype = datatype_for(tag["dtype"], tag.get("scaled", False), tag.get("array", False))
     m = metric_class()(name=metric_name(tag["name"]), alias=alias, timestamp=sample["ts_ms"], datatype=dt(datatype))
-    _properties(m, sample["quality"], tag.get("units"), tag.get("eng_range"))
+    _properties(m, sample["quality"], sample["value"] is not None, tag.get("units"), tag.get("eng_range"))
     _value(m, datatype, sample)
     return m
 
 
 def data_metric(alias: int, datatype: str, sample: dict, with_quality: bool):
     m = metric_class()(alias=alias, timestamp=sample["ts_ms"])
-    _properties(m, sample["quality"] if with_quality else None)
+    _properties(m, sample["quality"] if with_quality else None, sample["value"] is not None)
     _value(m, datatype, sample)
     return m
 

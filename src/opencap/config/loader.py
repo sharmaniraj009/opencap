@@ -191,6 +191,36 @@ def _check_serial_endpoint(device: Device) -> None:
         raise ValueError(f"{device.id}: {exc}") from None
 
 
+def sparkplug_device_id(poller: PollerConfig, device: Device) -> str:
+    """The Sparkplug device id of an opencap device: `sparkplug.devices`, else `<channel>.<device>`."""
+    return poller.sparkplug.devices.get(device.id, f"{device.channel}.{device.name}")
+
+
+def _sparkplug_checks(poller: PollerConfig, channels: list[Channel]) -> list[str]:
+    """Cross-file rules of `sparkplug` (#51). Errors only while it is enabled."""
+    from opencap.config.models import _sparkplug_id_error
+
+    cfg = poller.sparkplug
+    ids = {d.id for c in channels for d in c.devices}
+    warnings = [f"{POLLER_FILE}: sparkplug.devices: unknown device id {dev!r}; entry ignored"
+                for dev in cfg.devices if dev not in ids]
+    if not cfg.enabled:
+        return warnings
+    seen: dict[str, str] = {}
+    for c in channels:
+        for d in c.devices:
+            if not d.enabled:
+                continue
+            sp = sparkplug_device_id(poller, d)
+            if err := _sparkplug_id_error(f"device id of {d.id!r}", sp):
+                raise ValueError(f"{POLLER_FILE}: {err}; map it in sparkplug.devices")
+            if sp in seen:
+                raise ValueError(f"{POLLER_FILE}: sparkplug: {seen[sp]!r} and {d.id!r} both get the Sparkplug "
+                                 f"device id {sp!r}; map one in sparkplug.devices")
+            seen[sp] = d.id
+    return warnings
+
+
 def load_config(config_dir: Path) -> LoadedConfig:
     config_dir = Path(config_dir)
     warnings: list[str] = []
@@ -298,6 +328,8 @@ def load_config(config_dir: Path) -> LoadedConfig:
         warnings += [f"{DEVICES_FILE}: {text}; names starting with '_' are reserved for system tags"
                      for text in underscore_names(channels)]
         warnings += [f"{DEVICES_FILE}: {text}" for _, text in name_rule_problems(channels)]
+
+    warnings.extend(_sparkplug_checks(poller, channels))
 
     # Final pass through the models (cheap, and catches cross-field rules).
     validated = DevicesFile(

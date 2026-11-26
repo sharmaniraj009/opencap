@@ -31,6 +31,7 @@ fn model(document: &str, data: Value) -> Result<Value, String> {
             p.api.validate().map_err(|e| format!("api: {e}"))?;
             p.payload.validate()?;
             p.opcua_server.validate()?;
+            p.sparkplug.validate()?;
             dump(serde_json::to_value(p))
         }
         other => Err(format!("no Rust model for document {other:?}")),

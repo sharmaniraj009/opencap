@@ -12,7 +12,7 @@ use prost::Message as _;
 use crate::datatype::encode;
 use crate::proto::payload::{property_value, Metric, PropertySet, PropertyValue};
 use crate::proto::{DataType, Payload};
-use crate::quality::{quality_code, withholds_value, QUALITY_PROPERTY};
+use crate::quality::{is_null, quality_code, QUALITY_PROPERTY};
 use crate::CodecError;
 
 /// The birth/death sequence metric of NBIRTH and NDEATH.
@@ -55,14 +55,15 @@ fn prop(dt: DataType, value: property_value::Value) -> PropertyValue {
     PropertyValue { r#type: Some(dt as u32), is_null: None, value: Some(value) }
 }
 
-fn properties(quality: Option<Quality>, meta: Option<&TagMeta>) -> Option<PropertySet> {
+/// `quality` with `ever_good` (whether the tag has a last value).
+fn properties(quality: Option<(Quality, bool)>, meta: Option<&TagMeta>) -> Option<PropertySet> {
     let mut set = PropertySet::default();
     let mut add = |k: &str, v: PropertyValue| {
         set.keys.push(k.to_string());
         set.values.push(v);
     };
-    if let Some(q) = quality {
-        add(QUALITY_PROPERTY, prop(DataType::Int32, property_value::Value::IntValue(quality_code(q))));
+    if let Some((q, ever_good)) = quality {
+        add(QUALITY_PROPERTY, prop(DataType::Int32, property_value::Value::IntValue(quality_code(q, ever_good))));
     }
     if let Some(meta) = meta {
         if let Some(units) = &meta.units {
@@ -78,7 +79,7 @@ fn properties(quality: Option<Quality>, meta: Option<&TagMeta>) -> Option<Proper
 
 fn set_value(m: &mut Metric, dt: DataType, s: &Sample) -> Result<(), CodecError> {
     match s.value {
-        Some(v) if !withholds_value(s.quality) => m.value = Some(encode(dt, v)?),
+        Some(v) if !is_null(s.quality, true) => m.value = Some(encode(dt, v)?),
         _ => m.is_null = Some(true),
     }
     Ok(())
@@ -92,7 +93,7 @@ pub fn birth_metric(meta: &TagMeta, s: &Sample) -> Result<Metric, CodecError> {
         alias: Some(meta.alias),
         timestamp: Some(s.ts_ms),
         datatype: Some(meta.datatype as u32),
-        properties: properties(Some(s.quality), Some(meta)),
+        properties: properties(Some((s.quality, s.value.is_some())), Some(meta)),
         ..Default::default()
     };
     set_value(&mut m, meta.datatype, s)?;
@@ -105,7 +106,7 @@ pub fn data_metric(alias: u64, datatype: DataType, s: &Sample, with_quality: boo
     let mut m = Metric {
         alias: Some(alias),
         timestamp: Some(s.ts_ms),
-        properties: properties(with_quality.then_some(s.quality), None),
+        properties: properties(with_quality.then_some((s.quality, s.value.is_some())), None),
         ..Default::default()
     };
     set_value(&mut m, datatype, s)?;

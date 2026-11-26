@@ -63,10 +63,11 @@ def test_metric_vectors_follow_adr_0006():
         if "error" in c:
             continue
         d, q = c["decoded"], c["sample"]["quality"]
+        ever_good = c["sample"]["value"] is not None
         props = {k: v for k, _t, v in d.get("properties", [])}
         if c["kind"] == "birth" or c.get("with_quality"):
-            assert props["Quality"] == ref.QUALITY[q], c["name"]
-        null = c["sample"]["value"] is None or q in ("bad_config", "bad_decode")
+            assert props["Quality"] == ref.to_sparkplug(q, ever_good)["Quality"], c["name"]
+        null = ref.to_sparkplug(q, ever_good)["is_null"]
         assert d.get("is_null", False) is null, c["name"]
         assert (len({"int_value", "long_value", "float_value", "double_value", "boolean_value", "string_value",
                      "bytes_value"} & set(d)) == 1) is (not null), c["name"]

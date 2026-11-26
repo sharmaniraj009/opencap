@@ -77,7 +77,8 @@ from opencap.metrics import (
 )
 
 _log = structlog.get_logger("opencap.core.channel_worker")
-_mono = time.monotonic
+_mono = time.monotonic          # scheduling: lines up with loop.time()
+_perf = time.perf_counter       # durations only: monotonic ticks ~15.6 ms on Windows with Python 3.12 (#199)
 
 SAFETY_FACTOR = 1.25
 SAFETY_MARGIN_S = 0.1
@@ -291,7 +292,7 @@ class _DeviceRunner:
         if not force and self.backoff.pending(now):
             return f"{self.connect_error or 'connect failed'} (next attempt in {self.backoff.remaining(now):.1f} s)"
         drv = self.ensure_driver()
-        t0 = _mono()
+        t0 = _perf()
         try:
             async with self.w.wire:
                 await asyncio.wait_for(drv.connect(), drv.connect_timeout_s() or self.safety_s)
@@ -307,7 +308,7 @@ class _DeviceRunner:
             delay = self.backoff.failure(_mono())
             await self.close_driver()
             self.log.debug("device.connect_failed", error=reason, retry_in_s=round(delay, 3),
-                           ms=round((_mono() - t0) * 1000, 1))
+                           ms=round((_perf() - t0) * 1000, 1))
             if self.link_up:
                 self.link_up = False
                 self.log.info("device.disconnected", error=reason)
@@ -316,7 +317,7 @@ class _DeviceRunner:
         self.last_connect_failed = False
         self.connect_error = None
         self.backoff.reset()
-        ms = round((_mono() - t0) * 1000, 1)
+        ms = round((_perf() - t0) * 1000, 1)
         if not self.link_up:
             self.link_up = True
             self.log.info("device.connected", host=self.device.host, port=self.device.port, ms=ms)
@@ -347,7 +348,7 @@ class _DeviceRunner:
     def _count(self, result: str, block: Block, t0: float, attempt: int, error: str | None = None) -> None:
         POLL_REQUESTS.labels(self.id, result).inc()
         self.log.debug("device.request", block=block.describe(), result=result, attempt=attempt + 1,
-                       ms=round((_mono() - t0) * 1000, 1), error=error)
+                       ms=round((_perf() - t0) * 1000, 1), error=error)
 
     async def read_block(self, block: Block, *, force_connect: bool) -> _BlockResult:
         attempts = max(self.device.retries, 0) + 1
@@ -370,7 +371,7 @@ class _DeviceRunner:
                     return _BlockResult(_CONN_DOWN, error=err)
                 fresh = True
             assert self.driver is not None
-            t0 = _mono()
+            t0 = _perf()
             try:
                 async with self.w.wire:
                     values = await asyncio.wait_for(self.driver.read(block), self.read_budget_s(block))
@@ -552,11 +553,13 @@ class _DeviceRunner:
                 return           # a read_once() demoted the device while we waited
             probe = self.health.state == "demoted"
             started = _mono()
+            t0 = _perf()
             await self.cycle(list(self.groups[slot.index]), probe=probe, force_connect=False)
+            took = _perf() - t0
             ended = _mono()
-        self.cycle_ms = round((ended - started) * 1000, 1)
+        self.cycle_ms = round(took * 1000, 1)
         self.first_cycle_done = True
-        POLL_CYCLE.labels(self.id).observe(ended - started)
+        POLL_CYCLE.labels(self.id).observe(took)
         overrun = sched.complete(slot, started, ended)
         self.stats.add(self.cycle_ms, overrun=overrun, good=self.health.state == "ok")
         if overrun:

@@ -22,7 +22,6 @@ from opencap.core.channel_worker import ChannelWorker, safety_timeout_s
 from opencap.core.registry import DevicePlan
 from opencap.drivers.base import CommError, ConnectionLost
 from opencap.metrics import REGISTRY
-from tests.helpers.clock import COARSE_CYCLE_CLOCK
 from tests.helpers.fake_driver import (
     ConcurrencyProbe,
     FakeDriver,
@@ -678,10 +677,24 @@ async def test_periodic_cycle_stats_log_line():
     first = stats[0]
     assert first["device"] == dev.id and first["log_level"] == "info"
     assert first["cycles"] >= 3 and first["max_cycle_ms"] >= first["mean_cycle_ms"]
-    # A 5 ms read measures 0 or one tick where the cycle clock is coarse (windows-latest: mean
-    # 3.1 ms over 10 cycles); #199 removes this allowance.
-    assert COARSE_CYCLE_CLOCK or first["mean_cycle_ms"] >= 5, first
+    assert first["mean_cycle_ms"] >= 4, first      # a 5 ms read, with room for timer granularity
     assert first["state"] == "ok" and first["bad_cycles"] == 0
+
+
+async def test_cycle_times_do_not_depend_on_the_scheduling_clock(monkeypatch):
+    """With a coarse monotonic clock (Windows, Python 3.12: ~15.6 ms) cycles still measure > 0 (#199)."""
+    tick = 0.0156
+    monkeypatch.setattr("opencap.core.channel_worker._mono", lambda: (time.monotonic() // tick) * tick)
+    name = uniq()
+    dev = device(name, "PLC", tags("A", 2), scan_ms=30)
+    worker, factory, _ = make_worker(channel(name, [dev]), stats_interval_s=0.3)
+    factory.script(dev.id).delay_s = 0.005
+    with capture_logs() as logs:
+        async with running(worker):
+            await asyncio.sleep(0.8)
+    stats = [e for e in logs if e["event"] == "device.stats"]
+    assert stats and all(e["mean_cycle_ms"] >= 4 and e["max_cycle_ms"] < 1000 for e in stats), stats
+    assert 0 < worker.device_status(dev.id)["cycle_ms"] < 1000
 
 
 async def test_cycle_stats_can_be_turned_off():

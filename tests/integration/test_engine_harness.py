@@ -11,7 +11,6 @@ import typing
 import pytest
 
 from tests.helpers.broker import TestBroker
-from tests.helpers.clock import COARSE_CYCLE_CLOCK
 from tests.helpers.configdir import write_config
 from tests.helpers import engine as harness
 from tests.helpers.engine import (
@@ -63,9 +62,7 @@ async def test_both_adapters_answer_the_same_queries(tmp_path, kind):
                 await _wait(lambda: {e["device"] for e in engine.log_events("device.stats")} >= {d.id for d in devices},
                             10, "a device.stats line per device")
                 stats = engine.log_events("device.stats")
-                # A fast local cycle can measure 0 ms where the cycle clock is coarse (#199).
-                assert all(e["event"] == "device.stats" and (e["mean_cycle_ms"] > 0 or COARSE_CYCLE_CLOCK)
-                           for e in stats), stats
+                assert all(e["event"] == "device.stats" and e["mean_cycle_ms"] > 0 for e in stats), stats
                 assert engine.log_events("no.such.event") == []
 
                 code, out = await engine.cli("read", dev, "--config", str(config_dir), cwd=tmp_path)

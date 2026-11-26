@@ -1683,3 +1683,40 @@ reader would expect:
   device writes with `loc` `["params", key]`, and add `q`, `sort`, `order`, `limit`, `offset` to the three list routes with
   the natural-order comparison above (case-folded text split into digit and non-digit runs).
 
+### D-083 Broker restarts against Mosquitto with persistence lose nothing (#8)
+Closes what D-021 left open. `tests/integration/test_mosquitto_restart.py` (acceptance) restarts
+a real Mosquitto (`persistence true`, `max_queued_messages 0`, clean SIGTERM stop, same port and
+data directory; `tests/helpers/mosquitto.py`) three times, 2 s down each, while 10 simulated
+Modbus devices publish every second to a persistent QoS 1 subscriber (`clean_session` false).
+The first restart is with the subscriber connected. For the second and third the subscriber is
+away, so the broker holds messages it has already PUBACKed to opencap (whose outbox has deleted
+them) across the restart: the case persistence exists for. The check is D-018's: freeze what was
+produced once the outbox drains, then every frozen message must reach the subscriber, in order.
+- **Observed** (Mosquitto 2.0.18 binary, 20 runs with the Python engine, 1 with the Rust
+  engine): lost 0 every run. The outbox held about 20 messages per outage; the broker held
+  60–80 per away restart. Duplicates: 0 to 37 per run, mostly 0 or 7 (one on each of 7 devices):
+  QoS 1 redelivery of messages whose PUBACK the broker had not processed before the stop or the
+  subscriber's disconnect. They are allowed and counted, never compared away.
+- **The test can fail:** with `persistence false` (a negative control) every run lost 16
+  messages per device and no `mosquitto.db` was written; the test reports both.
+- **Test-client finding:** with aiomqtt as the subscriber, about 1 run in 15 lost one message.
+  aiomqtt 2.5.1's `MessagesIterator.__anext__` takes the next message off its queue in a separate
+  task; if the iterating task is cancelled (the test pausing the subscriber) or the connection
+  drops in the same instant, that message is discarded after paho has PUBACKed it. Reproduced
+  deterministically outside the test. The subscriber now uses paho directly and records each
+  message in `on_message`, which runs before the PUBACK. The aiomqtt `Collector` in
+  `tests/helpers/broker.py` iterates the same way: #220.
+- **Mosquitto as root** drops to its `mosquitto` user, which cannot write under pytest's 0700
+  `tmp_path` ("unable to remove mosquitto.db.new"): the helper adds `user root` when it runs the
+  binary as root. The Docker image (`eclipse-mosquitto:2.0.22`, pinned by digest) runs as the
+  test's own user (`--user uid:gid`): as root, its entrypoint chowns the bind-mounted data
+  directory to uid 1883, and the test could no longer manage its own temp directory (first CI run).
+- **CI:** the Linux acceptance jobs (`acceptance-pr`, nightly `acceptance`, the Rust engine's
+  acceptance) run it through Docker and set `OPENCAP_REQUIRE_MOSQUITTO`, so a missing broker
+  fails the job instead of skipping the test. Windows skips it with a reason (no binary, and the
+  runner's Docker runs Windows containers).
+- **Not covered: a broker crash.** Mosquitto writes its persistence file on a clean shutdown and
+  every `autosave_interval` (default 1800 s). After a SIGKILL or power loss it can lose what it
+  accepted since the last save, including messages opencap's outbox has already deleted after
+  their PUBACK. A production broker should save more often (`autosave_interval`, or
+  `autosave_on_changes`) as far as its disk allows.

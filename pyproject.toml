@@ -40,7 +40,7 @@ version = { attr = "opencap.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-"opencap.api" = ["ui/*.html", "ui/*.js", "ui/*.css", "ui/vendor/*"]   # the web UI bundle (ADR-0010)
+"opencap.api" = ["ui/*.html", "ui/*.js", "ui/*.css", "ui/i18n/*.json", "ui/vendor/*"]   # the web UI bundle (ADR-0010)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

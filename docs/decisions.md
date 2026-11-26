@@ -770,6 +770,16 @@ server-side login (it sends the token with each request). Rotates to `.1` at 16 
 - A browser smoke test (`tests/ui/browser_smoke.js`, run by `tests/integration/test_ui_browser.py`,
   marker `acceptance`) drives Chromium through every page at desktop and phone width and fails on any
   script error or CSP violation; it is skipped where Node.js and Playwright are not installed.
+- **Amended by #126 (string tables):** every visible string comes from `ui/i18n/<lang>.json`
+  (`en.json` only; `languages.json` lists the tables), looked up with `t('key', {name: value})` in
+  templates and `tr()` in app.js. The language is the tab's choice (`sessionStorage`
+  `opencap.lang`), else the first of `navigator.languages` with a table (exact, then without the
+  region), else English; missing keys fall back to English. The CSP build refuses `x-html`, so
+  text with markup uses a small `x-rich` directive that builds only `code`, `strong`, `em` and
+  same-site `a` elements and fills values into text nodes. The tables are files of the bundle, so
+  app.js has a second `fetch` (relative `i18n/`, never the API base). The browser smoke test loads
+  a test-only pseudo table (every string in ⟦ ⟧) and fails on visible text outside the markers that
+  is not API data; `test_ui.py` checks the static half and that every key exists.
 
 ## Rust engine: API parity with #63
 

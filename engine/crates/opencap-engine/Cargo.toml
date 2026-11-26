@@ -29,6 +29,7 @@ driver-omron-fins = ["opencap-drivers/driver-omron-fins"]
 opencap-core.workspace = true
 opencap-drivers.workspace = true
 opencap-north.workspace = true
+opencap-north-sparkplug = { path = "../../north/sparkplug" }
 opencap-api.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true

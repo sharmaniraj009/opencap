@@ -28,7 +28,7 @@ serial = ["pyserial>=3.5"]          # local serial ports and RFC 2217 (modbus_rt
 north = ["aiomqtt>=2", "fastapi>=0.110", "uvicorn>=0.29", "websockets>=13", "prometheus-client>=0.20", "ruamel.yaml>=0.19"]  # ruamel.yaml: config API keeps YAML comments; websockets: uvicorn serves /api/v1/ws with it
 all = ["opencap[modbus,ab,s7,melsec,opcua,north,serial]"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "amqtt>=0.11", "jsonschema>=4.18",
-       "fins-driver>=0.3.1,<0.4"]  # amqtt: in-process test broker; fins-driver (MIT): independent FINS client for fins_sim
+       "fins-driver>=0.3.1,<0.4", "protobuf>=5"]  # amqtt: in-process test broker; fins-driver (MIT): independent FINS client for fins_sim; protobuf (BSD-3): Sparkplug vectors
 
 [project.scripts]
 opencap = "opencap.__main__:main"

@@ -109,6 +109,7 @@ jobs:
           pytest -ra tests/unit/test_payload_golden.py
           tests/integration/test_rust_engine_cli.py tests/integration/test_rust_engine_outbox.py
           tests/integration/test_rust_engine_api.py tests/integration/test_engine_harness.py
+          tests/unit/test_sparkplug_conformance.py tests/integration/test_sparkplug_node.py
           tests/integration/test_rust_engine_rtu.py tests/integration/test_rust_engine_ab_logix.py
           tests/integration/test_rust_engine_melsec.py tests/integration/test_rust_engine_s7.py
           tests/integration/test_rust_engine_fins.py

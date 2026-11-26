@@ -35,7 +35,8 @@ fn check(document: &str, data: Value) -> Result<(), String> {
             p.mqtt.validate().map_err(|e| format!("mqtt: {e}"))?;
             p.api.validate().map_err(|e| format!("api: {e}"))?;
             p.payload.validate()?;
-            p.opcua_server.validate()
+            p.opcua_server.validate()?;
+            p.sparkplug.validate()
         }
         other => panic!("fixture document {other:?} has no Rust model: add it here"),
     }

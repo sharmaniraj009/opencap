@@ -20,6 +20,7 @@ NORMALISE = {
     "mit license": "MIT", "mit": "MIT", "mit-0": "MIT-0",
     "bsd license": "BSD-3-Clause",  # classifier is ambiguous; 2/3-clause both allowed
     "bsd": "BSD-3-Clause", "bsd-2-clause": "BSD-2-Clause", "bsd-3-clause": "BSD-3-Clause",
+    "3-clause bsd license": "BSD-3-Clause",  # protobuf's metadata
     "apache software license": "Apache-2.0", "apache-2.0": "Apache-2.0", "apache 2.0": "Apache-2.0",
     "isc license (iscl)": "ISC", "isc": "ISC", "zlib": "Zlib",
     "mozilla public license 2.0 (mpl 2.0)": "MPL-2.0", "mpl-2.0": "MPL-2.0",

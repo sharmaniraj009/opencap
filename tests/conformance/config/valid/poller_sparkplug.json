@@ -1,0 +1,18 @@
+{
+  "document": "poller",
+  "data": {
+    "sparkplug": {
+      "enabled": true,
+      "group_id": "Plant A",
+      "edge_node_id": "opencap-1",
+      "primary_host_id": "ignition-primary",
+      "client_id": "opencap-spb",
+      "devices": {
+        "Plant A/PLC1": "Line 1.PLC1",
+        "Plant A/PLC2": "Line 2.PLC2"
+      },
+      "outbox": "data/spb.sqlite",
+      "outbox_max_bytes": 1048576
+    }
+  }
+}

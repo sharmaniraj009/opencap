@@ -35,7 +35,7 @@ channel capacity ≈ 1 / (RTT + processing)    requests/s   (≈ 16 req/s at 60 
 | Memory, definitions + plans | ~50 MB | ~200 B per tag; of which the store's names and name index measure 102 B per tag (#41) |
 | Memory, OPC UA address space | 150–500 MB | ~0.6–2 KB per node depending on the stack: **the dominant cost; benchmark gate before choosing the stack** |
 | MQTT bandwidth | ~800 KB/s (~6.4 Mbit/s) | ~30 B per tag in SubDevice JSON |
-| Python reference ceiling | **~26k tag updates/s at one core**, measured (#7, [bench/README.md](../../bench/README.md)); as built at `591c00f` the system-tag task (#120) caps it at ~1.2k (10k tags, 99 % CPU) | 50k-tag profile saturates one core (GIL) at 25.8–26.0k; 25k keeps up at 76 % CPU; ~38 µs engine CPU per tag update end to end (Modbus, decode, cache, on-change SubDevice JSON every second, outbox, MQTT); ~2.5 KB RSS per tag |
+| Python reference ceiling | **~26k tag updates/s at one core**, measured (#7, [bench/README.md](../../bench/README.md)); the system-tag task (#120) capped it at ~1.2k (10k tags, 99 % CPU) until #238: now 10k tags keep up at 33–34 % of one core and 25k at 89 %, and the system tags cost ~9 % of throughput at saturation (D-090) | 50k-tag profile saturates one core (GIL) at 25.8–26.0k; 25k keeps up at 76 % CPU; ~38 µs engine CPU per tag update end to end (Modbus, decode, cache, on-change SubDevice JSON every second, outbox, MQTT); ~2.5 KB RSS per tag |
 
 ### Measured: tag store and change-event bus (#41)
 

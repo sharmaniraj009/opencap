@@ -222,6 +222,37 @@ def tags_import_cmd(
     typer.echo(f"wrote {len(tags)} tags to {out}")
 
 
+@app.command("browse")
+def browse_cmd(
+    device_id: str = typer.Argument(..., help="'<channel>/<device>', e.g. 'Plant A/PLC1'"),
+    out: Path | None = typer.Option(None, "--out", dir_okay=False, help="tags.json or tags.csv (default: JSON on stdout)"),
+    expand_arrays: bool = typer.Option(False, "--expand-arrays", help="One tag per array element"),
+    config_dir: Path = CONFIG_OPT,
+) -> None:
+    """Generate tags from the device's own tag list (read-only; ab_logix). Writes a list to review."""
+    import asyncio
+
+    from opencap.core.browse import BrowseError, browse_device, tags_json, write_tags
+    from opencap.logsetup import configure_logging
+
+    configure_logging("WARNING")
+    _, _, device = _find_device(config_dir, device_id)
+    try:
+        report = asyncio.run(browse_device(device, expand_arrays=expand_arrays))
+        if out is not None:
+            write_tags(report.tags, out)
+    except BrowseError as exc:
+        typer.echo(f"browse failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+    if out is None:
+        typer.echo(tags_json(report.tags), nl=False)
+    for line in report.summary_lines():
+        typer.echo(line, err=True)
+    if out is not None:
+        typer.echo(f"wrote {len(report.tags)} tags to {out}", err=True)
+    raise typer.Exit(3 if report.invalid else 0)
+
+
 def main() -> None:
     app()
 

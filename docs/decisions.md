@@ -1838,7 +1838,7 @@ produced once the outbox drains, then every frozen message must reach the subscr
 - **Not yet:** a reload on Windows (no SIGHUP; stop and start), and the desktop launcher handing
   over to this service (#58 left that to this issue's follow-up).
 
-### D-087 Omron FINS driver, Rust-first (#54)
+### D-088 Omron FINS driver, Rust-first (#54)
 - **Layout.** `engine/drivers/omron_fins` (`opencap-driver-omron-fins`, feature `driver-omron-fins`, a default). There
   is no Python FINS driver (ADR-0002 §4): `omron_fins` is added to `DriverName` and `KNOWN_DRIVERS`, and the Python
   engine reports it "not implemented yet". Written from docs/protocols/omron-fins.md and accepted against

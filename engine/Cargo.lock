@@ -878,6 +878,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencap-conformance"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "opencap-core",
+ "opencap-driver-modbus-tcp",
+ "opencap-north",
+ "serde_json",
+]
+
+[[package]]
 name = "opencap-core"
 version = "0.1.0"
 dependencies = [

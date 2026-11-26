@@ -1,0 +1,23 @@
+[package]
+name = "opencap-conformance"
+description = "opencap engine test harness: loads the shared conformance vectors (tests/conformance) and runs per-area adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+# Test support only: nothing links this crate into the engine binary.
+[dependencies]
+opencap-core.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+opencap-north.workspace = true
+opencap-driver-modbus-tcp.workspace = true
+chrono.workspace = true
+
+[lints]
+workspace = true

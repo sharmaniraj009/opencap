@@ -45,6 +45,7 @@ requests to `localhost` (D-062).
 | `drivers/modbus_rtu` (`opencap-driver-modbus-rtu`) | Modbus RTU on a serial line or RTU over TCP: the Modbus TCP planner/decoder, tokio-modbus RTU framing |
 | `opencap-north` | north plugin contract (`NorthPlugin`, `NorthContext`), SubDevice JSON payload, SQLite outbox, MQTT link (rumqttc), publisher (the `mqtt` plugin) |
 | `opencap-api` | axum admin API: same routes, auth and status codes as `src/opencap/api/server.py` |
+| `opencap-conformance` | test harness for the shared vectors in `tests/conformance` (ADR-0014): vector loader, value codec, structural diff, `run_area`; the adapters for Modbus, scaling and payload are in its `tests/` |
 | `opencap-engine` | the `opencap-engine` binary: `run`, `check`, `read`, `identity`, `drivers` |
 
 ## Drivers and Cargo features
@@ -63,7 +64,7 @@ polled. A Modbus-only build: `cargo build -p opencap-engine --no-default-feature
    feature `driver-<name> = ["dep:opencap-driver-<name>"]`, and add it to `default`.
 4. `crates/opencap-drivers/src/lib.rs`: one `DriverEntry` in `DRIVERS` (`#[cfg(feature = ...)]` on `create`).
 5. `crates/opencap-engine/Cargo.toml`: `driver-<name> = ["opencap-drivers/driver-<name>"]`, add it to `default`.
-6. Tests: unit tests in `drivers/<name>/tests/`; conformance vectors in `../tests/conformance/<driver>/`;
+6. Tests: unit tests in `drivers/<name>/tests/`; conformance vectors in `../tests/conformance/<driver>/`, run by adding an adapter to `crates/opencap-conformance/tests/` (`run_area("<area>", |input| ...)`);
    the simulator in `../tests/helpers/<proto>_sim.py`, driven against the binary by `../tests/integration/`.
 7. `cargo test -p opencap-drivers` (with and without `--no-default-features`) checks the table against the features.
 
@@ -80,6 +81,12 @@ Benchmarks of the tag store and event bus (numbers in
 ```bash
 cargo bench -p opencap-core --bench store         # Criterion micro-benchmarks
 cargo bench -p opencap-core --bench store_load    # 250k tags, 8 writers, 4 subscribers (one slow), p99
+```
+
+Conformance vectors (Modbus plan and decode, scaling, payload; every failing vector is listed with its key and description):
+
+```bash
+cargo test -p opencap-conformance
 ```
 
 Conformance against the Python reference (from the repository root, after `cargo build`):

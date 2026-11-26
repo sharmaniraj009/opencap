@@ -18,6 +18,10 @@ tests/conformance/
   ab_logix/decode/*.json Logix values coerced to the configured dtype
   ab_pccc/plan/*.json    PCCC (SLC/MicroLogix) address parsing and file blocks (D-008, D-027)
   ab_pccc/decode/*.json  PCCC words, bits, floats, strings and T/C sub-elements
+  melsec_mc/plan/*.json    MELSEC MC address parsing, block planning, params (D-054, D-055)
+  melsec_mc/decode/*.json  MELSEC words to values
+  melsec_mc/frame/*.json   MC 3E batch-read request bytes as pymcprotocol builds them (needs pymcprotocol)
+  melsec_mc/reply/*.json   MC 3E reply checks, end codes and their config/comm classification
   config/              config model fixtures: an older, separate format, see config/compare.py
 ```
 
@@ -188,6 +192,21 @@ Planning of an `ab_pccc` device (SLC 500, MicroLogix, PLC-5 data tables; `ab_df1
 - `expected`: `{"values": {"TAG": <value>}}`: words masked or sign-extended to the dtype, bits
   taken from the whole word, T/C bits already extracted (any non-zero is true), or a
   `decode_error`.
+
+### `melsec_mc/plan`, `melsec_mc/decode`
+
+- plan `input`: `{"params", "tags"}`; `expected`: `{"blocks": [{device, start, count, head_number, last_number,
+  describe, tags, items: [{names, offset, text, dtype, words, bit, dims, str_len, str_order}]}], "invalid"}`
+  or `{"error"}` when the params are refused.
+- decode `input`: `{"params", "tags", "reply": {"words": [u16, ...]}}` (tags plan to one block);
+  `expected`: `{"values": {...}}`.
+
+### `melsec_mc/frame`, `melsec_mc/reply`
+
+- frame `input`: `{"params", "tags", "timeout_ms"}`; `expected`: `{"requests": [hex per block], "cpu_model": hex}`,
+  the 3E binary request frames (generated through pymcprotocol).
+- reply `input`: `{"frame": hex, "words": n}`; `expected`: `{"frame_error"}`, `{"end_code", "kind": "config"|"comm",
+  "message"}` or `{"words": [...]}` (exactly `n` words, never zero-filled).
 
 ## Regenerating
 

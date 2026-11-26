@@ -33,6 +33,7 @@ for _p in (ROOT, ROOT / "scripts"):        # the repo (opencap, tests) and the A
         sys.path.insert(0, str(_p))
 
 import gen_conformance_ab  # noqa: E402
+import gen_conformance_mc  # noqa: E402
 
 from opencap import FIRM_VERSION  # noqa: E402
 from opencap.config.models import Device, PayloadCfg, PublishCfg, Scale, Tag  # noqa: E402
@@ -1047,6 +1048,7 @@ SPECS: dict[str, list[FileSpec]] = {
 
 
 SPECS.update(gen_conformance_ab.SPECS)      # Allen-Bradley Logix and PCCC (#5)
+SPECS.update(gen_conformance_mc.SPECS)      # Mitsubishi MELSEC MC 3E (#45)
 
 
 def build() -> dict[Path, str]:

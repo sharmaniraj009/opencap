@@ -1,0 +1,31 @@
+{
+ "format": 1,
+ "area": "melsec_mc/decode",
+ "description": "Floats and Kepware's non-normal float handling (D-054).",
+ "generated_by": "scripts/gen_conformance.py",
+ "vectors": [
+  {"id":"f32-12-5","description":"float32 12.5.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,16712]}},"expected":{"values":{"a":{"t":"float","v":"12.5"}}}},
+  {"id":"f32-negative","description":"float32 -0.15625.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,48672]}},"expected":{"values":{"a":{"t":"float","v":"-0.15625"}}}},
+  {"id":"f32-small","description":"float32 1.5e-30.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[25488,3571]}},"expected":{"values":{"a":{"t":"float","v":"1.5000000047566153e-30"}}}},
+  {"id":"f64","description":"float64 1234.5678.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[64173,27996,19013,16531]}},"expected":{"values":{"a":{"t":"float","v":"1234.5678"}}}},
+  {"id":"f64-negative","description":"float64 -1e+300.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[30108,34816,58428,65079]}},"expected":{"values":{"a":{"t":"float","v":"-1e+300"}}}},
+  {"id":"f32-zero","description":"float32 0.0.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,0]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"f32-negative-zero","description":"float32 -0.0.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,32768]}},"expected":{"values":{"a":{"t":"float","v":"-0.0"}}}},
+  {"id":"nonnormal-zero-nan","description":"float32 nan: Kepware 'Replace with Zero'.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,32704]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-nan","description":"float32 nan, nonnormal_float unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,32704]}},"expected":{"values":{"a":{"t":"float","v":"nan"}}}},
+  {"id":"nonnormal-zero-inf","description":"float32 inf: Kepware 'Replace with Zero'.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,32640]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-inf","description":"float32 inf, nonnormal_float unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,32640]}},"expected":{"values":{"a":{"t":"float","v":"inf"}}}},
+  {"id":"nonnormal-zero-neg-inf","description":"float32 neg-inf: Kepware 'Replace with Zero'.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,65408]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-neg-inf","description":"float32 neg-inf, nonnormal_float unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[0,65408]}},"expected":{"values":{"a":{"t":"float","v":"-inf"}}}},
+  {"id":"nonnormal-zero-denormal","description":"float32 denormal: Kepware 'Replace with Zero'.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[1,0]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-denormal","description":"float32 denormal, nonnormal_float unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[1,0]}},"expected":{"values":{"a":{"t":"float","v":"1.401298464324817e-45"}}}},
+  {"id":"nonnormal-zero-neg-denormal","description":"float32 neg-denormal: Kepware 'Replace with Zero'.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[1,32768]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-neg-denormal","description":"float32 neg-denormal, nonnormal_float unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float32"}],"reply":{"words":[1,32768]}},"expected":{"values":{"a":{"t":"float","v":"-1.401298464324817e-45"}}}},
+  {"id":"nonnormal-zero-f64-nan","description":"float64 nan replaced with zero.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[0,0,0,32760]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-f64-nan","description":"float64 nan unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[0,0,0,32760]}},"expected":{"values":{"a":{"t":"float","v":"nan"}}}},
+  {"id":"nonnormal-zero-f64-inf","description":"float64 inf replaced with zero.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[0,0,0,32752]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-f64-inf","description":"float64 inf unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[0,0,0,32752]}},"expected":{"values":{"a":{"t":"float","v":"inf"}}}},
+  {"id":"nonnormal-zero-f64-denormal","description":"float64 denormal replaced with zero.","input":{"params":{},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[1,0,0,0]}},"expected":{"values":{"a":{"t":"float","v":"0.0"}}}},
+  {"id":"nonnormal-unmodified-f64-denormal","description":"float64 denormal unmodified.","input":{"params":{"nonnormal_float":"unmodified"},"tags":[{"name":"a","address":"D0","dtype":"float64"}],"reply":{"words":[1,0,0,0]}},"expected":{"values":{"a":{"t":"float","v":"5e-324"}}}}
+ ]
+}

@@ -235,3 +235,132 @@ mod ab_logix {
         });
     }
 }
+
+mod melsec_mc {
+    use super::*;
+    use opencap_driver_melsec_mc::frame::{
+        batch_read_words, end_code_text, is_config_end_code, monitoring_timer, parse_reply, read_cpu_model,
+        reply_words, Reply,
+    };
+    use opencap_driver_melsec_mc::{address::device_spec, decode_block, McBlock, McParams, MelsecMcDriver};
+
+    fn driver(input: &Json) -> Result<Result<(MelsecMcDriver, Vec<Tag>), String>, String> {
+        let tags = tags_of(input)?;
+        let mut dev = Device::new("SITE/PLC", "SITE", "PLC", "melsec_mc", "192.0.2.1", 5000, vec![]);
+        dev.params = params_of(input);
+        Ok(MelsecMcDriver::new(&dev).map(|d| (d, tags)))
+    }
+
+    fn block_of(plan: &Plan, i: usize) -> &McBlock {
+        plan.blocks[i].as_any().downcast_ref::<McBlock>().expect("an MC block")
+    }
+
+    #[test]
+    fn plan() {
+        run_area("melsec_mc/plan", |input| {
+            let (d, tags) = match driver(input)? {
+                Ok(x) => x,
+                Err(reason) => return Ok(json!({"error": reason})),
+            };
+            let plan = d.plan_tags(&tags);
+            let blocks: Vec<Json> = (0..plan.blocks.len())
+                .map(|i| {
+                    let b = block_of(&plan, i);
+                    let items: Vec<Json> = b
+                        .items
+                        .iter()
+                        .map(|it| {
+                            json!({
+                                "names": it.names, "offset": it.offset, "text": it.addr.text,
+                                "dtype": it.addr.dtype.as_str(), "words": it.addr.words, "bit": it.addr.bit,
+                                "dims": it.addr.dims, "str_len": it.addr.str_len,
+                                "str_order": it.addr.str_order.map(|c| c.to_string()),
+                            })
+                        })
+                        .collect();
+                    json!({
+                        "device": b.device, "start": b.start, "count": b.count,
+                        "head_number": b.head_number(), "last_number": b.last_number(),
+                        "describe": opencap_core::driver::Block::describe(b),
+                        "tags": b.tags, "items": items,
+                    })
+                })
+                .collect();
+            Ok(json!({"blocks": blocks, "invalid": plan.invalid}))
+        });
+    }
+
+    #[test]
+    fn decode() {
+        run_area("melsec_mc/decode", |input| {
+            let (d, tags) = driver(input)?.map_err(|e| format!("params refused: {e}"))?;
+            let plan = d.plan_tags(&tags);
+            if plan.blocks.len() != 1 || !plan.invalid.is_empty() {
+                return Err(format!("decode vector must plan to one block, got {}", plan.blocks.len()));
+            }
+            let words: Vec<u16> = input["reply"]["words"]
+                .as_array()
+                .ok_or("no words")?
+                .iter()
+                .map(|w| w.as_u64().map(|w| w as u16).ok_or("bad word"))
+                .collect::<Result<_, _>>()?;
+            let decoded = decode_block(block_of(&plan, 0), &words, &d.params);
+            let out: Map<String, Json> = decoded
+                .iter()
+                .map(|(n, r)| {
+                    let enc = match r {
+                        Ok(v) => encode_value(Some(v)),
+                        Err(e) => encode_decode_error(&e.0),
+                    };
+                    (n.clone(), enc)
+                })
+                .collect();
+            Ok(json!({"values": out}))
+        });
+    }
+
+    fn hex(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn frame() {
+        run_area("melsec_mc/frame", |input| {
+            let (d, tags) = driver(input)?.map_err(|e| format!("params refused: {e}"))?;
+            let timer = monitoring_timer(input["timeout_ms"].as_i64().ok_or("no timeout_ms")?);
+            let plan = d.plan_tags(&tags);
+            let p: &McParams = &d.params;
+            let requests: Vec<String> = (0..plan.blocks.len())
+                .map(|i| {
+                    let b = block_of(&plan, i);
+                    let code = device_spec(b.device).expect("device").code;
+                    hex(&batch_read_words(p, timer, code, b.head_number() as u32, b.count as u16))
+                })
+                .collect();
+            Ok(json!({"requests": requests, "cpu_model": hex(&read_cpu_model(p, timer))}))
+        });
+    }
+
+    #[test]
+    fn reply() {
+        run_area("melsec_mc/reply", |input| {
+            let text = input["frame"].as_str().ok_or("no frame")?;
+            let frame: Vec<u8> = (0..text.len() / 2)
+                .map(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).map_err(|e| e.to_string()))
+                .collect::<Result<_, _>>()?;
+            let words = input["words"].as_u64().ok_or("no words")? as usize;
+            Ok(match parse_reply(&frame) {
+                Err(e) => json!({"frame_error": e}),
+                Ok(Reply::EndCode(code)) => json!({
+                    "end_code": code,
+                    "kind": if is_config_end_code(code) { "config" } else { "comm" },
+                    "message": end_code_text(code),
+                }),
+                Ok(Reply::Data(data)) => match reply_words(&data, words) {
+                    Ok(w) => json!({"words": w}),
+                    Err(e) => json!({"frame_error": e}),
+                },
+            })
+        });
+    }
+}

@@ -225,7 +225,8 @@ async def test_on_change_deadband_and_quality():
         pub.notify_cycle(dev.id)
         if expect_publish:
             await settle(link, topic, n + 1, timeout=1.0)
-            assert time.monotonic() - t0 < 0.2                     # driven by notify_cycle, not the poll
+            # the link's own stamp of the send: the observer's poll of `settle` adds its own wake-up delay
+            assert link.on(topic)[n].t - t0 < 0.2                  # driven by notify_cycle, not the poll
         else:
             await asyncio.sleep(0.05)
             assert len(link.on(topic)) == n
@@ -256,6 +257,8 @@ async def test_on_change_deadband_zero_ignores_rounding_noise():
             cache.set(dev.id, vals(flow=flow))
             pub.notify_cycle(dev.id)
             await asyncio.sleep(0.03)
+        await settle(link, topic_of(dev), 2)     # the last change is published before the publisher stops
+        await asyncio.sleep(0.05)                # ... and nothing more follows (a missing publish fails above)
     assert [p["Data"]["FLOW_1"] for p in link.data(topic_of(dev))] == [1.0, 1.0001]
 
 
@@ -313,7 +316,7 @@ async def test_status_on_state_change_and_periodic_refresh():
         status.by_dev[a.id] = {"state": "demoted", "last_good": "2026-11-16T10:15:01+00:00", "errors": 6}
         t0 = time.monotonic()
         await settle(link, ta, 2)
-        assert time.monotonic() - t0 < 0.15                        # published as soon as the state changes
+        assert link.on(ta)[1].t - t0 < 0.15                        # published as soon as the state changes (link stamp)
         assert json.loads(link.on(ta)[1].payload) == {"state": "demoted",
                                                       "last_good": "2026-11-16T10:15:01+00:00", "errors": 6}
         await settle(link, tb, 2, timeout=1.0)                     # periodic refresh of an unchanged device

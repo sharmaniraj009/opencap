@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import httpx
 
@@ -48,7 +49,10 @@ async def test_ready_is_503_until_the_muted_device_is_offline(tmp_path):
 
                     health = (await http.get("/health")).json()
                     assert health["initial_scan_complete"] is True
-                    assert health["initial_scan_ms"] >= 300       # waited for the muted device's timeout
+                    # waited for the muted device's 300 ms timeout; asyncio runs a timer up to one clock
+                    # resolution early (BaseEventLoop._clock_resolution: 15.6 ms on Windows, ~0 on Linux)
+                    early_ms = time.get_clock_info("monotonic").resolution * 1000
+                    assert health["initial_scan_ms"] >= 300 - early_ms
                     # sticky: stays ready while the muted device keeps failing
                     await asyncio.sleep(0.5)
                     assert (await http.get("/health/ready")).status_code == 200

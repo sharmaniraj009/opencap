@@ -268,13 +268,18 @@ async def test_power_off_is_connection_lost_and_power_on_resubscribes(sim, drive
 
 
 async def test_connect_refused_is_connection_lost(driver_for):
-    dev = make_device(None, [Tag(name="X", address="ns=2;i=1", dtype="float64")],
+    # A refused TCP connect takes 1-2 s on Windows (SYN retries, #176); a 10 s timeout keeps
+    # "refused at once" apart from "waited out the connect timeout" on every OS.
+    timeout_ms = 10_000
+    dev = make_device(None, [Tag(name="X", address="ns=2;i=1", dtype="float64")], timeout_ms=timeout_ms,
                       endpoint=f"opc.tcp://127.0.0.1:{free_port()}/none")
     drv = driver_for(dev)
     t0 = time.monotonic()
     with pytest.raises(ConnectionLost, match="connect failed"):
         await drv.connect()
-    assert time.monotonic() - t0 < 2 and not drv.connected
+    elapsed = time.monotonic() - t0
+    assert elapsed < timeout_ms / 1000 / 2, f"connect took {elapsed:.2f}s: waited for the timeout, not refused"
+    assert not drv.connected
     await drv.close()                                         # idempotent
     await drv.close()
 
@@ -431,19 +436,23 @@ async def test_worker_keeps_unchanged_values_good_and_recovers_after_power_cycle
     dev = make_device(sim, ua_tags(sim, ["LTI002_PV", "MODE"]), scan_ms=100, timeout_ms=500)
     ch = Channel(name=dev.channel, devices=[dev])
     cache = ValueCache()
+    # Quality right after each cycle updated the cache: "stale" is a wall-clock rule (3 x scan_ms), so
+    # a sample taken at an arbitrary moment turns stale whenever a loaded runner delays one cycle.
+    after_cycle: list[str] = []
+
+    def on_cycle(device_id: str) -> None:
+        after_cycle.append(cache.get(device_id, "GRP.LTI002_PV").quality)
+
     worker = ChannelWorker(ch, {dev.id: plan_device(dev)}, cache, start_jitter=0.0, backoff_base_s=0.1,
-                           backoff_max_s=0.2)
+                           backoff_max_s=0.2, on_cycle=on_cycle)
     old = datetime.now(UTC) - timedelta(hours=2)
     await sim.set("LTI002_PV", 1.5, source_ts=old)            # unchanged for two hours
     task = asyncio.create_task(worker.run())
     try:
         await wait_for(lambda: worker.health(dev.id).state == "ok", 5, "device ok")
-        seen = set()
-        deadline = time.monotonic() + 1.0                     # 10 x the rate, values never change
-        while time.monotonic() < deadline:
-            seen.add(cache.get(dev.id, "GRP.LTI002_PV").quality)
-            await asyncio.sleep(0.01)
-        assert seen == {"good"}                               # D-045: not stale although SourceTimestamp is old
+        start = len(after_cycle)
+        await wait_for(lambda: len(after_cycle) >= start + 10, 10, "10 cycles")   # values never change
+        assert set(after_cycle[start:]) == {"good"}           # D-045: not stale although SourceTimestamp is old
         assert cache.get(dev.id, "GRP.LTI002_PV").source_ts == old
         assert worker.device_status(dev.id)["connected"] is True
 

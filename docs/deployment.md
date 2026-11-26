@@ -203,7 +203,7 @@ Notes:
   uncomment `<serviceaccount>` in the XML and grant that account modify rights on
   `C:\ProgramData\opencap\data` and `\logs`.
 - CI runs the test suite and this WinSW setup (install, start, `/health`, stop with a clean
-  exit 0, uninstall) on windows-latest; see `docs/decisions.md` D-080. It has not been tried on
+  exit 0, uninstall) on windows-latest; see `docs/decisions.md` D-082. It has not been tried on
   plant hardware yet. Please report what you find.
 
 ## Commissioning a Siemens S7 or Mitsubishi PLC

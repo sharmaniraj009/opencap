@@ -425,9 +425,9 @@ reads the SPDX `license = "Apache-2.0"` expression and `license-files` (PEP 639)
   restarts on failure and rolls logs by size. That stop path was checked on Linux with
   `add_signal_handler` disabled, as on Windows: `poller_stopped` and every channel closed.
 - **Not tested on real Windows yet.** Both fixes are covered by unit tests on Linux; the
-  WinSW setup follows WinSW's documentation. *(Superseded by D-080: CI tests it on Windows.)*
+  WinSW setup follows WinSW's documentation. *(Superseded by D-082: CI tests it on Windows.)*
 
-### D-080 Windows CI: what running on windows-latest found (#35)
+### D-082 Windows CI: what running on windows-latest found (#35)
 CI now runs the fast suite (and the acceptance suite nightly) on windows-latest with Python
 3.12, plus a WinSW service smoke test (`deploy/windows/service_smoke.py`). D-031's fixes hold:
 the shipped `opencap-service.xml` installs, starts, answers `/health` with MQTT connected, and on

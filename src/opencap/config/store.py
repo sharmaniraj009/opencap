@@ -57,9 +57,12 @@ from opencap.config.kep_import import (  # the CLI importer's own helpers, so bo
 from opencap.config.loader import (
     DEVICES_FILE,
     MAP_FILE,
+    NODE_FILE,
     OVERRIDES_FILE,
     POLLER_FILE,
+    PROJECT_FILE,
     LoadedConfig,
+    is_v2,
     load_config,
 )
 from opencap.config.models import (
@@ -80,6 +83,9 @@ from opencap.config.models import (
 )
 
 CONFIG_FILES = (POLLER_FILE, DEVICES_FILE, MAP_FILE, OVERRIDES_FILE)
+V2_FILES = (PROJECT_FILE, NODE_FILE)
+V2_MESSAGE = (f"this config directory is a project v2 ({PROJECT_FILE}, ADR-0013): editing it through the config API "
+              "arrives with the v2 ProjectStore (#37 part 2); until then edit project.json and POST /reload")
 # `/api/v1/devices/{id}/<suffix>` routes: a device with one of these names would be ambiguous
 RESERVED_DEVICE_NAMES = frozenset(API_DEVICE_NAMES)
 EXPORT_FORMAT = "opencap-config"
@@ -616,17 +622,20 @@ class ConfigStore:
     # reading ------------------------------------------------------------------------
     def _raw(self) -> tuple[dict[str, bytes | None], str]:
         raw: dict[str, bytes | None] = {}
-        for name in CONFIG_FILES:
+        names = V2_FILES if is_v2(self.dir) else CONFIG_FILES
+        for name in names:
             try:
                 raw[name] = (self.dir / name).read_bytes()
             except FileNotFoundError:
                 raw[name] = None
         h = hashlib.sha256()
-        for name in CONFIG_FILES:
+        for name in names:
             h.update(name.encode() + b"\0" + (b"\1" + raw[name] if raw[name] is not None else b"\0") + b"\0")
         return raw, h.hexdigest()[:16]
 
     def _read(self) -> _State:
+        if is_v2(self.dir):
+            raise Conflict(V2_MESSAGE)
         raw, revision = self._raw()
         texts = {n: (b.decode("utf-8-sig") if b is not None else None) for n, b in raw.items()}
         devices, devices_error = None, None
@@ -656,6 +665,8 @@ class ConfigStore:
 
         if not self.dir.is_dir():
             return no(f"{self.dir} does not exist")
+        if is_v2(self.dir):
+            return no(V2_MESSAGE)
         try:
             if os.statvfs(self.dir).f_flag & os.ST_RDONLY:
                 return no(f"{self.dir} is on a read-only filesystem")
@@ -719,6 +730,16 @@ class ConfigStore:
         cached = self._disk_cache
         if cached is not None and cached.revision == self.revision():
             return cached
+        if is_v2(self.dir):                       # read-only support for a project v2 (#37 part 1)
+            revision = self.revision()
+            try:
+                disk = DiskState(revision, load_config(self.dir), None)
+            except ValidationError as exc:
+                disk = DiskState(revision, None, f"config invalid ({exc.title})", _pyd_errors(exc))
+            except (ValueError, FileNotFoundError) as exc:
+                disk = DiskState(revision, None, str(exc))
+            self._disk_cache = disk
+            return disk
         state = self._read()
         try:
             disk = DiskState(state.revision, self._load_texts(state.texts), None)

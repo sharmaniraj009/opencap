@@ -54,3 +54,11 @@ What this means for v2 (#37):
 - The API's KEPServerEX import keeps the CLI's stub-append rules (D-012) on v1. On v2 it produces
   a project revision through the same `ProjectStore`.
 - This ADR becomes Accepted when #37 merges.
+
+## Status after #37 part 1
+#37 is split in two (comment on the issue). Part 1 ships the v2 layout: `ProjectV2` and `NodeConfig`
+with exported schemas; the loader (v2 when `project.json` exists, the shared finalize steps); `opencap
+config migrate [--dry-run]`, which refuses to write unless v2 loads `Device`-equal to v1; and `import-kep
+--format v2`. Until part 2 (the `ProjectStore` protocol and the v2 store with revisions), the config API
+answers 409 on a v2 project for every store-backed route. North agents stay in `node.yaml` (today's
+`poller.yaml` fields) until ADR-0005's north plug-in model exists. D-087.

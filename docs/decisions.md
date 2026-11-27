@@ -2206,3 +2206,21 @@ Rust code, checked by the existing vectors.
   by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
   the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
   `import-kep` reporting are Python code and are not ported.
+
+### D-107 One log line format in the Rust engine (#133, LOG-R3, LOG-R6, LOG-R7)
+- **Format.** `timestamp` (UTC, microseconds, `Z`), `level` (`debug`, `info`, `warning`, `error`), `event` (was `message`),
+  `instance` (`poller.yaml`), then the event's fields; no `target`. This is plan 15's open question 4: the Rust engine
+  changes, Python stays as it is, and the `jq` filters in `docs/deployment.md` match both. Event names are unchanged.
+- **Reason codes.** `opencap_core::reasons`: the closed lists of LOG-R6 (device communication, config writes, outbox) plus
+  `unsupported` (driver not built or not implemented) and `internal` (a bug, not a device fault) in the device list. A
+  warning or error that names no `reason` gets the default of its event (a table, then the words of its `error` text,
+  else `internal`), so driver crates need no edits; free text written under `reason` moves to `detail`. A device's
+  `last_reason` is the code of `last_error`. The class and text -> code mapping, the simulator's faults included
+  (`fail_connect` is `refused`; `fail_every_n_reads` and a latency at or above the timeout are `timeout`), is pinned by
+  `tests/conformance/reasons/classify.json`. Python has no reason codes and is frozen, so it is not run there.
+- **Flood control.** Warnings and errors with the same event, device and reason are written the first time; the next line
+  after 60 s carries `suppressed=N` (the repeats since). A burst of 1000 gives one line, then one more a minute later.
+  Nothing is written when a burst stops: the count is reported by the next occurrence, as `api.request_refused` does.
+  State-change warnings (`mqtt_disconnected`, `device.offline`, `device.demoted`, `device.resumed`, `mqtt_connected`,
+  `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
+  once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).

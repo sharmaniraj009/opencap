@@ -460,7 +460,11 @@ mod tests {
         let values = v["values"].as_array().unwrap();
         let ids: Vec<&str> = values.iter().map(|e| e["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["S.D.A", "S.D.B"]);
-        assert_eq!((values[0]["q"].as_bool(), values[0]["v"].is_null()), (Some(false), true), "bad tag: q false, v null");
+        assert_eq!(
+            (values[0]["q"].as_bool(), values[0]["v"].is_null()),
+            (Some(false), true),
+            "bad tag: q false, v null"
+        );
         assert_eq!((values[1]["q"].as_bool(), values[1]["v"].as_bool()), (Some(true), Some(true)));
         assert_eq!(values[1]["t"], 1_794_823_200_000i64, "source_ts of the read, in ms");
         assert!(!data[0].contains("SubDeviceId") && !data[0].contains("DataValid"));

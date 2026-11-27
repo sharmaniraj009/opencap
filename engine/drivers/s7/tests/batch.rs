@@ -173,7 +173,7 @@ async fn scattered_blocks_share_one_request_and_decode_as_before() {
         assert_eq!(got[name].value, Some(expect_value(n)), "{name}");
     }
     // only setup communication and read var reached the CPU
-    assert!(p.seen.lock().unwrap().iter().all(|(t, f)| (*t == 1 && (*f == 0xF0 || *f == 0x04))));
+    assert!(p.seen.lock().unwrap().iter().all(|(t, f)| *t == 1 && (*f == 0xF0 || *f == 0x04)));
 }
 
 #[tokio::test]

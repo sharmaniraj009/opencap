@@ -2352,7 +2352,7 @@ Status: accepted (ADR-0018 order: Rust crate, then C/C++ FFI, then native; an ex
 - **Not benchmarked.** A comparison needs snap7 built as a shared library and bound by FFI, plus a simulator both clients can
   use. The simulator in the tree (`tests/helpers/s7_sim.py`) is a Python library with no command-line entry point and may not
   be extended; snap7's own server would mean a second C++ build for tests. The cost is out of proportion to the question:
-  the native client is small (`conn.rs` and `proto.rs`, about 800 lines), is the engine's own code, passes the 111 shared S7
+  the native client is small (`conn.rs` and `proto.rs`, about 800 lines), is the engine's own code, passes the 331 shared S7
   vectors (address, plan, decode, frame, reply), the Rust fake-CPU tests (`drivers/s7/tests`) and the Python simulator suite,
   and is read-only by construction (`check_read_only` refuses every other function before it reaches the socket).
 - **Decision:** keep the native S7 driver. Revisit when a Rust S7 crate with real adoption exists, or with a real CPU

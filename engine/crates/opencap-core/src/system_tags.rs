@@ -9,14 +9,16 @@
 //! Nothing here reads the wire, a clock or the metrics registry: the state carries every input,
 //! so the same function serves the vectors and the running engine.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use serde::Deserialize;
 use serde_json::{Map, Value as Json};
 
-use crate::value::iso_utc;
+use crate::store::{DeviceWriter, TagLayout, TagStore};
+use crate::value::{iso_utc, Quality, TagValue, Value};
 
 const U32: u64 = 1 << 32;
 const SERIAL_DRIVERS: [&str; 2] = ["modbus_rtu", "ab_df1"];
@@ -642,6 +644,144 @@ pub fn evaluate(state: &State) -> Result<Tags, String> {
     Ok(out)
 }
 
+// --- the store (virtual devices) ---------------------------------------------------------------
+
+impl SysValue {
+    /// The tag-store value (`None` is the datetime placeholder: a good tag with no value).
+    pub fn to_value(&self) -> Option<Value> {
+        Some(match self {
+            SysValue::Bool(b) => Value::Bool(*b),
+            SysValue::U32(n) => Value::Int(i64::from(*n)),
+            SysValue::U64(n) => Value::from_u64(*n),
+            SysValue::F64(f) => Value::Float(*f),
+            SysValue::Str(t) => Value::Str(t.clone()),
+            SysValue::DateTime(t) => return t.clone().map(Value::Str),
+            SysValue::StrArray(a) => Value::List(a.iter().cloned().map(Value::Str).collect()),
+        })
+    }
+}
+
+/// The folder (virtual device id) of a system-tag path: everything before the last dot.
+pub fn folder_of(path: &str) -> &str {
+    path.rsplit_once('.').map(|(f, _)| f).unwrap_or(path)
+}
+
+struct Folder {
+    writer: DeviceWriter,
+    names: Vec<String>,
+    last: HashMap<String, SysValue>,
+}
+
+/// The only writer of the system-tag virtual devices (spec section 2, ADR-0005). Each folder
+/// (`_System`, `Plant A._Statistics`, `Plant A.PLC1._System`, ...) is one virtual device of the
+/// tag store. A tag is written only when its value changed, quality always `good`, `source_ts`
+/// the computation time.
+pub struct SystemTagWriter {
+    store: Arc<TagStore>,
+    folders: HashMap<String, Folder>,
+}
+
+impl SystemTagWriter {
+    pub fn new(store: Arc<TagStore>) -> Self {
+        Self { store, folders: HashMap::new() }
+    }
+
+    /// Write `tags`, which must hold every tag of each folder they touch (the level functions
+    /// above produce whole folders). A folder whose tag set changed (a reload) is registered
+    /// again. Returns how many tags changed.
+    pub fn apply(&mut self, tags: &Tags, now: DateTime<Utc>) -> usize {
+        let mut by_folder: BTreeMap<&str, Vec<(&str, &SysValue)>> = BTreeMap::new();
+        for (path, v) in tags {
+            let folder = folder_of(path);
+            by_folder.entry(folder).or_default().push((&path[folder.len() + 1..], v));
+        }
+        let mut changed = 0;
+        for (name, entries) in by_folder {
+            let want: Vec<String> = entries.iter().map(|(n, _)| (*n).to_string()).collect();
+            let stale = self.folders.get(name).is_none_or(|f| f.names != want || !f.writer.is_current());
+            if stale {
+                let writer = self.store.register_layout(TagLayout::new(name, want.iter().cloned()));
+                self.folders.insert(name.to_string(), Folder { writer, names: want, last: HashMap::new() });
+            }
+            let folder = self.folders.get_mut(name).expect("folder registered above");
+            let mut batch: Vec<(&str, TagValue)> = Vec::new();
+            for (tag, v) in entries {
+                if folder.last.get(tag) != Some(v) {
+                    batch.push((tag, TagValue::new(v.to_value(), Quality::Good, Some(now))));
+                    folder.last.insert(tag.to_string(), v.clone());
+                }
+            }
+            if !batch.is_empty() {
+                changed += batch.len();
+                folder.writer.update(batch.iter().map(|(n, tv)| (*n, tv)));
+            }
+        }
+        changed
+    }
+
+    /// Unregister every folder for which `keep` is false (channels and devices a reload removed).
+    pub fn retain(&mut self, keep: impl Fn(&str) -> bool) {
+        let gone: Vec<String> = self.folders.keys().filter(|f| !keep(f)).cloned().collect();
+        for f in gone {
+            self.store.unregister(&f);
+            self.folders.remove(&f);
+        }
+    }
+
+    /// `{path, dtype, value, quality, source_ts}` of every tag whose path starts with `prefix`
+    /// (the `GET /api/v1/system/tags` items), folders and tags in name order.
+    pub fn items(&self, prefix: &str) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        for folder in self.folders() {
+            let f = &self.folders[&folder];
+            let snap = self.store.snapshot(&folder);
+            for name in &f.names {
+                let path = format!("{folder}.{name}");
+                let (Some(sv), Some(tv)) = (f.last.get(name), snap.get(name)) else { continue };
+                if path.starts_with(prefix) {
+                    let mut item = tv.to_api_json();
+                    item["path"] = path.into();
+                    item["dtype"] = sv.dtype().into();
+                    out.push(item);
+                }
+            }
+        }
+        out
+    }
+
+    /// A device's `_System.*` and `_Statistics.*` tags keyed by their device-relative path
+    /// (`_System._Error`), as SubDevice JSON and `values?include_system=true` name them.
+    pub fn device_values(&self, base: &str) -> serde_json::Map<String, serde_json::Value> {
+        let mut out = serde_json::Map::new();
+        for part in ["_System", "_Statistics"] {
+            let folder = format!("{base}.{part}");
+            let Some(f) = self.folders.get(&folder) else { continue };
+            let snap = self.store.snapshot(&folder);
+            for name in &f.names {
+                if let Some(tv) = snap.get(name) {
+                    out.insert(format!("{part}.{name}"), tv.to_api_json());
+                }
+            }
+        }
+        out
+    }
+
+    /// Folder names (virtual device ids), sorted.
+    pub fn folders(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.folders.keys().cloned().collect();
+        v.sort();
+        v
+    }
+
+    pub fn contains(&self, folder: &str) -> bool {
+        self.folders.contains_key(folder)
+    }
+
+    pub fn folder_set(&self) -> HashSet<&str> {
+        self.folders.keys().map(String::as_str).collect()
+    }
+}
+
 // --- the catalogue (spec: tests/conformance/system_tags_catalogue.json) ------------------------
 
 /// Names of the `tick` update class (spec section 2.1): recomputed once per second, not on every
@@ -691,6 +831,28 @@ pub fn is_tick(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writer_publishes_changes_only_and_good_quality() {
+        let store = Arc::new(TagStore::new());
+        let mut w = SystemTagWriter::new(store.clone());
+        let mut tags = Tags::new();
+        tags.insert("Plant A.PLC1._System._Error".into(), SysValue::Bool(false));
+        tags.insert("Plant A.PLC1._System._LastGood".into(), SysValue::DateTime(None));
+        let t0 = parse_ts("2026-11-18T10:00:00.000Z").unwrap();
+        assert_eq!(w.apply(&tags, t0), 2);
+        assert_eq!(w.apply(&tags, t0 + chrono::Duration::seconds(1)), 0, "unchanged values are not rewritten");
+        tags.insert("Plant A.PLC1._System._Error".into(), SysValue::Bool(true));
+        let t1 = t0 + chrono::Duration::seconds(2);
+        assert_eq!(w.apply(&tags, t1), 1);
+        let e = store.get("Plant A.PLC1._System", "_Error").unwrap();
+        assert_eq!((e.value, e.quality, e.source_ts), (Some(Value::Bool(true)), Quality::Good, Some(t1)));
+        let lg = store.get("Plant A.PLC1._System", "_LastGood").unwrap();
+        assert_eq!((lg.value, lg.quality), (None, Quality::Good));
+        assert_eq!(w.folders(), vec!["Plant A.PLC1._System"]);
+        w.retain(|_| false);
+        assert!(store.get("Plant A.PLC1._System", "_Error").is_none());
+    }
 
     #[test]
     fn com_id_parses_com_names_only() {

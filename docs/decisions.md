@@ -2150,3 +2150,24 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   count). `_Error` is `consecutive_failures > 0` (spec section 9).
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
+
+### D-101 System tags in Rust, part 2: counters, task, store, API (#56)
+- **Counters (D-095).** `opencap_core::metrics::DeviceCounts` holds one device's series of `poll_requests_total`,
+  `poll_failed_reads_total` (new) and `poll_overrun_total`, resolved once; each series is itself an atomic, so a
+  system-tag recompute reads `get()` on a few atomics and never gathers the registry. The worker holds its
+  device's `Arc<DeviceCounts>`. Byte counters (`_RxBytes`, `_TxBytes`) stay absent until a driver counts bytes (#130).
+- **Channel in-flight.** The channel's wire lock hands out a guard that counts requests on the wire
+  (`_PendingReads`) and the high-water mark (`_MaxPendingReads`).
+- **Task.** `systags.rs` is the only writer of the virtual devices (`_System`, `Plant A._Statistics`,
+  `Plant A.PLC1._System`, ...: the folder is the device id, the tag the last path segment). A device cycle marks the
+  device; marks arriving within 50 ms are computed once and recompute that device's folders and its channel's, nothing
+  else. A tick at each UTC second recomputes node, north-agent and channel tags and the devices in error (their
+  `_SecondsInError` counts). Static state (names, settings, tag counts, revision) is built once per config load.
+  A tag is written only when its value changed; quality is always `good`, `source_ts` the computation time.
+- **Placeholders.** A `datetime` with no value is a good tag whose value is null. The Rust engine has no OPC UA
+  server (#46), so its `opcua_server` north folder, when configured, reports `_Running` false with the reason.
+  The Sparkplug node has no folder yet (its link state is not exposed); the payload flag `include_system_tags`
+  follows in the next PR.
+- **API.** `GET /api/v1/system/tags[?prefix=]` (viewer) and `GET /devices/{id}/values?include_system=true`.
+  `api/openapi.json` is not changed: the contract file belongs to the Python-side issue #127 and the API parity
+  work (#140) adds the path there.

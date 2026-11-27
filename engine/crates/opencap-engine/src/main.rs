@@ -19,6 +19,7 @@ mod runtime;
 #[cfg(unix)]
 mod sdnotify;
 mod support;
+mod systags;
 #[cfg(windows)]
 mod winsvc;
 

@@ -16,13 +16,14 @@
 //! The engine implements [`EngineView`]; handlers never wait on PLC I/O except
 //! `read-once`, which is the one route that is supposed to.
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::{Body, HttpBody};
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -44,6 +45,15 @@ pub trait EngineView: Send + Sync + 'static {
     /// None = unknown device (404).
     fn device_detail(&self, device_id: &str) -> Option<Value>;
     fn device_values(&self, device_id: &str) -> Option<Value>;
+    /// The device's `_System.*` and `_Statistics.*` tags keyed by device-relative path
+    /// (`values?include_system=true`, spec section 10). `None` = no system tags.
+    fn device_system_values(&self, _device_id: &str) -> Option<Value> {
+        None
+    }
+    /// `GET /api/v1/system/tags[?prefix=]`: `{"items": [{path, dtype, value, quality, source_ts}], "revision"}`.
+    fn system_tags(&self, _prefix: &str) -> Value {
+        serde_json::json!({"items": [], "revision": ""})
+    }
     async fn read_once(&self, device_id: &str) -> Result<Value, ReadOnceError>;
     /// Err = the new config was rejected; the old one is kept.
     async fn reload(&self) -> Result<Value, String>;
@@ -371,10 +381,21 @@ async fn channels(State(st): St) -> Response {
     Json(st.view.channels_summary()).into_response()
 }
 
-async fn device_get(State(st): St, Path(path): Path<String>) -> Response {
+async fn system_tags(State(st): St, Query(q): Query<HashMap<String, String>>) -> Response {
+    Json(st.view.system_tags(q.get("prefix").map(String::as_str).unwrap_or(""))).into_response()
+}
+
+async fn device_get(State(st): St, Path(path): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
     if let Some(id) = path.strip_suffix("/values") {
         return match st.view.device_values(id) {
-            Some(v) => Json(v).into_response(),
+            Some(mut v) => {
+                if matches!(q.get("include_system").map(String::as_str), Some("true" | "1")) {
+                    if let (Value::Object(o), Some(Value::Object(extra))) = (&mut v, st.view.device_system_values(id)) {
+                        o.extend(extra);
+                    }
+                }
+                Json(v).into_response()
+            }
             None => unknown(id),
         };
     }
@@ -414,6 +435,7 @@ pub fn router(view: Arc<dyn EngineView>, auth: Auth) -> Router {
         .route("/health/ready", get(health_ready))
         .route("/api/v1/about", get(about))
         .route("/api/v1/support", get(support))
+        .route("/api/v1/system/tags", get(system_tags))
         .route("/metrics", get(metrics))
         .route("/channels", get(channels))
         .route("/devices/{*path}", get(device_get).post(device_post))

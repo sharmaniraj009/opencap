@@ -31,7 +31,7 @@
 
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
@@ -47,7 +47,7 @@ use tracing::{debug, info, warn};
 use crate::config::{Channel, Device, Scale, Tag};
 use crate::driver::{BlockRef, Driver, DriverError, DriverFactory};
 use crate::health::{Backoff, DeviceHealth, HealthEvent, HealthStatus, State};
-use crate::metrics::{observe_cycle, METRICS};
+use crate::metrics::{device_counts, observe_cycle, DeviceCounts, METRICS};
 use crate::registry::DevicePlan;
 use crate::scheduler::{DeviceSchedule, START_JITTER};
 use crate::store::{DeviceWriter, Snapshot, TagIndex, TagStore};
@@ -117,6 +117,9 @@ pub struct DeviceStatus {
     pub error_since: Option<String>,
     /// The most recent connect attempt failed (false before the first attempt).
     pub last_connect_failed: bool,
+    /// Tags in the blocks being polled now: accepted by the plan and not in a block disabled
+    /// by a `BlockConfigError` (system tag `_ActiveTagCount`).
+    pub scanned_tags: u64,
 }
 
 impl DeviceStatus {
@@ -159,11 +162,34 @@ struct Shared {
     store: Arc<TagStore>,
     factory: DriverFactory,
     wire: Mutex<()>,
+    /// Requests holding the wire now (0 or 1 under D-015) and the most at once since start
+    /// (system tags `_PendingReads`, `_MaxPendingReads`).
+    in_flight: AtomicU32,
+    max_in_flight: AtomicU32,
     opts: WorkerOptions,
     rng: StdMutex<StdRng>,
 }
 
+/// Held while a request is on the wire: the channel's FIFO lock plus the in-flight count.
+struct WireGuard<'a> {
+    _lock: tokio::sync::MutexGuard<'a, ()>,
+    shared: &'a Shared,
+}
+
+impl Drop for WireGuard<'_> {
+    fn drop(&mut self) {
+        self.shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 impl Shared {
+    async fn wire(&self) -> WireGuard<'_> {
+        let lock = self.wire.lock().await;
+        let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_in_flight.fetch_max(now, Ordering::SeqCst);
+        WireGuard { _lock: lock, shared: self }
+    }
+
     fn clock(&self) -> DateTime<Utc> {
         self.opts.clock.as_ref().map(|c| c()).unwrap_or_else(now_utc)
     }
@@ -239,6 +265,8 @@ struct Runner {
     polled: AtomicBool,
     /// One poll cycle finished, whatever its outcome (readiness, D-075).
     first_cycle_done: AtomicBool,
+    /// This device's counters behind `/metrics` and the system tags (D-095).
+    counts: Arc<DeviceCounts>,
 }
 
 /// The device's store writer and its stale limits by tag index.
@@ -284,6 +312,7 @@ impl Runner {
             cycle_ms: None,
             groups,
         };
+        let counts = device_counts(&device.id);
         let runner = Self {
             id: device.id.clone(),
             safety_s: safety_timeout_s(device.timeout_ms),
@@ -305,7 +334,9 @@ impl Runner {
                 consecutive_failures: 0,
                 error_since: None,
                 last_connect_failed: false,
+                scanned_tags: 0,
             }),
+            counts,
             unsupported: StdMutex::new(None),
             stats: StdMutex::new(CycleStats::default()),
             wake: Notify::new(),
@@ -357,6 +388,7 @@ impl Runner {
             consecutive_failures: st.health.consecutive_failures,
             error_since: st.health.error_since.map(crate::value::iso_utc),
             last_connect_failed: st.last_connect_failed,
+            scanned_tags: st.groups.iter().flatten().map(|b| b.tags().len() as u64).sum(),
         };
         *lock(&self.status) = snap;
     }
@@ -415,7 +447,7 @@ impl Runner {
         let budget = drv.connect_timeout().unwrap_or(Duration::from_secs_f64(safety));
         let t0 = mono();
         let res = {
-            let _wire = w.wire.lock().await;
+            let _wire = w.wire().await;
             tokio::time::timeout(budget, drv.connect()).await
         };
         let reason = match res {
@@ -431,7 +463,7 @@ impl Runner {
             let err = format!("connect failed: {reason}");
             st.last_connect_failed = true;
             st.connect_error = Some(err.clone());
-            METRICS.poll_requests.with_label_values(&[&self.id, "conn_error"]).inc();
+            self.counts.request("conn_error");
             let delay = st.backoff.failure(mono());
             self.close_driver(st, w).await;
             debug!(channel = %w.channel, device = %self.id, error = %reason, retry_in_s = delay, ms, "device.connect_failed");
@@ -466,7 +498,7 @@ impl Runner {
 
     async fn close_driver(&self, st: &mut RunnerState, w: &Shared) {
         let Some(drv) = st.driver.as_mut() else { return };
-        let _wire = w.wire.lock().await;
+        let _wire = w.wire().await;
         if tokio::time::timeout(Duration::from_secs_f64(self.safety_s), drv.close()).await.is_err() {
             debug!(channel = %w.channel, device = %self.id, "device.close_failed");
         }
@@ -475,7 +507,7 @@ impl Runner {
     // --- one block ----------------------------------------------------------------
 
     fn count(&self, w: &Shared, result: &str, block: &BlockRef, t0: f64, attempt: usize, error: Option<&str>) {
-        METRICS.poll_requests.with_label_values(&[&self.id, result]).inc();
+        self.counts.request(result);
         debug!(channel = %w.channel, device = %self.id, block = %block.describe(), result, attempt = attempt + 1,
                ms = round1((mono() - t0) * 1000.0), error = error.unwrap_or(""), "device.request");
     }
@@ -512,7 +544,7 @@ impl Runner {
             let t0 = mono();
             let res = {
                 let drv = st.driver.as_mut().expect("connected implies a driver");
-                let _wire = w.wire.lock().await;
+                let _wire = w.wire().await;
                 tokio::time::timeout(budget, drv.read(block.as_ref())).await
             };
             match res {
@@ -627,6 +659,7 @@ impl Runner {
                 }
                 Kind::Comm | Kind::ConnDown => {
                     comm_failed = true;
+                    self.counts.failed_reads.inc();
                     errors.push(res.error.unwrap_or_else(|| "communication failed".into()));
                     let abort = res.kind == Kind::ConnDown || (probe && !any_ok);
                     let failed: &[BlockRef] = if abort { &blocks[i..] } else { std::slice::from_ref(block) };
@@ -774,7 +807,7 @@ impl Runner {
         let overrun = sched.complete(slot.index, started, ended);
         lock(&self.stats).add(cycle_ms, overrun, st.health.state == State::Ok);
         if overrun {
-            METRICS.poll_overrun.with_label_values(&[&self.id]).inc();
+            self.counts.overruns.inc();
             debug!(channel = %w.channel, device = %self.id, rate_ms = (slot.rate_s * 1000.0).round(), cycle_ms, "device.overrun");
         }
         if st.groups[slot.index].is_empty() {
@@ -837,6 +870,8 @@ impl ChannelWorker {
             store,
             factory,
             wire: Mutex::new(()),
+            in_flight: AtomicU32::new(0),
+            max_in_flight: AtomicU32::new(0),
             opts,
             rng: StdMutex::new(rng),
         });
@@ -957,6 +992,11 @@ impl ChannelWorker {
             && r.broken().is_none()
             && !r.first_cycle_done.load(Ordering::SeqCst)
             && lock(&r.status).state != State::Demoted
+    }
+
+    /// Requests on the channel's wire right now (0 or 1) and the most at once since start.
+    pub fn in_flight(&self) -> (u32, u32) {
+        (self.shared.in_flight.load(Ordering::SeqCst), self.shared.max_in_flight.load(Ordering::SeqCst))
     }
 
     pub fn has_device(&self, device_id: &str) -> bool {

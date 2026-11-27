@@ -233,6 +233,13 @@ impl StoreAndForward {
         self.count
     }
 
+    /// Unix time (seconds) the oldest queued message was put, `None` when empty or closed
+    /// (system tag `_OutboxAgeS`).
+    pub fn oldest_created(&self) -> Option<f64> {
+        let db = self.db.as_ref()?;
+        db.query_row("SELECT created FROM outbox ORDER BY id LIMIT 1", [], |r| r.get(0)).ok()
+    }
+
     /// Logical queue size: sum of topic + payload bytes (what max_bytes limits).
     pub fn size_bytes(&self) -> i64 {
         self.bytes

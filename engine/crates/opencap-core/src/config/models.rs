@@ -300,6 +300,14 @@ pub struct PublishCfg {
     /// Message body format (D-072): the MQTT plugin writes SubDevice JSON or the IoT Gateway template (#170).
     #[serde(default)]
     pub format: PublishFormat,
+    /// Add the device's `_System.*` and `_Statistics.*` tags to `Data` (spec `system-tags.md`
+    /// section 10; D-103). Off by default: the payload is then byte-identical to before.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub include_system_tags: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Default for PublishCfg {
@@ -313,13 +321,23 @@ impl Default for PublishCfg {
             heartbeat_ms: d_heartbeat(),
             deadband: 0.0,
             format: PublishFormat::SubdeviceJson,
+            include_system_tags: false,
         }
     }
 }
 
 /// The publish settings' field names (Python `PublishCfg.model_fields`).
-pub const PUBLISH_FIELDS: [&str; 8] =
-    ["sub_device_id", "topic", "env", "mode", "interval_ms", "heartbeat_ms", "deadband", "format"];
+pub const PUBLISH_FIELDS: [&str; 9] = [
+    "sub_device_id",
+    "topic",
+    "env",
+    "mode",
+    "interval_ms",
+    "heartbeat_ms",
+    "deadband",
+    "format",
+    "include_system_tags",
+];
 
 fn d_1000() -> i64 {
     1000

@@ -2138,18 +2138,6 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - **Rust:** the Rust Modbus RTU driver (#149, D-070) should get the same shared-line check and the
   multi-drop timeout rule. That belongs in its loader and driver, not in this PR.
 
-### D-102 Rust simulator driver (#124)
-- `engine/drivers/simulator` (`opencap-driver-simulator`, feature `driver-simulator`) follows `docs/driver_params.md`
-  ("simulator") and D-071. It runs every vector of `tests/conformance/simulator/vectors.json` (84 valid, 41 invalid;
-  invalid addresses must fail with the Python message's reason). The vectors hold doubles to the last digit, so the
-  crate's tests parse them with serde_json's `float_roundtrip` (a dev-dependency only; the engine's parsing is unchanged).
-- Integer literals stay exact (`i128`) so RAMP uses integer arithmetic exactly when low, high and step are integer
-  literals (D-066). `COUNTER` counts good reads per tag; a failed read (`fail_every_n_reads`, latency at or above the
-  timeout) does not count. The clock is injectable (`SimulatorDriver::with_clock`); `latency_ms` sleeps with tokio's
-  timer, so tests run it on a paused clock.
-- The issue's last criterion (`tests/integration/test_simulator_poller.py` switched to the Rust binary) is not done
-  here: ADR-0018 forbids touching Python tests. The Rust behaviour is covered by `tests/driver.rs` and the vectors.
-
 ### D-100 System tags in Rust, part 1: the pure evaluator and the health fields (#56)
 - `opencap_core::system_tags` is the Rust *state -> system tags* function of `docs/spec/system-tags.md`,
   split by level (`node_tags`, `north_tags`, `channel_tags`, `device_tags`) so the runtime task can
@@ -2162,3 +2150,15 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   count). `_Error` is `consecutive_failures > 0` (spec section 9).
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
+
+### D-102 Rust simulator driver (#124)
+- `engine/drivers/simulator` (`opencap-driver-simulator`, feature `driver-simulator`) follows `docs/driver_params.md`
+  ("simulator") and D-071. It runs every vector of `tests/conformance/simulator/vectors.json` (84 valid, 41 invalid;
+  invalid addresses must fail with the Python message's reason). The vectors hold doubles to the last digit, so the
+  crate's tests parse them with serde_json's `float_roundtrip` (a dev-dependency only; the engine's parsing is unchanged).
+- Integer literals stay exact (`i128`) so RAMP uses integer arithmetic exactly when low, high and step are integer
+  literals (D-066). `COUNTER` counts good reads per tag; a failed read (`fail_every_n_reads`, latency at or above the
+  timeout) does not count. The clock is injectable (`SimulatorDriver::with_clock`); `latency_ms` sleeps with tokio's
+  timer, so tests run it on a paused clock.
+- The issue's last criterion (`tests/integration/test_simulator_poller.py` switched to the Rust binary) is not done
+  here: ADR-0018 forbids touching Python tests. The Rust behaviour is covered by `tests/driver.rs` and the vectors.

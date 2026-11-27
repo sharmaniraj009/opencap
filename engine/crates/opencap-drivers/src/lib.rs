@@ -96,6 +96,14 @@ pub static DRIVERS: &[DriverEntry] = &[
         create: None,
     },
     DriverEntry {
+        name: "ab_pccc",
+        feature: "driver-ab-pccc",
+        #[cfg(feature = "driver-ab-pccc")]
+        create: Some(|d| Ok(Box::new(opencap_driver_ab_pccc_eip::AbPcccEipDriver::new(d)?))),
+        #[cfg(not(feature = "driver-ab-pccc"))]
+        create: None,
+    },
+    DriverEntry {
         name: "opcua_client",
         feature: "driver-opcua-client",
         #[cfg(feature = "driver-opcua-client")]

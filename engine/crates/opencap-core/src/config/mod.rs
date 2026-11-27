@@ -3,7 +3,7 @@
 pub mod loader;
 pub mod models;
 
-pub use loader::{load_config, ConfigError, LoadedConfig};
+pub use loader::{is_v2, load_config, ConfigError, LoadedConfig};
 pub use models::*;
 
 use unicode_normalization::UnicodeNormalization;
@@ -11,15 +11,19 @@ use unicode_normalization::UnicodeNormalization;
 /// Config schema contract version (Python `opencap.config.schema.SCHEMA_VERSION`; ADR-0003).
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// The files a config revision covers, in hash order (Python `config.store.CONFIG_FILES`).
+/// The files a v1 config revision covers, in hash order (Python `config.store.CONFIG_FILES`).
 pub const CONFIG_FILES: [&str; 4] = ["poller.yaml", "devices.json", "devices_map.yaml", "overrides.yaml"];
+
+/// The files of a project v2 (ADR-0013): the revision covers these instead.
+pub const V2_FILES: [&str; 2] = ["project.json", "node.yaml"];
 
 /// Python `ConfigStore.revision()`: the first 16 hex digits of SHA-256 over every config file
 /// (`name NUL (0x01 bytes | 0x00) NUL`, a missing file as 0x00), so both engines report the
 /// same revision for the same directory.
 pub fn config_revision(dir: &std::path::Path) -> String {
     let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
-    for name in CONFIG_FILES {
+    let names: &[&str] = if is_v2(dir) { &V2_FILES } else { &CONFIG_FILES };
+    for name in names.iter().copied() {
         ctx.update(name.as_bytes());
         ctx.update(b"\0");
         match std::fs::read(dir.join(name)) {

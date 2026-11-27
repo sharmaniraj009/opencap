@@ -44,6 +44,14 @@ unmaintained = "none"
 yanked = "warn"
 
 [[advisories.ignore]]
+id = "RUSTSEC-2023-0071"
+reason = """Marvin attack (RSA timing side channel) in rsa 0.9.10, required (^0.9) by async-opcua-crypto and
+async-opcua-client 0.19, which serve the opt-in OPC UA server and client. The RSA private-key operations happen
+only in the secure-channel handshake and the user-token decryption of those two (policies other than None); the
+attack needs many timed handshakes observed over the network. No patched rsa release exists (the fix is the rsa 0.10
+series, still a pre-release). Owner decision, docs/decisions.md D-127. Remove when async-opcua moves to rsa >= 0.10."""
+
+[[advisories.ignore]]
 id = "RUSTSEC-2026-0382"
 reason = """rustls-webpki 0.102.8 is pinned (^0.102.8) by rumqttc 0.25.1 (the latest rumqttc) and used there only
 as an error type (`webpki::Error` in rumqttc/src/tls.rs). Certificate verification runs in rustls 0.23,

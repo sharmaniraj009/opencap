@@ -60,7 +60,9 @@ policy-level summary, reconciled with it after #64.
 | OPC UA client + server | async-opcua 0.19 (successor of locka99/opcua) | MPL-2.0 | yes (cargo info) | Adopt for the server (D-123, #50) and the client (D-124, #46): passes the memory gate, 1.87 KB per node at 250k |
 | OPC UA (alternative) | open62541 via FFI | MPL-2.0 | no | Not needed: a usable Rust crate exists (ADR-0018 order, D-123) |
 | EtherNet/IP, Logix, PCCC | native CIP client (RFC 0001 default) vs rseip / rust-ethernet-ip | — ; MIT (*verify*) | no | **Decided in #43: native CIP client, no new dependency** (D-076) |
-| EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Evaluate again under ADR-0018 (OSS first; D-076 superseded). v2.7.2 has no serial DF1: DF1 is native (D-120) |
+| EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Adopt for SLC/MicroLogix/PLC-5 over EtherNet/IP (D-121, #48): vendored v2.7.2, static, MPL-2.0, read-only FFI. D-076 superseded by ADR-0018. No serial DF1: DF1 is native (D-120) |
+| EtherNet/IP PCCC (Rust crate) | ciplink 0.3.7 | MIT | yes (cargo info) | Rejected on maturity (Oct 2026, 122 downloads), not benchmarked (D-121) |
+| libplctag simulator | ab_server (libplctag 2.7.2) | MPL-2.0 OR LGPL-2+ | yes | Test-only: built by cargo in `crates/opencap-ab-server`, never shipped (D-121) |
 | Allen-Bradley DF1 (serial) | none found (libplctag has no DF1) | — | — | Build: native full-duplex link layer on opencap-serial (D-120) |
 | Siemens S7comm | — (rust-snap7 is MulanPSL-2.0: Avoid) | — | — | Build: native read subset (COTP, S7 setup, read var); snap7 server as Test-only peer |
 | Mitsubishi MC 3E/4E | — | — | — | Build: native (simple framing) |

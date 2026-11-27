@@ -736,10 +736,10 @@ async fn a_block_that_fails_inside_a_batch_is_retried_alone_and_the_rest_stay_go
     let w = &s.workers[0];
     w.start();
     wait_for("batched cycles", 3.0, || s.rig.script("S/D").batch_calls >= 2).await;
-    let (a0, b0, c0, bc0) = {
+    let (a0, c0) = {
         let mut sc = s.rig.script("S/D");
         sc.timeout_blocks.insert("b".to_string());
-        (sc.good_reads["a"], sc.reads_of("b"), sc.good_reads["c"], sc.batch_calls)
+        (sc.good_reads["a"], sc.good_reads["c"])
     };
     wait_for("b bad_comm while a and c stay good", 3.0, || {
         let snap = s.store.snapshot("S/D");
@@ -748,14 +748,21 @@ async fn a_block_that_fails_inside_a_batch_is_retried_alone_and_the_rest_stay_go
             && snap.get("Z").is_some_and(|t| t.quality == Quality::Good)
     })
     .await;
+    // from here on every batched cycle has b timing out. The cycle running now is counted in `bc0`
+    // (and may still be reading), so judge only the cycles that started after it and finished
+    let (b0, bc0) = {
+        let sc = s.rig.script("S/D");
+        (sc.reads_of("b"), sc.batch_calls)
+    };
+    wait_for("two more batched cycles", 3.0, || s.rig.script("S/D").batch_calls >= bc0 + 2).await;
     {
         let sc = s.rig.script("S/D");
         // in every batched cycle b costs its batch read plus at least one single-block attempt; a and c one read
-        let cycles = sc.batch_calls - bc0;
-        assert!(cycles >= 1, "no batched cycle ran");
+        let finished = sc.batch_calls - bc0 - 1;
+        assert!(finished >= 1, "no batched cycle ran");
         assert!(
-            sc.reads_of("b") - b0 >= 2 * cycles,
-            "b was retried alone: {} reads in {cycles} cycles",
+            sc.reads_of("b") - b0 >= 2 * finished,
+            "b was retried alone: {} reads in {finished} finished cycles",
             sc.reads_of("b") - b0
         );
         assert!(sc.good_reads["a"] > a0 && sc.good_reads["c"] > c0);

@@ -31,6 +31,7 @@ opencap-serial = { path = "crates/opencap-serial" }
 opencap-driver-modbus-tcp = { path = "drivers/modbus_tcp" }
 opencap-driver-melsec-mc = { path = "drivers/melsec_mc" }
 opencap-driver-s7 = { path = "drivers/s7" }
+opencap-driver-simulator = { path = "drivers/simulator" }
 opencap-driver-ab-logix = { path = "drivers/ab_logix" }
 opencap-plugin = { path = "crates/opencap-plugin" }
 

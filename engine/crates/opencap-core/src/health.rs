@@ -73,6 +73,9 @@ pub struct DeviceHealth {
     pub errors: u64,
     pub consecutive_failures: i64,
     pub last_good: Option<DateTime<Utc>>,
+    /// UTC time of the cycle that took `consecutive_failures` from 0 to 1; cleared by a good cycle
+    /// (system-tag spec section 9). A neutral cycle changes nothing.
+    pub error_since: Option<DateTime<Utc>>,
     pub demoted_until: Option<f64>,
     pub demotions: u64,
 }
@@ -86,6 +89,7 @@ impl DeviceHealth {
             errors: 0,
             consecutive_failures: 0,
             last_good: None,
+            error_since: None,
             demoted_until: None,
             demotions: 0,
         }
@@ -101,6 +105,7 @@ impl DeviceHealth {
         self.consecutive_failures = 0;
         self.demoted_until = None;
         self.last_good = Some(at);
+        self.error_since = None;
         match prev {
             State::Demoted => Some(HealthEvent::Resumed),
             State::Offline => Some(HealthEvent::Ok),
@@ -108,9 +113,12 @@ impl DeviceHealth {
         }
     }
 
-    pub fn record_failure(&mut self, now: f64) -> Option<HealthEvent> {
+    pub fn record_failure(&mut self, now: f64, at: DateTime<Utc>) -> Option<HealthEvent> {
         let prev = self.state;
         self.errors += 1;
+        if self.consecutive_failures == 0 {
+            self.error_since = Some(at);
+        }
         self.consecutive_failures += 1;
         if self.demotion_enabled() && self.consecutive_failures >= self.demote_after {
             self.state = State::Demoted;
@@ -213,14 +221,14 @@ mod tests {
     fn demotes_after_n_failures_then_probe() {
         let mut h = DeviceHealth::new(3, 30_000);
         h.record_good(0.0, at());
-        assert_eq!(h.record_failure(1.0), Some(HealthEvent::Offline));
-        assert_eq!(h.record_failure(2.0), None);
-        assert_eq!(h.record_failure(3.0), Some(HealthEvent::Demoted));
+        assert_eq!(h.record_failure(1.0, at()), Some(HealthEvent::Offline));
+        assert_eq!(h.record_failure(2.0, at()), None);
+        assert_eq!(h.record_failure(3.0, at()), Some(HealthEvent::Demoted));
         assert_eq!(h.state, State::Demoted);
         assert_eq!(h.demoted_remaining(13.0), 20.0);
         assert!(!h.probe_due(32.9));
         assert!(h.probe_due(33.0));
-        assert_eq!(h.record_failure(33.0), Some(HealthEvent::Redemoted));
+        assert_eq!(h.record_failure(33.0, at()), Some(HealthEvent::Redemoted));
         assert_eq!(h.demoted_remaining(33.0), 30.0);
         assert_eq!(h.demotions, 1);
         assert_eq!(h.record_good(64.0, at()), Some(HealthEvent::Resumed));
@@ -229,10 +237,24 @@ mod tests {
     }
 
     #[test]
+    fn error_since_marks_the_start_of_a_failure_run() {
+        let t = |s| at() + chrono::Duration::seconds(s);
+        let mut h = DeviceHealth::new(3, 30_000);
+        assert_eq!(h.error_since, None);
+        h.record_failure(1.0, t(1));
+        h.record_failure(2.0, t(2));
+        assert_eq!(h.error_since, Some(t(1)), "kept through the run");
+        h.record_good(3.0, t(3));
+        assert_eq!(h.error_since, None, "cleared by a good cycle");
+        h.record_failure(4.0, t(4));
+        assert_eq!(h.error_since, Some(t(4)));
+    }
+
+    #[test]
     fn demotion_disabled() {
         let mut h = DeviceHealth::new(0, 30_000);
         for i in 0..10 {
-            h.record_failure(i as f64);
+            h.record_failure(i as f64, at());
         }
         assert_eq!(h.state, State::Offline);
         assert_eq!(h.errors, 10);

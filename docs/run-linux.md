@@ -46,7 +46,7 @@ In a copy of `example-config`, replace the devices in `devices.json` with one li
 
 ```json
 {"id": "Plant/PLC1", "channel": "Plant", "name": "PLC1", "driver": "modbus_tcp",
- "host": "192.168.1.20", "port": 502, "params": {},
+ "host": "192.0.2.20", "port": 502, "params": {},
  "scan_ms": 1000, "min_scan_ms": 500, "timeout_ms": 3000, "retries": 2,
  "demote_after": 3, "demote_for_ms": 30000, "enabled": true,
  "publish": {"mode": "interval", "interval_ms": 2000, "heartbeat_ms": 300000, "env": "test", "format": "subdevice_json"},
@@ -75,7 +75,7 @@ policy `None` is the tested path, secure policies against a real PLC are unteste
 ```yaml
 # poller.yaml
 mqtt:
-  host: 192.168.1.10      # the broker
+  host: 192.0.2.10      # the broker
   port: 1883              # 8883 with tls: true
   username: opencap
   password_env: OPENCAP_MQTT_PASSWORD

@@ -2176,6 +2176,11 @@ Rust code, checked by the existing vectors.
   crate has no RFC 2217 client), half-duplex, and the load-time shared-line `error_check` check (the driver
   refuses at connect instead, as Python does).
 
+### D-097 Rust is the only engine (ADR-0018)
+- The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
+  delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
+- ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
+
 ### D-121 SLC/MicroLogix/PLC-5 over EtherNet/IP: libplctag through FFI (#48)
 Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then native). Driver name `ab_pccc`.
 

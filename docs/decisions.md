@@ -2217,7 +2217,7 @@ Status: accepted (ADR-0018: an existing native driver is replaced only if the OS
   0x0001` (invalid command). The native client opens with an EtherNet/IP ListIdentity, then uploads the Symbol Object
   tag list and the UDT templates to resolve tag names and types. `ab_server` implements neither (a search of
   `src/tools/ab_server` finds no ListIdentity command and no Symbol Object service); it exists to serve libplctag,
-  which names tags directly. The native driver's own Rust tests are read-only checks of the service builders, and
+  which names tags directly. The native driver has no Rust simulator (its `tests/` hold read-only checks of the service builders), and
   its behaviour is checked by the Python CIP simulator (`tests/helpers/cip_sim.py`), which is a library with no
   command-line entry point and may not be extended. So correctness, latency and CPU cannot be compared on one
   simulator without forking `ab_server` or changing the native client, and neither is proportionate.

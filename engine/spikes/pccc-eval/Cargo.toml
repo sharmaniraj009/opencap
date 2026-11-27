@@ -1,0 +1,12 @@
+[package]
+name = "pccc-eval"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "ADR-0018 evaluation: ciplink (Rust) vs libplctag (C, FFI) for SLC/MicroLogix PCCC over EtherNet/IP, against libplctag's ab_server. Not a workspace member and never shipped."
+
+[dependencies]
+ciplink = "0.3.7"
+opencap-plctag-sys = { path = "../../crates/opencap-plctag-sys" }
+
+[workspace]

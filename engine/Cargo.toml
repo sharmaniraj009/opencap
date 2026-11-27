@@ -33,6 +33,8 @@ opencap-driver-melsec-mc = { path = "drivers/melsec_mc" }
 opencap-driver-s7 = { path = "drivers/s7" }
 opencap-driver-simulator = { path = "drivers/simulator" }
 opencap-driver-ab-logix = { path = "drivers/ab_logix" }
+opencap-driver-ab-pccc = { path = "drivers/ab_pccc" }
+opencap-driver-ab-df1 = { path = "drivers/ab_df1" }
 opencap-plugin = { path = "crates/opencap-plugin" }
 
 anyhow = "1"

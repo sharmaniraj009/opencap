@@ -2162,3 +2162,33 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   timer, so tests run it on a paused clock.
 - The issue's last criterion (`tests/integration/test_simulator_poller.py` switched to the Rust binary) is not done
   here: ADR-0018 forbids touching Python tests. The Rust behaviour is covered by `tests/driver.rs` and the vectors.
+
+### D-120 DF1 serial is native Rust on opencap-serial; libplctag has no DF1 (#53)
+Status: accepted (ADR-0018 OSS-first rule, step d). PCCC address parsing, planning and decoding are shared
+Rust code, checked by the existing vectors.
+
+- **Evaluated:** libplctag 2.7.2 (C, MPL-2.0 OR LGPL-2+), by reading its source. Its Allen-Bradley protocols
+  (`src/libplctag/protocols/ab`: `eip_cip`, `eip_lgx_pccc`, `eip_plc5_pccc`, `eip_slc_pccc` and the DH+ variants) are
+  EtherNet/IP only. `grep -ri df1` over the vendored tree finds one comment in the `ab_server` simulator and no
+  DF1 link layer (no DLE framing, no BCC/CRC, no ACK/NAK/ENQ). Serial port code exists only in its platform layer,
+  used by its Modbus RTU support. No other open-source DF1 library was evaluated: none is known to us with a
+  full-duplex link layer and a licence that passes ADR-0007.
+- **Decision:** write DF1 natively. It is small (framing, receiver, one transaction loop, about 700 lines) and
+  sits on `opencap-serial` (tcp serial gateway and local port, shared lines).
+- **Shape:** `drivers/ab_pccc` is the shared PCCC library (address parser, planner, decoder, STS tables), ported
+  from `ab_pccc.py` and run against `tests/conformance/ab_pccc` (plan 110 vectors, decode 50). The EtherNet/IP
+  PCCC driver (libplctag, task 1b) will reuse it. `drivers/ab_df1` is the DF1 driver, run against the four
+  `ab_df1` vector areas (frame, receive, request, values), plus an in-process fake SLC on a TCP socket for the
+  driver (every file type, NAK, lost ACK, bad reply check, stale and duplicate replies, silence,
+  `close_on_timeout`, a 300-round soak).
+- **Read-only (ADR-0008):** `Df1Link::transact` refuses every command except `(0x0F,0xA2)`, `(0x0F,0xA1)` and
+  `(0x06,0x03)` before it reaches the wire; a test sends the write functions 0xAA, 0xAB, 0x67 and expects a
+  refusal with zero frames sent.
+- **Not in this port:** `rfc2217` transport and `local_echo` (Python supports `rfc2217` for DF1; the Rust serial
+  crate has no RFC 2217 client), half-duplex, and the load-time shared-line `error_check` check (the driver
+  refuses at connect instead, as Python does).
+
+### D-097 Rust is the only engine (ADR-0018)
+- The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
+  delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
+- ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.

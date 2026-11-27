@@ -80,11 +80,19 @@ pub static DRIVERS: &[DriverEntry] = &[
         create: None,
     },
     DriverEntry {
+<<<<<<< HEAD
         name: "simulator",
         feature: "driver-simulator",
         #[cfg(feature = "driver-simulator")]
         create: Some(|d| Ok(Box::new(opencap_driver_simulator::SimulatorDriver::new(d)?))),
         #[cfg(not(feature = "driver-simulator"))]
+=======
+        name: "ab_df1",
+        feature: "driver-ab-df1",
+        #[cfg(feature = "driver-ab-df1")]
+        create: Some(|d| Ok(Box::new(opencap_driver_ab_df1::AbDf1Driver::new(d)?))),
+        #[cfg(not(feature = "driver-ab-df1"))]
+>>>>>>> origin/main
         create: None,
     },
 ];

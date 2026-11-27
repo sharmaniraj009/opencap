@@ -1,0 +1,9 @@
+{
+  "document": "project",
+  "expected_error": "Input should be 2",
+  "semantic": false,
+  "data": {
+    "version": 1,
+    "channels": []
+  }
+}

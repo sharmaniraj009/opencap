@@ -1,0 +1,10 @@
+{
+  "document": "node",
+  "expected_error": "Extra inputs are not permitted",
+  "semantic": false,
+  "data": {
+    "mqtt": {
+      "hots": "x"
+    }
+  }
+}

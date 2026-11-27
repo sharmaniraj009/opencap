@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use opencap_core::config::loader::from_json;
-use opencap_core::config::{DeviceMap, DevicesFile, Overrides, PollerConfig};
+use opencap_core::config::{DeviceMap, DevicesFile, Overrides, PollerConfig, ProjectV2};
 use serde_json::Value;
 
 fn fixtures(kind: &str) -> Vec<PathBuf> {
@@ -30,7 +30,8 @@ fn check(document: &str, data: Value) -> Result<(), String> {
         "devices" => from_json::<DevicesFile>(data)?.validate(),
         "devices_map" => from_json::<DeviceMap>(data).map(drop),
         "overrides" => from_json::<Overrides>(data)?.validate(),
-        "poller" => {
+        "project" => from_json::<ProjectV2>(data)?.validate(),
+        "poller" | "node" => {
             let p = from_json::<PollerConfig>(data)?;
             p.mqtt.validate().map_err(|e| format!("mqtt: {e}"))?;
             p.api.validate().map_err(|e| format!("api: {e}"))?;

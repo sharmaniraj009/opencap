@@ -57,8 +57,8 @@ policy-level summary, reconciled with it after #64.
 | MQTT | rumqttc | Apache-2.0 | no | Adopt |
 | Sparkplug B payload | `sparkplug_b.proto` (Eclipse Tahu v1.0.19, vendored unmodified in `proto/third_party/`) + prost 0.14 | EPL-2.0 (the .proto, file-level: [header](https://github.com/eclipse-tahu/tahu/blob/v1.0.19/sparkplug_b/sparkplug_b.proto)); prost Apache-2.0 | yes (v1.0.19 file + SHA-256) | Adopt (#51, `engine/north/sparkplug`, listed in `NOTICE`). The `srad` crates (MIT OR Apache-2.0) were evaluated and not used: pre-1.0 (0.4 → 0.7 in eight months), and `srad-types` ships prost code generated from the EPL proto under MIT/Apache with no EPL notice (D-090) |
 | Protobuf code generation (build time only) | prost-build 0.14 + protox 0.10 (pure-Rust protobuf compiler: no system `protoc`) | Apache-2.0; MIT OR Apache-2.0 | yes (crates.io metadata; `cargo deny` passes) | Adopt (#51, build-dependencies of `opencap-north-sparkplug`) |
-| OPC UA client + server | async-opcua (successor of locka99/opcua) | MPL-2.0 | no | Evaluate against the memory/throughput gate (04 §4.1) |
-| OPC UA (alternative) | open62541 via FFI | MPL-2.0 | no | Evaluate as fallback |
+| OPC UA client + server | async-opcua 0.19 (successor of locka99/opcua) | MPL-2.0 | yes (cargo info) | Adopt for the server (D-123, #50) and the client (D-124, #46): passes the memory gate, 1.87 KB per node at 250k |
+| OPC UA (alternative) | open62541 via FFI | MPL-2.0 | no | Not needed: a usable Rust crate exists (ADR-0018 order, D-123) |
 | EtherNet/IP, Logix, PCCC | native CIP client (RFC 0001 default) vs rseip / rust-ethernet-ip | — ; MIT (*verify*) | no | **Decided in #43: native CIP client, no new dependency** (D-076) |
 | EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Adopt for SLC/MicroLogix/PLC-5 over EtherNet/IP (D-121, #48): vendored v2.7.2, static, MPL-2.0, read-only FFI. D-076 superseded by ADR-0018. No serial DF1: DF1 is native (D-120) |
 | EtherNet/IP PCCC (Rust crate) | ciplink 0.3.7 | MIT | yes (cargo info) | Rejected on maturity (Oct 2026, 122 downloads), not benchmarked (D-121) |

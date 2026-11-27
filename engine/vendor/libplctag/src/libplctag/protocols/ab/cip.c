@@ -221,8 +221,8 @@ int match_numeric_segment(const char *path, size_t *path_index, uint8_t *conn_pa
 
 /*
  * match symbolic IP address segments.
- *  18,10.206.10.14 - port 2/A -> 10.206.10.14
- *  19,10.206.10.14 - port 3/B -> 10.206.10.14
+ *  18,192.0.2.14 - port 2/A -> 192.0.2.14
+ *  19,192.0.2.14 - port 3/B -> 192.0.2.14
  */
 
 int match_ip_addr_segment(const char *path, size_t *path_index, uint8_t *conn_path, size_t *conn_path_index) {

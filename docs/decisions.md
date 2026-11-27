@@ -2192,7 +2192,7 @@ Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then nativ
   blocking I/O on std threads, a public write API in the same crate, and a dependency tree with rustls, ring, chacha20
   and serialport that the engine does not otherwise need. It does not meet "widely used and tested". The other
   crates are described as Logix or generic CIP clients; they were not examined for PCCC support.
-- **libplctag 2.7.2 chosen** (C, MPL-2.0 OR LGPL-2+, used under MPL-2.0, unmodified, linked statically; 15 years of
+- **libplctag 2.7.2 chosen** (C, MPL-2.0 OR LGPL-2+, used under MPL-2.0, code unmodified (four comment lines edited, see `engine/vendor/libplctag/VENDORED.md`), linked statically; 15 years of
   field use; covers PCCC for SLC 500, MicroLogix and PLC-5 over EtherNet/IP). Vendored in `engine/vendor/libplctag`
   and compiled by `cargo build` through the `cc` crate (`crates/opencap-plctag-sys/build.rs`): no system package,
   the Windows platform files are selected by target. `omron_device_tag.c` and `handle_system.c` are not built (they

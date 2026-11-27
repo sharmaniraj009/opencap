@@ -47,11 +47,14 @@ struct Script {
     config_error_blocks: HashSet<String>,
     read_failures: VecDeque<DriverError>,
     constant: HashMap<String, Value>,
+    /// the driver packs blocks: `supports_batch` and `read_many`
+    batch: bool,
     // records
     connect_attempts: Vec<f64>,
     connects_ok: usize,
     closes: usize,
     reads: Vec<String>,
+    batch_calls: usize,
     good_reads: HashMap<String, i64>,
 }
 
@@ -156,6 +159,19 @@ impl Driver for FakeDriver {
             self.script.lock().unwrap().closes += 1;
         }
         self.connected = false;
+    }
+
+    fn supports_batch(&self) -> bool {
+        self.script.lock().unwrap().batch
+    }
+
+    async fn read_many(&mut self, blocks: &[&dyn Block]) -> Vec<ReadResult> {
+        self.script.lock().unwrap().batch_calls += 1;
+        let mut out = Vec::new();
+        for b in blocks {
+            out.push(self.read(*b).await);
+        }
+        out
     }
 
     async fn read(&mut self, block: &dyn Block) -> ReadResult {
@@ -653,4 +669,90 @@ async fn worker_publishes_cycles_and_a_restarted_worker_takes_over() {
     assert!(matches!(rx.try_recv(), Ok(Change::Batch(_))));
     new.stop().await;
     old.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_batching_driver_reads_the_cycle_with_one_read_many() {
+    let mut d = device("S/D", &[("X", "a.0"), ("Y", "b.0"), ("Z", "c.0")]);
+    d.retries = 1;
+    let s = setup(vec![d]);
+    s.rig.script("S/D").batch = true;
+    let w = &s.workers[0];
+    w.start();
+    wait_for("several cycles", 3.0, || s.rig.script("S/D").good_reads.get("c").copied().unwrap_or(0) >= 4).await;
+    {
+        let sc = s.rig.script("S/D");
+        // the first cycle connects through the single-block path; every later one is one batch
+        assert!(sc.batch_calls >= 3, "batch calls: {}", sc.batch_calls);
+        assert!(
+            sc.reads_of("a") <= sc.batch_calls + 1,
+            "no block is read twice in a cycle: {} reads, {} batches",
+            sc.reads_of("a"),
+            sc.batch_calls
+        );
+    }
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_block_the_batch_did_not_return_good_takes_the_single_block_path_alone() {
+    let mut d = device("S/D", &[("X", "a.0"), ("Y", "b.0"), ("Z", "c.0")]);
+    d.retries = 1;
+    let s = setup(vec![d]);
+    {
+        let mut sc = s.rig.script("S/D");
+        sc.batch = true;
+        sc.config_error_blocks.insert("b".to_string());
+    }
+    let w = &s.workers[0];
+    w.start();
+    wait_for("a and c good, b rejected", 3.0, || {
+        let snap = s.store.snapshot("S/D");
+        snap.get("X").is_some_and(|t| t.quality == Quality::Good)
+            && snap.get("Z").is_some_and(|t| t.quality == Quality::Good)
+            && snap.get("Y").is_some_and(|t| t.quality == Quality::BadConfig)
+    })
+    .await;
+    {
+        let sc = s.rig.script("S/D");
+        // b is rejected once and never read again; a and c keep coming good
+        assert_eq!(sc.reads_of("b"), 1, "b is rejected in the first (single-block) cycle and never read again");
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    {
+        let sc = s.rig.script("S/D");
+        assert!(sc.good_reads["a"] >= 3 && sc.good_reads["c"] >= 3);
+    }
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_block_that_fails_inside_a_batch_is_retried_alone_and_the_rest_stay_good() {
+    let mut d = device("S/D", &[("X", "a.0"), ("Y", "b.0"), ("Z", "c.0")]);
+    d.retries = 1;
+    d.demote_after = 100;
+    let s = setup(vec![d]);
+    s.rig.script("S/D").batch = true;
+    let w = &s.workers[0];
+    w.start();
+    wait_for("batched cycles", 3.0, || s.rig.script("S/D").batch_calls >= 2).await;
+    let (a0, b0, c0) = {
+        let mut sc = s.rig.script("S/D");
+        sc.timeout_blocks.insert("b".to_string());
+        (sc.good_reads["a"], sc.reads_of("b"), sc.good_reads["c"])
+    };
+    wait_for("b bad_comm while a and c stay good", 3.0, || {
+        let snap = s.store.snapshot("S/D");
+        snap.get("Y").is_some_and(|t| t.quality == Quality::BadComm)
+            && snap.get("X").is_some_and(|t| t.quality == Quality::Good)
+            && snap.get("Z").is_some_and(|t| t.quality == Quality::Good)
+    })
+    .await;
+    {
+        let sc = s.rig.script("S/D");
+        // per cycle b costs one batch read plus its two single attempts (retries = 1); a and c one read each
+        assert!(sc.reads_of("b") >= b0 + 3, "b was retried alone: {} -> {}", b0, sc.reads_of("b"));
+        assert!(sc.good_reads["a"] > a0 && sc.good_reads["c"] > c0);
+    }
+    w.stop().await;
 }

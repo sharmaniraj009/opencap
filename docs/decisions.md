@@ -2268,3 +2268,50 @@ Rust code, checked by the existing vectors.
   State-change warnings (`mqtt_disconnected`, `device.offline`, `device.demoted`, `device.resumed`, `mqtt_connected`,
   `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
   once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).
+
+### D-125 Siemens S7: native client stays; snap7 and the Rust S7 crates evaluated, not adopted (task 4)
+Status: accepted (ADR-0018 order: Rust crate, then C/C++ FFI, then native; an existing native driver is replaced only if the OSS one clearly wins a test).
+
+- **Rust crates searched** (crates.io API, 2026-11-27): `snap7-client` 0.1.7 (2.2k downloads, first published May 2026), `tokio-s7`
+  0.1.7 (1.3k, June 2026), `turbos7` 0.2.1 (128, May 2026), `s7-connector` 0.1.2 (128, April 2026), `s7` 0.1.9 (19k downloads, last
+  release 2019). None is widely used or tested; the most downloaded is seven years old and unmaintained.
+  `rust-snap7` (9.5k downloads, binds the C++ library with its sources) is MulanPSL-2.0, which is not on the ADR-0007 allow-list
+  (it already stands as "Avoid" in `oss-reuse.md`); `snap7-rs` was last released in 2023.
+- **snap7 (C++, Davide Nardella):** the sources bundled in `rust-snap7` carry the header "GNU Lesser General Public License,
+  version 3 or later". ADR-0018 item 5 allows LGPL only as a dynamically loaded, replaceable library with a documented
+  relink path; snap7 would have to be built as a shared library and shipped beside the engine (Linux, Windows and the
+  container image), which the vendored-source `cc` build used for libplctag (MPL-2.0, D-121) does not need.
+- **Not benchmarked.** A comparison needs snap7 built as a shared library and bound by FFI, plus a simulator both clients can
+  use. The simulator in the tree (`tests/helpers/s7_sim.py`) is a Python library with no command-line entry point and may not
+  be extended; snap7's own server would mean a second C++ build for tests. The cost is out of proportion to the question:
+  the native client is small (`conn.rs` and `proto.rs`, about 800 lines), is the engine's own code, passes the 111 shared S7
+  vectors (address, plan, decode, frame, reply), the Rust fake-CPU tests (`drivers/s7/tests`) and the Python simulator suite,
+  and is read-only by construction (`check_read_only` refuses every other function before it reaches the socket).
+- **Decision:** keep the native S7 driver. Revisit when a Rust S7 crate with real adoption exists, or with a real CPU
+  (v0.1 package 7) if the native client misbehaves.
+
+### D-126 Batch reads on the Driver trait; S7 packs multi-item read var (#227)
+Status: accepted.
+
+- **Trait:** `Driver::supports_batch()` (default false) and `Driver::read_many(&[&dyn Block]) -> Vec<ReadResult>` (default: one
+  `read` per block). Read-only like `read`; no write method exists.
+- **Worker:** when the driver supports it, is connected and the cycle has two or more blocks, the cycle makes one `read_many`
+  call under the wire lock (safety net: the sum of the blocks' budgets). Blocks that came back good are used; every other
+  block goes through the existing single-block path, with its retries, reconnect and error classification, so those rules
+  stay in one place. The first cycle after a connect uses the single-block path (it is the one that connects).
+- **S7 packing** (`drivers/s7/src/pack.rs`): next-fit in planner order, at most 20 items per request, request `12 + 12 n`
+  bytes and reply `14 + sum(4 + data, odd lengths padded)` bytes both within the negotiated PDU. Python has no packing (its
+  docstring says "no multi-read optimizer"); python-snap7's `read_multi_vars` exists but the Python driver never used it.
+  A failed request (timeout, lost connection, header error) fails the blocks that had an item in it; an item return code
+  fails only its own block (BlockConfig for the "wrong address" codes). A mute CPU drops the connection as before.
+- **Negotiated PDU:** the S7 drivers of one device (the registry's planner instance and the worker's) now share the negotiated
+  PDU through a registry keyed by device id and address, so `wire_requests()` and the read budget follow the PDU the CPU
+  granted, not the configured one.
+- **Tests:** pack unit tests (limits, padding, order), a fake multi-item CPU (one request of eight items, PDU splitting into
+  2 + 2 + 1, a refused DB failing alone, a mute CPU, not connected, shared PDU), and three worker tests with a batching
+  fake driver (one `read_many` per cycle, a rejected block, a block failing inside a batch retried alone).
+  The conformance vectors are JSON data checked by the Python harness, whose area list may not be extended without Python,
+  so the packed-request bytes are pinned by Rust tests instead.
+- **Other drivers:** MELSEC MC's batch read (0401) is already one request per block and its random read (0403) is not used
+  (read-only rule in the driver), so it keeps the default. BACnet (#203) can implement `read_many` with ReadPropertyMultiple
+  when its driver exists.

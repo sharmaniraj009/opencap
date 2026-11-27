@@ -14,6 +14,7 @@
 pub mod address;
 pub mod conn;
 pub mod errors;
+pub mod pack;
 pub mod params;
 pub mod plan;
 pub mod proto;
@@ -21,6 +22,7 @@ pub mod szl;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -61,6 +63,16 @@ pub fn return_code_text(rc: u8) -> String {
     format!("item return code 0x{rc:02X} ({text})")
 }
 
+/// The negotiated PDU of every device, by device id and address. The registry plans a device's blocks with
+/// its own driver instance and the worker reads them with another; both share the number, so
+/// `wire_requests()` (the per-request read budget) follows the PDU the CPU actually granted.
+static NEGOTIATED: LazyLock<Mutex<HashMap<String, SharedPdu>>> = LazyLock::new(Default::default);
+
+fn negotiated_for(device: &Device) -> SharedPdu {
+    let key = format!("{}@{}:{}", device.id, device.host, device.port);
+    NEGOTIATED.lock().expect("pdu registry").entry(key).or_default().clone()
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Lost,
@@ -68,6 +80,7 @@ enum Kind {
     Comm,
 }
 
+#[derive(Clone)]
 struct Failure {
     reason: String,
     kind: Kind,
@@ -93,7 +106,7 @@ impl S7Driver {
             params,
             port,
             conn: None,
-            negotiated: SharedPdu::default(),
+            negotiated: negotiated_for(device),
             rejected: HashSet::new(),
             pdu_logged: None,
         })
@@ -157,11 +170,7 @@ impl S7Driver {
 
     async fn read_block(&mut self, block: &S7Block) -> Result<Vec<u8>, Failure> {
         let pdu = self.conn.as_ref().map_or(self.params.max_pdu, |c| c.pdu);
-        let (word_len, area) = match block.area {
-            address::Area::T => (WL_TIMER, block.area.code()),
-            address::Area::C => (WL_COUNTER, block.area.code()),
-            a => (WL_BYTE, a.code()),
-        };
+        let (word_len, area) = block_item_kind(block);
         let mut data = Vec::with_capacity(block.nbytes());
         for (start, count) in block.parts(pdu) {
             let item =
@@ -183,6 +192,39 @@ impl S7Driver {
         Ok(data)
     }
 
+    /// The engine error for a failed block read; a rejected block is logged once.
+    fn block_error(&mut self, block: &S7Block, f: Failure) -> DriverError {
+        let text = format!("{} {}: {}", self.where_(), block.describe(), f.reason);
+        match f.kind {
+            Kind::Config => {
+                self.log_rejected(block, &f.reason);
+                DriverError::BlockConfig(text)
+            }
+            Kind::Lost => DriverError::ConnectionLost(text),
+            Kind::Comm => DriverError::Comm(text),
+        }
+    }
+
+    /// Decode a block's bytes into tag values (`BadDecode` per tag that does not fit).
+    fn finish_block(&self, block: &S7Block, data: &[u8], started: Instant) -> HashMap<String, TagValue> {
+        let ts = now_utc();
+        debug!(device = %self.device.id, block = %block.describe(), requests = block.wire_requests(), ms = started.elapsed().as_millis() as u64, "s7 read");
+        let decoded = decode_block(block, data, &self.params);
+        let mut out = HashMap::with_capacity(block.tags.len());
+        for name in &block.tags {
+            match decoded.get(name) {
+                Some(Ok(v)) => {
+                    out.insert(name.clone(), TagValue::good(v.clone(), ts));
+                }
+                other => {
+                    debug!(device = %self.device.id, tag = %name, reason = ?other, "s7 decode error");
+                    out.insert(name.clone(), TagValue::bad(Quality::BadDecode, Some(ts)));
+                }
+            }
+        }
+        out
+    }
+
     fn log_rejected(&mut self, block: &S7Block, reason: &str) {
         let what = block.describe();
         if !self.rejected.insert(what.clone()) {
@@ -192,6 +234,15 @@ impl S7Driver {
             device = %self.device.id, block = %what, tags = ?&block.tags[..block.tags.len().min(20)],
             count = block.tags.len(), reason, quality = "bad_config", "s7.block_rejected"
         );
+    }
+}
+
+/// (word length, area code) of a block's read items.
+fn block_item_kind(block: &S7Block) -> (u8, u8) {
+    match block.area {
+        address::Area::T => (WL_TIMER, block.area.code()),
+        address::Area::C => (WL_COUNTER, block.area.code()),
+        a => (WL_BYTE, a.code()),
     }
 }
 
@@ -266,42 +317,102 @@ impl Driver for S7Driver {
             .as_any()
             .downcast_ref::<S7Block>()
             .ok_or_else(|| DriverError::Other("s7 cannot read a block of another driver".into()))?;
-        let where_ = self.where_();
         if self.conn.is_none() {
-            return Err(DriverError::ConnectionLost(format!("{where_}: not connected")));
+            return Err(DriverError::ConnectionLost(format!("{}: not connected", self.where_())));
         }
-        let what = block.describe();
         let started = Instant::now();
-        let data = match self.read_block(block).await {
-            Ok(d) => d,
-            Err(f) => {
-                let text = format!("{where_} {what}: {}", f.reason);
-                return Err(match f.kind {
-                    Kind::Config => {
-                        self.log_rejected(block, &f.reason);
-                        DriverError::BlockConfig(text)
-                    }
-                    Kind::Lost => DriverError::ConnectionLost(text),
-                    Kind::Comm => DriverError::Comm(text),
-                });
-            }
+        match self.read_block(block).await {
+            Ok(data) => Ok(self.finish_block(block, &data, started)),
+            Err(f) => Err(self.block_error(block, f)),
+        }
+    }
+
+    fn supports_batch(&self) -> bool {
+        true
+    }
+
+    /// Several blocks in as few read var requests as the negotiated PDU allows (`pack`). A request
+    /// that fails (timeout, lost connection, header error) fails the blocks that had an item in
+    /// it; an item return code fails only its own block; the others are decoded as usual.
+    async fn read_many(&mut self, blocks: &[&dyn Block]) -> Vec<ReadResult> {
+        let mut s7: Vec<Option<&S7Block>> = blocks.iter().map(|b| b.as_any().downcast_ref::<S7Block>()).collect();
+        let Some(pdu) = self.conn.as_ref().map(|c| c.pdu) else {
+            let e = DriverError::ConnectionLost(format!("{}: not connected", self.where_()));
+            return blocks.iter().map(|_| Err(e.clone())).collect();
         };
-        let ts = now_utc();
-        debug!(device = %self.device.id, block = %what, requests = block.wire_requests(), ms = started.elapsed().as_millis() as u64, "s7 read");
-        let decoded = decode_block(block, &data, &self.params);
-        let mut out = HashMap::with_capacity(block.tags.len());
-        for name in &block.tags {
-            match decoded.get(name) {
-                Some(Ok(v)) => {
-                    out.insert(name.clone(), TagValue::good(v.clone(), ts));
+        let started = Instant::now();
+        // every part of every block, in block order
+        let mut items: Vec<ReadItem> = Vec::new();
+        let mut owner: Vec<(usize, usize)> = Vec::new(); // (block, part)
+        let mut parts: Vec<Vec<Option<Vec<u8>>>> = vec![Vec::new(); blocks.len()];
+        for (bi, b) in s7.iter().enumerate() {
+            let Some(block) = b else { continue };
+            let (word_len, area) = block_item_kind(block);
+            let list = block.parts(pdu);
+            parts[bi] = vec![None; list.len()];
+            for (pi, (start, count)) in list.into_iter().enumerate() {
+                items.push(ReadItem {
+                    area,
+                    db: block.db.min(0xFFFF) as u16,
+                    start: start as u32,
+                    word_len,
+                    count: count as u16,
+                });
+                owner.push((bi, pi));
+            }
+        }
+        let mut failed: Vec<Option<Failure>> = vec![None; blocks.len()];
+        let requests = pack::pack(&items, pdu);
+        for group in &requests {
+            let chunk: Vec<ReadItem> = group.iter().map(|&i| items[i]).collect();
+            let Some(conn) = self.conn.as_mut() else {
+                for &i in group {
+                    failed[owner[i].0].get_or_insert(Failure { reason: "connection closed".into(), kind: Kind::Lost });
                 }
-                other => {
-                    debug!(device = %self.device.id, tag = %name, reason = ?other, "s7 decode error");
-                    out.insert(name.clone(), TagValue::bad(Quality::BadDecode, Some(ts)));
+                continue;
+            };
+            match conn.read_var(&chunk).await {
+                Err(e) => {
+                    let f = self.failure(e);
+                    for &i in group {
+                        failed[owner[i].0].get_or_insert(f.clone());
+                    }
+                }
+                Ok(replies) => {
+                    for (&i, reply) in group.iter().zip(replies) {
+                        let (bi, pi) = owner[i];
+                        if reply.return_code != 0xFF {
+                            let kind = if CONFIG_RETURN_CODES.contains(&reply.return_code) {
+                                Kind::Config
+                            } else {
+                                Kind::Comm
+                            };
+                            failed[bi].get_or_insert(Failure { reason: return_code_text(reply.return_code), kind });
+                        } else {
+                            parts[bi][pi] = Some(reply.data);
+                        }
+                    }
                 }
             }
         }
-        Ok(out)
+        debug!(device = %self.device.id, blocks = blocks.len(), items = items.len(), requests = requests.len(), ms = started.elapsed().as_millis() as u64, "s7 read_many");
+        let mut out = Vec::with_capacity(blocks.len());
+        for bi in 0..blocks.len() {
+            let Some(block) = s7[bi].take() else {
+                out.push(Err(DriverError::Other("s7 cannot read a block of another driver".into())));
+                continue;
+            };
+            if let Some(f) = failed[bi].take() {
+                out.push(Err(self.block_error(block, f)));
+                continue;
+            }
+            let mut data = Vec::with_capacity(block.nbytes());
+            for p in std::mem::take(&mut parts[bi]) {
+                data.extend(p.unwrap_or_default());
+            }
+            out.push(Ok(self.finish_block(block, &data, started)));
+        }
+        out
     }
 
     /// CPU identity from SZL 0x001C (component identification), 0x0011 (order code and

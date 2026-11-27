@@ -44,6 +44,7 @@ fn main() {
         b.define("_CRT_SECURE_NO_WARNINGS", None);
         println!("cargo:rustc-link-lib=ws2_32");
         println!("cargo:rustc-link-lib=winmm");
+        println!("cargo:rustc-link-lib=bcrypt");
     } else {
         b.flag_if_supported("-pthread");
         println!("cargo:rustc-link-lib=pthread");

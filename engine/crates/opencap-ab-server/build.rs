@@ -45,6 +45,7 @@ fn main() {
     }
     if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
         println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=bcrypt"); // BCryptGenRandom
     } else {
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=m");

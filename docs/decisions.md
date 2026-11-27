@@ -2221,3 +2221,16 @@ Rust code, checked by the existing vectors.
   by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
   the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
   `import-kep` reporting are Python code and are not ported.
+
+### D-109 The web UI and the runtime half of `/api/v1` in the Rust engine (#140, first slice)
+- **The UI.** `engine/ui/` is a copy of the Python engine's UI bundle (ADR-0010), compiled into the binary
+  (`include_bytes!`, one list in `opencap-api/src/ui.rs`; a test fails when a file in `engine/ui/` is not listed). It is
+  served at `/ui/…` with the Python security headers (CSP without inline script, `nosniff`, `DENY`), `/` and `/ui` redirect
+  with 307, and it is open like in Python. After Python is deleted `engine/ui/` is the only copy.
+- **Runtime routes.** `/api/v1/auth-info` (open), `whoami`, `status`, `project/pending`, `reload`, and for a device
+  `…/status`, `…/values`, `POST …/read-once`, next to the legacy paths (same handlers). `whoami` says `config_writable:
+  false` with the reason; `pending_reload` compares the revision of the files on disk with the one the running config was
+  read from.
+- **Not yet.** The rest of the contract answers 501 `…not implemented in the Rust engine yet (#140)`, so a client cannot
+  mistake it for a missing resource: the configuration reads (`channels`, `devices`, `tags`, `map`, `overrides`,
+  `project…`, `audit`, `drivers`), `plan`, `identity`, the writes and the WebSocket (#164). They follow in their own PRs.

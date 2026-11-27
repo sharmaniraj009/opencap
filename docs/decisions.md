@@ -2206,3 +2206,20 @@ Rust code, checked by the existing vectors.
   by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
   the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
   `import-kep` reporting are Python code and are not ported.
+
+### D-110 Rust-only container image and release workflow (#273, v0.1 package 6)
+- **Image.** The `Dockerfile` builds `opencap-engine` (`cargo build --release --locked`, all driver features unless
+  `--build-arg FEATURES=...` says otherwise) and runs it on `debian:bookworm-slim` with `ca-certificates` (rustls reads the
+  system store), as uid 10001, `ENTRYPOINT ["opencap-engine"]`, `CMD ["run", "--config", "/opencap/config"]`, so
+  `docker run ... opencap check` still works. The engine has no libudev or OpenSSL dependency. Neither base tag is pinned by
+  digest yet (no registry access from the change that wrote it); pinning is a PR of its own with the release dry run as its check.
+- **HEALTHCHECK.** `opencap-engine healthcheck` does one HTTP/1.0 GET of `$OPENCAP_HEALTH_URL` (default
+  `http://127.0.0.1:8080/health/live`) with 4 s timeouts and exits 0 only for a 200; no curl or Python in the image.
+- **Release.** The version is `[workspace.package] version` of `engine/Cargo.toml` and the tag must be `v<version>`; SemVer
+  suffixes (`-rc.1`) make a pre-release. The gate is `rust-engine.yml` (now also `workflow_call`), not the Python CI. The wheel,
+  the sdist and the PyPI job are gone; new `binaries` jobs attach `opencap-engine-<v>-linux-x86_64.tar.gz` and
+  `…-windows-x86_64.zip` (binary, licence, notice, example config) with provenance attestations. The desktop installers and
+  the SBOMs are unchanged.
+- **Kept for now.** The CI job `wheel and container image` keeps its name and its wheel steps (the Python package is still in
+  the tree and branch protection may require the name); only its container steps changed. Both go with the Python deletion
+  (v0.1 plan, "Deleting Python"). `import-kep` (the KEPServerEX importer) is Python-only and not in the image.

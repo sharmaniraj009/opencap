@@ -57,17 +57,18 @@ docker run -d --name opencap --restart unless-stopped \
 - **Quick Client (live values)** uses the WebSocket `/api/v1/ws` on the same port. A reverse proxy in front must
   pass the WebSocket upgrade (`Upgrade` and `Connection` headers) and keep the `Host` header, or list the public
   origin in `api.cors_origins`: browsers may open the feed only from the API's own origin (D-067).
-- **Local serial ports** (`modbus_rtu` and `ab_df1` with `transport: serial`): the default image includes the
-  `serial` extra (pyserial). Pass the device into the container and give the container user access to it.
+- **Local serial ports** (`modbus_rtu` and `ab_df1` with `transport: serial`): the engine opens them itself,
+  nothing extra to install. Pass the device into the container and give the container user access to it.
   The user is uid 10001, not in the host's `dialout` group, so add the group's id:
   `docker run ... --device /dev/ttyUSB0:/dev/ttyUSB0 --group-add "$(getent group dialout | cut -d: -f3)"`.
   Use a stable name (`/dev/serial/by-id/...`) on the host side, and keep the path in `host` / `serial_ports`
   the same as the container path. Serial-over-TCP gateways (`transport: tcp`, `rfc2217`) need no device.
-- **Health check:** the image probes `http://127.0.0.1:8080/health`. If you change
-  `api.port`, set `OPENCAP_HEALTH_URL`.
+- **Health check:** the image runs `opencap-engine healthcheck`, which probes
+  `http://127.0.0.1:8080/health/live`. If you change `api.port`, set `OPENCAP_HEALTH_URL`.
 - **Other commands** run the same way:
-  `docker run --rm -v "$PWD/config:/opencap/config:ro" opencap check`. For `import-kep` the
-  config mount must be writable by uid 10001.
+  `docker run --rm -v "$PWD/config:/opencap/config:ro" opencap check` (the image's entrypoint is
+  `opencap-engine`). The KEPServerEX importer (`import-kep`) is Python-only for now: run it where the
+  Python tool is installed and mount the result.
 - **Reload** without a restart: `docker kill --signal HUP opencap`.
 - **Stop:** `docker stop` sends SIGTERM. opencap stops within a few seconds, well inside
   Docker's default 10 s grace period.

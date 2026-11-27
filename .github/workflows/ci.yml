@@ -78,16 +78,20 @@ jobs:
           /tmp/wheel-venv/bin/pip install "$(ls dist/opencap-*.whl)[all]"
           /tmp/wheel-venv/bin/opencap --help
           /tmp/wheel-venv/bin/python -m opencap --help
-      - name: Build the container image
+      - name: Build the container image (the Rust engine, ADR-0018)
         run: docker build -t opencap:ci .
       - name: Smoke-test the container image
         run: |
-          mkdir -p /tmp/ci-config && chmod 777 /tmp/ci-config
           docker run --rm opencap:ci --help
-          docker run --rm -v /tmp/ci-config:/opencap/config -v "$PWD/tests/fixtures:/in:ro" \
-            opencap:ci import-kep /in/project_sample.json
-          docker run --rm -v /tmp/ci-config:/opencap/config:ro opencap:ci check
+          docker run --rm opencap:ci drivers
+          docker run --rm -v "$PWD/demo/config:/opencap/config:ro" opencap:ci check
           test "$(docker run --rm --entrypoint id opencap:ci -u)" = "10001"
+          # run it: the HEALTHCHECK command answers, SIGTERM ends it with status 0
+          cid="$(docker run -d -v "$PWD/demo/config:/opencap/config:ro" opencap:ci)"
+          for _ in $(seq 1 30); do docker exec "$cid" opencap-engine healthcheck && break; sleep 1; done
+          docker exec "$cid" opencap-engine healthcheck
+          docker stop "$cid"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" = "0"
 
   windows:
     name: Windows (Python 3.12)

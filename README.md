@@ -494,7 +494,7 @@ credentials out of a KEPServerEX project.
 | `OPENCAP_API_TOKEN` | admin API bearer token (the name is `api.token_env`); required when `api.bind` is not loopback |
 | any name in `api.tokens[].token_env` | one named API/UI token each (e.g. `OPENCAP_TOKEN_ALICE`) |
 | `OPENCAP_OPCUA_<CHANNEL>_USER`, `OPENCAP_OPCUA_<CHANNEL>_PASSWORD` | OPC UA client credentials, written by the importer as `params.username_env` / `password_env` |
-| `OPENCAP_HEALTH_URL` | Docker health check URL (default `http://127.0.0.1:8080/health`) |
+| `OPENCAP_HEALTH_URL` | Docker health check URL (default `http://127.0.0.1:8080/health/live`) |
 
 Test-only: `OPENCAP_OUTAGE_S` (acceptance broker outage), `OPENCAP_KEP_PROJECT` and
 `OPENCAP_PRIVATE_DIR` (a real export for `real_project` tests). Templates for an env

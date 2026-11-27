@@ -390,7 +390,8 @@ impl Poller {
         match w.device_status(id) {
             Some(s) => json!({
                 "state": s.state.as_str(), "last_good": s.last_good, "errors": s.errors,
-                "cycle_ms": s.cycle_ms, "last_error": s.last_error, "connected": s.connected,
+                "cycle_ms": s.cycle_ms, "last_error": s.last_error, "last_reason": s.last_reason,
+                "connected": s.connected,
             }),
             None => json!({"state": "offline"}),
         }

@@ -153,8 +153,13 @@ that is safe to paste into an issue: no addresses, host names or secrets. The sa
 
 ## Logs and log rotation
 
-opencap writes **one JSON object per line to stdout**: `timestamp` (ISO-8601 UTC), `level`,
-`event`, plus fields. It never writes log files itself, so the platform owns rotation:
+opencap writes **one JSON object per line to stdout**: `timestamp` (ISO-8601 UTC), `level`
+(`debug`, `info`, `warning`, `error`), `event` and `instance`, plus fields. The Rust engine writes the same keys
+and spelling (D-107), so the filters below work on both. Every `warning` and `error` carries `reason`, a stable
+code (`timeout`, `refused`, `reset`, `address_rejected`, ...), next to the free-text `error`; `GET /devices/{id}`
+shows `last_reason` next to `last_error`. A warning that repeats for the same event, device and reason is written
+once; the next line after a minute carries `suppressed` (how many repeats it stands for). State changes
+(`device.demoted`, `mqtt_disconnected`, ...) are never suppressed. It never writes log files itself, so the platform owns rotation:
 
 | Platform | Where logs go | Rotation |
 |---|---|---|

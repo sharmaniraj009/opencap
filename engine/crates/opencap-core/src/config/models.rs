@@ -454,6 +454,8 @@ impl Device {
         if let Some(p) = self.plugin.as_deref().filter(|p| !KNOWN_PLUGINS.contains(p)) {
             return Err(format!("{}: {}", self.id, plugin_name_error(p)));
         }
+        crate::device_time::check_param(self.params.get("device_timezone"))
+            .map_err(|e| format!("{}: params.device_timezone {e}", self.id))?;
         let mut seen = std::collections::HashSet::new();
         let mut dupes: Vec<String> =
             self.tags.iter().filter(|t| !seen.insert(t.name.as_str())).map(|t| t.name.clone()).collect();

@@ -2184,6 +2184,18 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   generated from, and checked against, the frozen Python models, which reject the new key. They are left unchanged until Python is deleted; the Rust model is the
   source of truth for this field.
 
+### D-102 Rust simulator driver (#124)
+- `engine/drivers/simulator` (`opencap-driver-simulator`, feature `driver-simulator`) follows `docs/driver_params.md`
+  ("simulator") and D-071. It runs every vector of `tests/conformance/simulator/vectors.json` (84 valid, 41 invalid;
+  invalid addresses must fail with the Python message's reason). The vectors hold doubles to the last digit, so the
+  crate's tests parse them with serde_json's `float_roundtrip` (a dev-dependency only; the engine's parsing is unchanged).
+- Integer literals stay exact (`i128`) so RAMP uses integer arithmetic exactly when low, high and step are integer
+  literals (D-066). `COUNTER` counts good reads per tag; a failed read (`fail_every_n_reads`, latency at or above the
+  timeout) does not count. The clock is injectable (`SimulatorDriver::with_clock`); `latency_ms` sleeps with tokio's
+  timer, so tests run it on a paused clock.
+- The issue's last criterion (`tests/integration/test_simulator_poller.py` switched to the Rust binary) is not done
+  here: ADR-0018 forbids touching Python tests. The Rust behaviour is covered by `tests/driver.rs` and the vectors.
+
 ### D-120 DF1 serial is native Rust on opencap-serial; libplctag has no DF1 (#53)
 Status: accepted (ADR-0018 OSS-first rule, step d). PCCC address parsing, planning and decoding are shared
 Rust code, checked by the existing vectors.
@@ -2213,3 +2225,17 @@ Rust code, checked by the existing vectors.
 - The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
   delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
 - ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
+
+### D-105 Device time zone and the last of #112 in the Rust engine (DEV-13)
+- Of #112, the naming rules (PRJ-13, with the v2 errors from D-104), the reserved device names and the
+  `payload.timezone` check (LOG-21, shared `zones.json`) were already in the Rust models. What was missing is DEV-13:
+  `params.device_timezone` is validated when the device is loaded (an IANA name or a fixed offset `+05:30`, `-0800`,
+  `+02`, at most 14:00; the error names the key) and `opencap_core::device_time::DeviceZone::local_to_utc` turns a device's
+  local time into the UTC `source_ts`. No driver calls it yet (ADR-0006: timestamps stay UTC).
+- **DST rule.** A local time in the gap of a spring-forward does not exist: it is read with the offset in force before the
+  jump (02:30 in New York on 2026-03-08 is 07:30Z). A time in the overlap of a fall-back happens twice: the first
+  occurrence (the DST one) is taken and the helper reports `Fold::Ambiguous`. 30-minute jumps (Lord Howe) follow the same rule.
+- The 30 vectors are in `tests/conformance/timezones/device_time/convert.json` (derived by hand, not from the code) and run
+  by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
+  the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
+  `import-kep` reporting are Python code and are not ported.

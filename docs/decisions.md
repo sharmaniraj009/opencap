@@ -2184,6 +2184,21 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   generated from, and checked against, the frozen Python models, which reject the new key. They are left unchanged until Python is deleted; the Rust model is the
   source of truth for this field.
 
+### D-104 The Rust engine loads a project v2 (#186)
+- `load_config` reads a project v2 when `project.json` exists, else the v1 layout, as the Python loader does.
+  `ProjectV2` and `NodeConfig` (= `PollerConfig`, read from `node.yaml`, or from `poller.yaml` with a warning) are
+  checked by the shared fixtures `valid/project_basic`, `valid/node_basic` and four `invalid/project_*`/`node_*`
+  fixtures, which both engines pass (`compare.py` agrees on all 59).
+- The v2 path applies only the finalize steps: names starting with `_` and the naming rules are errors; an unmapped
+  serial line is disabled with the Python warning; unset topics get the default topic of `node.yaml`'s
+  `mqtt.topic_prefix`; SubDeviceId and duplicate warnings have the Python texts (checked against the Python loader on
+  the same directory). v1 files beside the project give the "ignored" warnings.
+- `config_revision` of a project covers `project.json` and `node.yaml` (as the Python store does), so `/support`,
+  the system tag `_ProjectRevision` and the ETag follow edits to those files.
+- **Not done here.** The serial *endpoint* check (host, port, transport values of each serial device) is not part of
+  the Rust loader in v1 either; it runs when the driver is built. `compare.py` and an acceptance scenario on a migrated
+  directory need Python test edits, which ADR-0018 rules out; the loader tests in `tests/project_v2.rs` replace them.
+
 ### D-102 Rust simulator driver (#124)
 - `engine/drivers/simulator` (`opencap-driver-simulator`, feature `driver-simulator`) follows `docs/driver_params.md`
   ("simulator") and D-071. It runs every vector of `tests/conformance/simulator/vectors.json` (84 valid, 41 invalid;
@@ -2255,6 +2270,19 @@ Rust code, checked by the existing vectors.
   by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
   the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
   `import-kep` reporting are Python code and are not ported.
+
+### D-109 The web UI and the runtime half of `/api/v1` in the Rust engine (#140, first slice)
+- **The UI.** `engine/ui/` is a copy of the Python engine's UI bundle (ADR-0010), compiled into the binary
+  (`include_bytes!`, one list in `opencap-api/src/ui.rs`; a test fails when a file in `engine/ui/` is not listed). It is
+  served at `/ui/…` with the Python security headers (CSP without inline script, `nosniff`, `DENY`), `/` and `/ui` redirect
+  with 307, and it is open like in Python. After Python is deleted `engine/ui/` is the only copy.
+- **Runtime routes.** `/api/v1/auth-info` (open), `whoami`, `status`, `project/pending`, `reload`, and for a device
+  `…/status`, `…/values`, `POST …/read-once`, next to the legacy paths (same handlers). `whoami` says `config_writable:
+  false` with the reason; `pending_reload` compares the revision of the files on disk with the one the running config was
+  read from.
+- **Not yet.** The rest of the contract answers 501 `…not implemented in the Rust engine yet (#140)`, so a client cannot
+  mistake it for a missing resource: the configuration reads (`channels`, `devices`, `tags`, `map`, `overrides`,
+  `project…`, `audit`, `drivers`), `plan`, `identity`, the writes and the WebSocket (#164). They follow in their own PRs.
 
 ### D-107 One log line format in the Rust engine (#133, LOG-R3, LOG-R6, LOG-R7)
 - **Format.** `timestamp` (UTC, microseconds, `Z`), `level` (`debug`, `info`, `warning`, `error`), `event` (was `message`),

@@ -62,6 +62,8 @@ pub struct Poller {
     /// What the Sparkplug edge node was started from, and the node (#51).
     sparkplug: tokio::sync::Mutex<(Option<Value>, Option<NorthHandle>)>,
     reload_lock: tokio::sync::Mutex<()>,
+    /// Revision of the files `loaded` came from (`pending_reload` compares the disk with it).
+    revision: StdMutex<String>,
     me: Weak<Poller>,
     /// System and diagnostic tags (#56): the only writer of the `_System` virtual devices.
     systags: Arc<SystemTags>,
@@ -91,6 +93,7 @@ impl Poller {
         plugins: Arc<PluginRegistry>,
     ) -> Arc<Self> {
         let store = Arc::new(TagStore::new());
+        let config_dir_for_revision = config_dir.clone();
         Arc::new_cyclic(|me| Self {
             config_dir,
             only: only.map(|v| v.into_iter().collect()),
@@ -111,11 +114,17 @@ impl Poller {
             north: tokio::sync::Mutex::new(None),
             sparkplug: tokio::sync::Mutex::new((None, None)),
             reload_lock: tokio::sync::Mutex::new(()),
+            revision: StdMutex::new(opencap_core::config::config_revision(&config_dir_for_revision)),
             t0: std::time::Instant::now(),
             started_at: OnceLock::new(),
             ready_ms: OnceLock::new(),
             me: me.clone(),
         })
+    }
+
+    /// The revision of the config files when the running config was loaded.
+    fn loaded_revision(&self) -> String {
+        lock(&self.revision).clone()
     }
 
     fn link(&self) -> Option<Arc<MqttLink>> {
@@ -356,6 +365,7 @@ impl Poller {
     /// `by` = (token name, `api` or `ui`) when the API asked for the reload.
     pub async fn reload_as(&self, by: Option<(&str, &str)>) -> Result<Value, String> {
         let _guard = self.reload_lock.lock().await;
+        let revision = config_revision(&self.config_dir); // before the read: an edit in between shows as pending
         let loaded = match load_config(&self.config_dir) {
             Ok(l) => l,
             Err(e) => {
@@ -371,6 +381,7 @@ impl Poller {
         let channels = loaded.channels.clone();
         self.plugins.prepare(&loaded.poller.plugins.python, &self.selected(&channels)).await;
         *wlock(&self.loaded) = loaded;
+        *lock(&self.revision) = revision;
         let changed = self.apply_channels(&channels);
         self.systags.rebuild();
         self.restart_publisher().await;
@@ -481,6 +492,11 @@ impl EngineView for Poller {
 
     fn about(&self) -> Value {
         crate::support::about()
+    }
+
+    fn config_status(&self) -> Value {
+        let disk = opencap_core::config::config_revision(&self.config_dir);
+        json!({"available": true, "revision": disk, "pending_reload": disk != self.loaded_revision()})
     }
 
     fn support(&self) -> Value {

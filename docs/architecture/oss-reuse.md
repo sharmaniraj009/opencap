@@ -60,7 +60,8 @@ policy-level summary, reconciled with it after #64.
 | OPC UA client + server | async-opcua (successor of locka99/opcua) | MPL-2.0 | no | Evaluate against the memory/throughput gate (04 §4.1) |
 | OPC UA (alternative) | open62541 via FFI | MPL-2.0 | no | Evaluate as fallback |
 | EtherNet/IP, Logix, PCCC | native CIP client (RFC 0001 default) vs rseip / rust-ethernet-ip | — ; MIT (*verify*) | no | **Decided in #43: native CIP client, no new dependency** (D-076) |
-| EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Not used (D-076): C library, write API in the same binary, cross-compiling cost |
+| EtherNet/IP, Logix, PCCC (alternative) | libplctag via FFI | MPL-2.0 or LGPL-2.0+ | no | Evaluate again under ADR-0018 (OSS first; D-076 superseded). v2.7.2 has no serial DF1: DF1 is native (D-120) |
+| Allen-Bradley DF1 (serial) | none found (libplctag has no DF1) | — | — | Build: native full-duplex link layer on opencap-serial (D-120) |
 | Siemens S7comm | — (rust-snap7 is MulanPSL-2.0: Avoid) | — | — | Build: native read subset (COTP, S7 setup, read var); snap7 server as Test-only peer |
 | Mitsubishi MC 3E/4E | — | — | — | Build: native (simple framing) |
 | Omron FINS | — | — | — | Build: native (#54); conformance harness `tests/helpers/fins_sim.py` + `docs/protocols/omron-fins.md` (#13) |

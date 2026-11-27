@@ -1,0 +1,12 @@
+[package]
+name = "opencap-ab-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MPL-2.0"            # libplctag's ab_server test simulator (MPL-2.0 OR LGPL-2+), test tool, never shipped
+publish.workspace = true
+description = "libplctag ab_server simulator built by cargo for tests (not part of the engine binary)"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1"

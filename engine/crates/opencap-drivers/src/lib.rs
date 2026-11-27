@@ -103,6 +103,14 @@ pub static DRIVERS: &[DriverEntry] = &[
         #[cfg(not(feature = "driver-ab-pccc"))]
         create: None,
     },
+    DriverEntry {
+        name: "opcua_client",
+        feature: "driver-opcua-client",
+        #[cfg(feature = "driver-opcua-client")]
+        create: Some(|d| Ok(Box::new(opencap_driver_opcua_client::OpcUaClientDriver::new(d)?))),
+        #[cfg(not(feature = "driver-opcua-client"))]
+        create: None,
+    },
 ];
 
 /// Driver names this build can poll, in table order.

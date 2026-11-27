@@ -1824,6 +1824,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencap-driver-opcua-client"
+version = "0.1.0"
+dependencies = [
+ "async-opcua",
+ "async-trait",
+ "opencap-core",
+ "opencap-north",
+ "opencap-north-opcua",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "opencap-driver-s7"
 version = "0.1.0"
 dependencies = [
@@ -1860,6 +1875,7 @@ dependencies = [
  "opencap-driver-modbus-rtu",
  "opencap-driver-modbus-tcp",
  "opencap-driver-omron-fins",
+ "opencap-driver-opcua-client",
  "opencap-driver-s7",
  "opencap-driver-simulator",
 ]

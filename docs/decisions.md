@@ -2401,6 +2401,32 @@ Status: accepted (ADR-0018: an existing native driver is replaced only if the OS
   `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
   once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).
 
+### D-124 OPC UA client driver: async-opcua, polled Read, read-only (#46)
+Status: accepted (ADR-0018 order: Rust crate first). Crate `drivers/opcua_client`, driver `opcua_client`.
+
+- **Library:** `async-opcua` 0.19 (the client half, the same crate as the server in D-123; MPL-2.0, 362k downloads).
+  No Rust alternative with the same maturity was found; the C library open62541 was not needed.
+- **Polled, not subscribed.** One `Read` request per block of up to `max_items` (default 100) distinct nodes, driven by the
+  worker's scan period, so staleness, the store and the publishers behave as for every other driver. The Python driver
+  subscribes (monitored items, D-045). Subscriptions are a follow-up: they matter for servers with hundreds of
+  rarely-changing nodes, not for the PLC polling this driver is first used for.
+- **Addresses:** async-opcua's NodeId grammar (`ns=2;s=Name`, `i=2258`, `ns=4;g=<guid>`); two tags on one node share one
+  request item. `nsu=` URIs and base64 `b=` identifiers of the Python parser are not supported yet; such a tag goes to
+  `invalid` (bad_config) with the reason.
+- **Quality** as D-045: Good -> good; Uncertain -> stale (value dropped); BadNodeIdUnknown, BadNodeIdInvalid,
+  BadAttributeIdInvalid, BadNotReadable, BadUserAccessDenied -> bad_config; every other Bad -> bad_comm; a Good value that
+  does not fit the dtype -> bad_decode. SourceTimestamp, else ServerTimestamp, is the tag's `source_ts`.
+- **Security:** `security_policy` (None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsaPss) with
+  `message_mode`; user name and password only as environment-variable NAMES (`username_env`, `password_env`; plain
+  `username`/`password` params are refused); the client's certificate store is `pki_dir` (default: a folder under the
+  temporary directory); **fail closed:** a server certificate not in `trusted/` is refused unless `trust_server_certs` is set.
+- **Read-only (ADR-0008):** the crate calls `Session::read` only; `tests/read_only.rs` fails if its sources name `write`,
+  `call`, `history_update` or a node-management service.
+- **Tests** run the driver against our own OPC UA server (`north/opcua`): values and dtype conversion, the status mapping
+  (a bad_comm tag, a missing node), user authentication from environment variables with a wrong password refused, a lost
+  server (an error, never a stale value) and a returning one, planning (dedupe, chunking, a bad address), parameters.
+- **Not done:** subscriptions, arrays, `nsu=`/`b=` NodeIds, client certificate generation for secure policies against
+  third-party servers (a secure connection to a real PLC is untested here), `identity`.
 ### D-127 Advisory RUSTSEC-2023-0071 (rsa, Marvin attack) is ignored for async-opcua, owner decision
 Status: accepted by the owner (option (a) of three; confirmed to the drivers session directly on 2026-11-27).
 

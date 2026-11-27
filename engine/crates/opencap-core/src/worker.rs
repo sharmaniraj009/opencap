@@ -608,6 +608,38 @@ impl Runner {
         Ok(BlockResult::err(Kind::Comm, last_error))
     }
 
+    /// One `read_many` for a driver that packs blocks (`supports_batch`): the values of the blocks
+    /// that came back good, `None` for every other block (they take the single-block path with its
+    /// retries, reconnect and error classification). Nothing is read when the driver has no live
+    /// connection yet: the first cycle connects through the single-block path.
+    async fn read_batch(
+        &self,
+        st: &mut RunnerState,
+        w: &Shared,
+        blocks: &[BlockRef],
+    ) -> Vec<Option<HashMap<String, TagValue>>> {
+        let mut out: Vec<Option<HashMap<String, TagValue>>> = vec![None; blocks.len()];
+        let Some(drv) = st.driver.as_mut() else { return out };
+        if blocks.len() < 2 || !st.connected || !drv.supports_batch() || !drv.connected() {
+            return out;
+        }
+        let budget: Duration = blocks.iter().map(|b| self.read_budget(b)).sum();
+        let t0 = mono();
+        let refs: Vec<&dyn crate::driver::Block> = blocks.iter().map(|b| b.as_ref()).collect();
+        let res = {
+            let _wire = w.wire.lock().await;
+            tokio::time::timeout(budget, drv.read_many(&refs)).await
+        };
+        let Ok(results) = res else { return out }; // the single-block path hits its own timeouts
+        for (i, r) in results.into_iter().enumerate().take(blocks.len()) {
+            if let Ok(values) = r {
+                self.count(w, "ok", &blocks[i], t0, 0, None);
+                out[i] = Some(values);
+            }
+        }
+        out
+    }
+
     /// Driver result -> store values: scaling, missing tags, default source_ts.
     fn postprocess(
         &self,
@@ -658,8 +690,12 @@ impl Runner {
         let mut any_ok = false;
         let mut comm_failed = false;
         let mut errors: Vec<String> = Vec::new();
+        let mut batched = self.read_batch(st, w, blocks).await;
         for (i, block) in blocks.iter().enumerate() {
-            let res = self.read_block(st, w, block, force_connect).await?;
+            let res = match batched[i].take() {
+                Some(values) => BlockResult { kind: Kind::Ok, values, error: None },
+                None => self.read_block(st, w, block, force_connect).await?,
+            };
             force_connect = false;
             match res.kind {
                 Kind::Ok => {

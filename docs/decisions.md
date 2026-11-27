@@ -2306,6 +2306,13 @@ Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then nativ
   the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
   `import-kep` reporting are Python code and are not ported.
 
+### D-108 IoT Gateway JSON in the Rust engine (#170, the Rust half of D-072)
+- `opencap_north::payload_iotgw::build_iotgw` writes the standard template byte for byte as Python does; the shared
+  vectors `tests/conformance/payload/iotgw/` pass in `opencap-conformance` (`payload_iotgw`). The MQTT plugin picks the
+  body by `publish.format` per device; topic, schedule, retain flag, the outbox and the status message do not depend
+  on it, and `payload.timezone` and `bad_tags_field` do not apply. `PublishCfg.format` was already in the Rust model.
+- `publisher::tests::iotgw_format_publishes_the_standard_template` checks the route end to end with a fake sink.
+
 ### D-122 Logix: libplctag against the native client; native stays, no same-simulator comparison possible (task 2)
 Status: accepted (ADR-0018: an existing native driver is replaced only if the OSS one is clearly better in a test).
 

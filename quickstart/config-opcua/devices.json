@@ -1,0 +1,31 @@
+{
+ "version": 1,
+ "channels": [
+  {
+   "name": "Plant",
+   "enabled": true,
+   "devices": [
+    {
+     "id": "Plant/PLC1",
+     "channel": "Plant",
+     "name": "PLC1",
+     "driver": "opcua_client",
+     "host": "PLC_IP_HERE",
+     "port": 4840,
+     "params": {"security_policy": "None", "message_mode": "None"},
+     "scan_ms": 1000,
+     "min_scan_ms": 500,
+     "timeout_ms": 5000,
+     "retries": 2,
+     "demote_after": 3,
+     "demote_for_ms": 30000,
+     "enabled": true,
+     "publish": {"mode": "interval", "interval_ms": 2000, "heartbeat_ms": 300000, "deadband": 0.0, "env": "test", "format": "subdevice_json"},
+     "tags": [
+      {"name": "ServerState", "address": "i=2259", "dtype": "int32"}
+     ]
+    }
+   ]
+  }
+ ]
+}

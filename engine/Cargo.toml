@@ -36,6 +36,8 @@ opencap-driver-s7 = { path = "drivers/s7" }
 opencap-driver-ab-logix = { path = "drivers/ab_logix" }
 opencap-driver-ab-pccc = { path = "drivers/ab_pccc" }
 opencap-driver-ab-df1 = { path = "drivers/ab_df1" }
+opencap-driver-ab-pccc-eip = { path = "drivers/ab_pccc_eip" }
+opencap-plctag-sys = { path = "crates/opencap-plctag-sys" }
 opencap-plugin = { path = "crates/opencap-plugin" }
 
 anyhow = "1"

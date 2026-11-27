@@ -10,3 +10,10 @@ build = "build.rs"
 
 [build-dependencies]
 cc = "1"
+
+[dev-dependencies]
+opencap-core.workspace = true
+opencap-driver-ab-pccc-eip.workspace = true
+opencap-plctag-sys.workspace = true     # links libplctag for the simulator-seeding writes in the test
+serde_json.workspace = true
+tokio.workspace = true

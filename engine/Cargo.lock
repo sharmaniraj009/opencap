@@ -1005,6 +1005,11 @@ name = "opencap-ab-server"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "opencap-core",
+ "opencap-driver-ab-pccc-eip",
+ "opencap-plctag-sys",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1102,6 +1107,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencap-driver-ab-pccc-eip"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "opencap-core",
+ "opencap-driver-ab-pccc",
+ "opencap-plctag-sys",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "opencap-driver-melsec-mc"
 version = "0.1.0"
 dependencies = [
@@ -1174,6 +1192,7 @@ dependencies = [
  "opencap-core",
  "opencap-driver-ab-df1",
  "opencap-driver-ab-logix",
+ "opencap-driver-ab-pccc-eip",
  "opencap-driver-melsec-mc",
  "opencap-driver-modbus-rtu",
  "opencap-driver-modbus-tcp",

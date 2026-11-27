@@ -2175,3 +2175,38 @@ Rust code, checked by the existing vectors.
 - **Not in this port:** `rfc2217` transport and `local_echo` (Python supports `rfc2217` for DF1; the Rust serial
   crate has no RFC 2217 client), half-duplex, and the load-time shared-line `error_check` check (the driver
   refuses at connect instead, as Python does).
+
+### D-121 SLC/MicroLogix/PLC-5 over EtherNet/IP: libplctag through FFI (#48)
+Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then native). Driver name `ab_pccc`.
+
+- **Rust crates searched** (crates.io, `cargo search` and `cargo info`, 2026-11-27): `ciplink` 0.3.7 (MIT; SLC 500 /
+  MicroLogix PCCC and Logix; the only Rust crate found with PCCC data files), `rust-ethernet-ip` 1.2.1 and
+  `ethernetip-logix` 0.1.1 (described as Logix tag clients), `rseip` 0.3.1 (generic CIP client), `ethernetip-core`
+  (encapsulation primitives). No Rust DF1 crate exists (see D-120).
+- **ciplink: rejected on maturity, not benchmarked.** First published October 2026, 122 downloads, one maintainer,
+  blocking I/O on std threads, a public write API in the same crate, and a dependency tree with rustls, ring, chacha20
+  and serialport that the engine does not otherwise need. It does not meet "widely used and tested". The other
+  crates are described as Logix or generic CIP clients; they were not examined for PCCC support.
+- **libplctag 2.7.2 chosen** (C, MPL-2.0 OR LGPL-2+, used under MPL-2.0, unmodified, linked statically; 15 years of
+  field use; covers PCCC for SLC 500, MicroLogix and PLC-5 over EtherNet/IP). Vendored in `engine/vendor/libplctag`
+  and compiled by `cargo build` through the `cc` crate (`crates/opencap-plctag-sys/build.rs`): no system package,
+  the Windows platform files are selected by target. `omron_device_tag.c` and `handle_system.c` are not built (they
+  are not in upstream's CMake source lists). Dependency on a hand-written FFI allow-list instead of bindgen: 17
+  declarations, auditable, and no libclang in CI or on Windows.
+- **Read-only (ADR-0008).** `opencap-plctag-sys` declares only read functions (no `plc_tag_write`, no
+  `plc_tag_set_*` except the debug level). `tests/read_only.rs` fails if the crate declares a function outside the
+  allow-list, or if any engine source (`opencap-plctag-sys/src`, `drivers/*/src`) mentions `plc_tag_write`,
+  `plc_tag_set_*`, `plc_tag_lock` or `plc_tag_abort`. libplctag's own write code is compiled in but unreachable from
+  Rust. The safe wrapper (`safe::Tag`) can only create, read and drop.
+- **Tests, against libplctag's own simulator.** `crates/opencap-ab-server` builds `ab_server` (SLC 500 mode) from the
+  vendored sources with `cargo build`; `tests/pccc_eip.rs` starts it and reads N (int16, uint16 view), F (float32,
+  float64 view), L and B (bits) values, a missing file (`PLCTAG_ERR_REMOTE_ERR` -> BlockConfig), a gateway that
+  disappears (comm timeout, never a wrong value), a refused connect, a restart with reconnect, and a 300-round soak.
+  The simulator starts zeroed and knows only B3, N7, F8, ST18 and L19; the test seeds it with libplctag write calls
+  declared in that test only. Timer, counter, string and I/O files are covered by the shared `ab_pccc` vectors and by
+  the DF1 fake PLC, not by this simulator.
+- **Linking detail.** The simulator has its own `mem_*`, `mutex_*`, `socket_*` and `thread_*` helpers with the same
+  names as libplctag's platform layer; the simulator's are renamed (`absim_` prefix) at compile time so the test
+  can link both.
+- **Not done:** the `file_check` processor file directory (the parameter is accepted, as in the vectors, and
+  ignored: libplctag does not expose the directory; the PLC rejects a missing file itself) and `identity`.

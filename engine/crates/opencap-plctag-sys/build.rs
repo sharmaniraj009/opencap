@@ -27,7 +27,15 @@ fn main() {
     let windows = std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows";
     let plat = root.join("platform").join(if windows { "windows" } else { "posix" });
     add_dir(&mut b, &plat);
-    for inc in [root.clone(), lib.clone(), lib.join("lib"), lib.join("protocols"), lib.join("protocols/ab"), root.join("utils"), plat] {
+    for inc in [
+        root.clone(),
+        lib.clone(),
+        lib.join("lib"),
+        lib.join("protocols"),
+        lib.join("protocols/ab"),
+        root.join("utils"),
+        plat,
+    ] {
         b.include(inc);
     }
     b.define("LIBPLCTAG_STATIC", "1");

@@ -61,6 +61,7 @@ not_in_nav: |
 
 nav:
   - Home: index.md
+  - User guide: user-guide.md
   - Getting started:
       - Quick start: getting-started/index.md
       - How it works: how-it-works/index.md

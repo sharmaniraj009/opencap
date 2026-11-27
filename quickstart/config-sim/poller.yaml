@@ -1,0 +1,11 @@
+instance: opencap-quickstart
+log_level: INFO
+mqtt:
+  host: 127.0.0.1
+  port: 1883
+  client_id: opencap-quickstart
+saf:
+  path: data/saf.sqlite
+api:
+  bind: 127.0.0.1
+  port: 8080

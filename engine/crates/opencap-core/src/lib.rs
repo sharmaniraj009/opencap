@@ -6,6 +6,7 @@
 //! every behaviour rule this crate ports from the Python reference implementation.
 
 pub mod config;
+pub mod device_time;
 pub mod driver;
 pub mod health;
 pub mod metrics;

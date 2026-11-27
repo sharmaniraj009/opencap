@@ -2313,6 +2313,30 @@ Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then nativ
   on it, and `payload.timezone` and `bad_tags_field` do not apply. `PublishCfg.format` was already in the Rust model.
 - `publisher::tests::iotgw_format_publishes_the_standard_template` checks the route end to end with a fake sink.
 
+### D-122 Logix: libplctag against the native client; native stays, no same-simulator comparison possible (task 2)
+Status: accepted (ADR-0018: an existing native driver is replaced only if the OSS one is clearly better in a test).
+
+- **What was run.** libplctag 2.7.2 (the read-only FFI of D-121) and the native `ab_logix` client, both pointed at
+  libplctag's `ab_server` in ControlLogix mode (`--plc=ControlLogix --path=1,0`, two arrays, `DINT[100]` and
+  `REAL[100]`, seeded with write calls in the test).
+- **The native client cannot talk to `ab_server`.** `AbLogixDriver::connect` failed with `encapsulation status
+  0x0001` (invalid command). The native client opens with an EtherNet/IP ListIdentity, then uploads the Symbol Object
+  tag list and the UDT templates to resolve tag names and types. `ab_server` implements neither (a search of
+  `src/tools/ab_server` finds no ListIdentity command and no Symbol Object service); it exists to serve libplctag,
+  which names tags directly. The native driver has no Rust simulator (its `tests/` hold read-only checks of the service builders), and
+  its behaviour is checked by the Python CIP simulator (`tests/helpers/cip_sim.py`), which is a library with no
+  command-line entry point and may not be extended. So correctness, latency and CPU cannot be compared on one
+  simulator without forking `ab_server` or changing the native client, and neither is proportionate.
+- **What was measured (libplctag only, release build, Linux, loopback, `ab_server`).** 2 arrays x 20 elements
+  (20 DINT and 20 REAL) read per round, 1000 rounds: all 40 values equal the seeded data; 0.20 ms mean and median
+  per round (p99 0.29 ms); 0.22 s CPU for the 1000 rounds. These are loopback numbers against a simulator with no
+  PLC scan time; they say nothing about a real controller. No native figures exist to compare them with.
+- **Decision.** Keep the native `ab_logix` driver. It meets the engine's own acceptance suites, has the tag list
+  cache and Multiple Service Packet packing, and is the only one of the two that the Python CIP simulator and the
+  shared Logix vectors cover. libplctag is not clearly better in any test that could be run, so it is not swapped
+  in. Revisit with a Logix simulator that both clients can use, or a real controller (v0.1 package 7).
+- The libplctag FFI stays available for Logix (the allow-list and the `Tag` wrapper are protocol-independent).
+
 ### D-109 The web UI and the runtime half of `/api/v1` in the Rust engine (#140, first slice)
 - **The UI.** `engine/ui/` is a copy of the Python engine's UI bundle (ADR-0010), compiled into the binary
   (`include_bytes!`, one list in `opencap-api/src/ui.rs`; a test fails when a file in `engine/ui/` is not listed). It is

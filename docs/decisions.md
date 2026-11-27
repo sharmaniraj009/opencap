@@ -2193,6 +2193,22 @@ Rust code, checked by the existing vectors.
   delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
 - ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
 
+### D-106 Config and API events in the Rust engine (#222, the Rust half of D-079)
+- **`api.request_refused`.** The API guard logs each 401, 403 and 413 it answers before a handler runs, with the Python
+  fields (`method`, `path`, `status`, `who`, `client`, `via`): WARNING for 401 and 403, INFO for 413; `who` is the token
+  name, `anonymous` in open mode, `unknown` without a valid token; `client` is the peer address (`unknown` when the
+  transport gives none); `via` is `ui` when the request carries `X-Opencap-Client: ui`, else `api`. At most one line per
+  client address and status each second; the next line carries `suppressed`. Never the token, query string or body.
+- **`api.bind_failed`.** Every way the API cannot start (token settings, open mode on a non-loopback bind, a port out of
+  range, `in_use`, `permission_denied`, `address_unavailable`, `bad_address`, `io`) logs one ERROR line with `bind`, `port`,
+  `reason`, `error`, and `run` exits with status 1 before the poller starts. The legacy `api_started` name stays (#134)
+  and gains `open_mode` and `tokens`; its `port` is the bound port.
+- **Correlation.** `config_reloaded` carries `revision`, and `who` and `via` when `POST /reload` caused it;
+  `poller_started` carries `engine`, `instance` and `revision`.
+- **Still to come:** `config.write_failed` and `config.change_rejected` come with the Rust config API (#140).
+- Tests: `crates/opencap-api/tests/refusal_events.rs` (fields, levels, no secret, the limiter on an injected clock, bind
+  reasons), `events.rs` unit tests, and `run_exits_1_when_the_api_cannot_start` in the engine.
+
 ### D-105 Device time zone and the last of #112 in the Rust engine (DEV-13)
 - Of #112, the naming rules (PRJ-13, with the v2 errors from D-104), the reserved device names and the
   `payload.timezone` check (LOG-21, shared `zones.json`) were already in the Rust models. What was missing is DEV-13:
@@ -2230,3 +2246,21 @@ Status: accepted (ADR-0018: an existing native driver is replaced only if the OS
   shared Logix vectors cover. libplctag is not clearly better in any test that could be run, so it is not swapped
   in. Revisit with a Logix simulator that both clients can use, or a real controller (v0.1 package 7).
 - The libplctag FFI stays available for Logix (the allow-list and the `Tag` wrapper are protocol-independent).
+
+### D-107 One log line format in the Rust engine (#133, LOG-R3, LOG-R6, LOG-R7)
+- **Format.** `timestamp` (UTC, microseconds, `Z`), `level` (`debug`, `info`, `warning`, `error`), `event` (was `message`),
+  `instance` (`poller.yaml`), then the event's fields; no `target`. This is plan 15's open question 4: the Rust engine
+  changes, Python stays as it is, and the `jq` filters in `docs/deployment.md` match both. Event names are unchanged.
+- **Reason codes.** `opencap_core::reasons`: the closed lists of LOG-R6 (device communication, config writes, outbox) plus
+  `unsupported` (driver not built or not implemented) and `internal` (a bug, not a device fault) in the device list. A
+  warning or error that names no `reason` gets the default of its event (a table, then the words of its `error` text,
+  else `internal`), so driver crates need no edits; free text written under `reason` moves to `detail`. A device's
+  `last_reason` is the code of `last_error`. The class and text -> code mapping, the simulator's faults included
+  (`fail_connect` is `refused`; `fail_every_n_reads` and a latency at or above the timeout are `timeout`), is pinned by
+  `tests/conformance/reasons/classify.json`. Python has no reason codes and is frozen, so it is not run there.
+- **Flood control.** Warnings and errors with the same event, device and reason are written the first time; the next line
+  after 60 s carries `suppressed=N` (the repeats since). A burst of 1000 gives one line, then one more a minute later.
+  Nothing is written when a burst stops: the count is reported by the next occurrence, as `api.request_refused` does.
+  State-change warnings (`mqtt_disconnected`, `device.offline`, `device.demoted`, `device.resumed`, `mqtt_connected`,
+  `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
+  once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).

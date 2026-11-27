@@ -19,6 +19,7 @@ fn main() {
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../vendor/libplctag/src");
     let lib = root.join("libplctag");
     let mut b = cc::Build::new();
+    // C11: ATOMIC_VAR_INIT is not a constant initializer under C23, the default of newer GCC
     b.warnings(false).opt_level(2);
     for sub in ["lib", "protocols/ab", "protocols/mb", "protocols/omron", "protocols/system"] {
         add_dir(&mut b, &lib.join(sub));
@@ -47,6 +48,9 @@ fn main() {
         b.flag_if_supported("-pthread");
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=m");
+    }
+    if std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default() != "msvc" {
+        b.std("gnu11");
     }
     b.compile("plctag");
     println!("cargo:rerun-if-changed={}", root.display());

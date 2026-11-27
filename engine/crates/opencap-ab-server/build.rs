@@ -4,6 +4,7 @@ fn main() {
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../vendor/libplctag/src/tools/ab_server");
     let mut b = cc::Build::new();
     let src = dir.join("../..");
+    // C11: ATOMIC_VAR_INIT is not a constant initializer under C23, the default of newer GCC
     b.warnings(false).opt_level(2).include(&dir).include(&src).define("main", "ab_server_main");
     // The simulator has its own mem/mutex/socket/thread helpers with the names libplctag's platform
     // layer exports. The integration test links both, so the simulator's are renamed.
@@ -47,6 +48,9 @@ fn main() {
     } else {
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=m");
+    }
+    if std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default() != "msvc" {
+        b.std("gnu11");
     }
     b.compile("ab_server");
     println!("cargo:rerun-if-changed={}", dir.display());

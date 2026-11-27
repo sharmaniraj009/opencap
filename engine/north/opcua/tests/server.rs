@@ -299,8 +299,15 @@ async fn secure_channel_needs_a_trusted_client_certificate_and_a_valid_user() {
         !secure_read_works(r.port, &client_pki, "operator", "s3cret").await,
         "an untrusted client certificate must be refused"
     );
-    let rejected: Vec<_> =
-        std::fs::read_dir(server_pki.join("rejected")).map(|d| d.flatten().collect()).unwrap_or_default();
+    // the server stores the refused certificate just after answering, so give it a moment on a loaded runner
+    let mut rejected: Vec<_> = Vec::new();
+    for _ in 0..100 {
+        rejected = std::fs::read_dir(server_pki.join("rejected")).map(|d| d.flatten().collect()).unwrap_or_default();
+        if !rejected.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     assert!(!rejected.is_empty(), "the refused certificate must land in rejected/");
     // the operator trusts it by moving the file from rejected/ to trusted/ (the name carries the thumbprint);
     // then the door is open, but the wrong password still is not

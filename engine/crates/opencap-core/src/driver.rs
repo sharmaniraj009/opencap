@@ -133,6 +133,25 @@ pub trait Driver: Send {
     /// One attempt to read one block: a `TagValue` for every name in `block.tags()`.
     async fn read(&mut self, block: &dyn Block) -> ReadResult;
 
+    /// True when [`Driver::read_many`] packs several blocks into fewer wire requests than
+    /// one `read` per block (S7 multi-item read var). The worker then reads a cycle's blocks
+    /// with one `read_many` call first, and re-reads only the blocks that did not come back
+    /// good through the single-block path, which keeps the retry, reconnect and
+    /// error-classification rules in one place.
+    fn supports_batch(&self) -> bool {
+        false
+    }
+
+    /// Read several blocks of this device, one result per block, in order. The default is one
+    /// `read` per block. Read-only like `read`: the trait has no write method (ADR-0008).
+    async fn read_many(&mut self, blocks: &[&dyn Block]) -> Vec<ReadResult> {
+        let mut out = Vec::with_capacity(blocks.len());
+        for b in blocks {
+            out.push(self.read(*b).await);
+        }
+        out
+    }
+
     /// Vendor/model/firmware if the device reports it; empty otherwise. Never fails.
     async fn identity(&mut self) -> Map<String, Json> {
         Map::new()

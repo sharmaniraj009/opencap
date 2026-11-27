@@ -2149,3 +2149,16 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   timer, so tests run it on a paused clock.
 - The issue's last criterion (`tests/integration/test_simulator_poller.py` switched to the Rust binary) is not done
   here: ADR-0018 forbids touching Python tests. The Rust behaviour is covered by `tests/driver.rs` and the vectors.
+
+### D-100 System tags in Rust, part 1: the pure evaluator and the health fields (#56)
+- `opencap_core::system_tags` is the Rust *state -> system tags* function of `docs/spec/system-tags.md`,
+  split by level (`node_tags`, `north_tags`, `channel_tags`, `device_tags`) so the runtime task can
+  recompute one device and its channel on a device event and leave the rest to the once-a-second tick
+  (D-095). The state is a typed struct (serde) in the shape of `tests/conformance/system_tags/README.md`;
+  `TICK_TAGS` is the `tick` class and a test compares it with the catalogue.
+- `DeviceHealth` gains `error_since` (set by the first failed cycle of a run, cleared by a good one);
+  `record_failure` now takes the UTC time. `DeviceStatus` gains `consecutive_failures`, `error_since`
+  and `last_connect_failed` (set by each real connect attempt; a connect skipped for backoff does not
+  count). `_Error` is `consecutive_failures > 0` (spec section 9).
+- All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
+  The tag store task, the counters, the payload flag and the API follow in part 2.

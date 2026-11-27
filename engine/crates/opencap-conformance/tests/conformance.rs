@@ -507,3 +507,23 @@ mod s7 {
         });
     }
 }
+
+/// DEV-13 (#112): device local time -> UTC around DST changes (`tests/conformance/timezones/device_time/`).
+#[test]
+fn device_time_vectors() {
+    use chrono::NaiveDateTime;
+    use opencap_core::device_time::DeviceZone;
+    let n = run_area("timezones/device_time", |input| {
+        let zone = input["zone"].as_str().ok_or("zone")?;
+        let local: NaiveDateTime =
+            input["local"].as_str().ok_or("local")?.parse().map_err(|e| format!("local: {e}"))?;
+        Ok(match DeviceZone::parse(zone) {
+            Err(_) => json!({"ok": false}),
+            Ok(z) => {
+                let (utc, fold) = z.local_to_utc(local);
+                json!({"ok": true, "utc": opencap_core::value::iso_utc(utc), "fold": fold.as_str()})
+            }
+        })
+    });
+    assert!(n >= 25, "{n}");
+}

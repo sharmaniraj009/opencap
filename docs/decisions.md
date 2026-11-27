@@ -2180,3 +2180,17 @@ Rust code, checked by the existing vectors.
 - The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
   delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
 - ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
+
+### D-105 Device time zone and the last of #112 in the Rust engine (DEV-13)
+- Of #112, the naming rules (PRJ-13, with the v2 errors from D-104), the reserved device names and the
+  `payload.timezone` check (LOG-21, shared `zones.json`) were already in the Rust models. What was missing is DEV-13:
+  `params.device_timezone` is validated when the device is loaded (an IANA name or a fixed offset `+05:30`, `-0800`,
+  `+02`, at most 14:00; the error names the key) and `opencap_core::device_time::DeviceZone::local_to_utc` turns a device's
+  local time into the UTC `source_ts`. No driver calls it yet (ADR-0006: timestamps stay UTC).
+- **DST rule.** A local time in the gap of a spring-forward does not exist: it is read with the offset in force before the
+  jump (02:30 in New York on 2026-03-08 is 07:30Z). A time in the overlap of a fall-back happens twice: the first
+  occurrence (the DST one) is taken and the helper reports `Fold::Ambiguous`. 30-minute jumps (Lord Howe) follow the same rule.
+- The 30 vectors are in `tests/conformance/timezones/device_time/convert.json` (derived by hand, not from the code) and run
+  by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
+  the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
+  `import-kep` reporting are Python code and are not ported.

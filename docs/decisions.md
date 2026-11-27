@@ -2155,3 +2155,19 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
   delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
 - ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
+
+### D-106 Config and API events in the Rust engine (#222, the Rust half of D-079)
+- **`api.request_refused`.** The API guard logs each 401, 403 and 413 it answers before a handler runs, with the Python
+  fields (`method`, `path`, `status`, `who`, `client`, `via`): WARNING for 401 and 403, INFO for 413; `who` is the token
+  name, `anonymous` in open mode, `unknown` without a valid token; `client` is the peer address (`unknown` when the
+  transport gives none); `via` is `ui` when the request carries `X-Opencap-Client: ui`, else `api`. At most one line per
+  client address and status each second; the next line carries `suppressed`. Never the token, query string or body.
+- **`api.bind_failed`.** Every way the API cannot start (token settings, open mode on a non-loopback bind, a port out of
+  range, `in_use`, `permission_denied`, `address_unavailable`, `bad_address`, `io`) logs one ERROR line with `bind`, `port`,
+  `reason`, `error`, and `run` exits with status 1 before the poller starts. The legacy `api_started` name stays (#134)
+  and gains `open_mode` and `tokens`; its `port` is the bound port.
+- **Correlation.** `config_reloaded` carries `revision`, and `who` and `via` when `POST /reload` caused it;
+  `poller_started` carries `engine`, `instance` and `revision`.
+- **Still to come:** `config.write_failed` and `config.change_rejected` come with the Rust config API (#140).
+- Tests: `crates/opencap-api/tests/refusal_events.rs` (fields, levels, no secret, the limiter on an injected clock, bind
+  reasons), `events.rs` unit tests, and `run_exits_1_when_the_api_cannot_start` in the engine.

@@ -1,0 +1,5 @@
+defaults:
+  env: test
+devices:
+  Plant/PLC1:
+    sub_device_id: PHOENIX_PLC_1

@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "channels": [
+  {
+   "name": "Plant",
+   "enabled": true,
+   "devices": [
+    {
+     "id": "Plant/PLC1",
+     "channel": "Plant",
+     "name": "PLC1",
+     "driver": "modbus_tcp",
+     "host": "PLC_IP_HERE",
+     "port": 502,
+     "params": {},
+     "scan_ms": 1000,
+     "min_scan_ms": 500,
+     "timeout_ms": 3000,
+     "retries": 2,
+     "demote_after": 3,
+     "demote_for_ms": 30000,
+     "enabled": true,
+     "publish": {"mode": "interval", "interval_ms": 2000, "heartbeat_ms": 300000, "deadband": 0.0, "env": "test", "format": "subdevice_json"},
+     "tags": [
+      {"name": "Reg1", "address": "400001", "dtype": "uint16"},
+      {"name": "Reg2", "address": "400002", "dtype": "int16"}
+     ]
+    }
+   ]
+  }
+ ]
+}

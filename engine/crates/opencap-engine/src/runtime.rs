@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use opencap_api::{EngineView, ReadOnceError};
-use opencap_core::config::{load_config, Channel, LoadedConfig};
+use opencap_core::config::{config_revision, load_config, Channel, LoadedConfig};
 use opencap_core::driver::DriverFactory;
 use opencap_core::registry::Registry;
 use opencap_core::store::TagStore;
@@ -57,6 +57,8 @@ pub struct Poller {
     /// What the Sparkplug edge node was started from, and the node (#51).
     sparkplug: tokio::sync::Mutex<(Option<Value>, Option<NorthHandle>)>,
     reload_lock: tokio::sync::Mutex<()>,
+    /// Revision of the files `loaded` came from (`pending_reload` compares the disk with it).
+    revision: StdMutex<String>,
     me: Weak<Poller>,
     /// Readiness (D-075): process start, end of `start()` (north side up), and the latched
     /// initial-scan duration (set once, never cleared).
@@ -81,6 +83,7 @@ impl Poller {
         factory: DriverFactory,
         plugins: Arc<PluginRegistry>,
     ) -> Arc<Self> {
+        let config_dir_for_revision = config_dir.clone();
         Arc::new_cyclic(|me| Self {
             config_dir,
             only: only.map(|v| v.into_iter().collect()),
@@ -98,11 +101,17 @@ impl Poller {
             north: tokio::sync::Mutex::new(None),
             sparkplug: tokio::sync::Mutex::new((None, None)),
             reload_lock: tokio::sync::Mutex::new(()),
+            revision: StdMutex::new(opencap_core::config::config_revision(&config_dir_for_revision)),
             t0: std::time::Instant::now(),
             started_at: OnceLock::new(),
             ready_ms: OnceLock::new(),
             me: me.clone(),
         })
+    }
+
+    /// The revision of the config files when the running config was loaded.
+    fn loaded_revision(&self) -> String {
+        lock(&self.revision).clone()
     }
 
     fn link(&self) -> Option<Arc<MqttLink>> {
@@ -324,6 +333,7 @@ impl Poller {
     /// SIGHUP / POST /reload: re-read config, restart only the channels that changed.
     pub async fn reload(&self) -> Result<Value, String> {
         let _guard = self.reload_lock.lock().await;
+        let revision = config_revision(&self.config_dir); // before the read: an edit in between shows as pending
         let loaded = match load_config(&self.config_dir) {
             Ok(l) => l,
             Err(e) => {
@@ -339,6 +349,7 @@ impl Poller {
         let channels = loaded.channels.clone();
         self.plugins.prepare(&loaded.poller.plugins.python, &self.selected(&channels)).await;
         *wlock(&self.loaded) = loaded;
+        *lock(&self.revision) = revision;
         let changed = self.apply_channels(&channels);
         self.restart_publisher().await;
         self.restart_sparkplug(false).await;
@@ -436,6 +447,11 @@ impl EngineView for Poller {
 
     fn about(&self) -> Value {
         crate::support::about()
+    }
+
+    fn config_status(&self) -> Value {
+        let disk = opencap_core::config::config_revision(&self.config_dir);
+        json!({"available": true, "revision": disk, "pending_reload": disk != self.loaded_revision()})
     }
 
     fn support(&self) -> Value {

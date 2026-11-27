@@ -2137,3 +2137,9 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   port (#53) consumes them.
 - **Rust:** the Rust Modbus RTU driver (#149, D-070) should get the same shared-line check and the
   multi-drop timeout rule. That belongs in its loader and driver, not in this PR.
+
+### D-097 Rust is the only engine (ADR-0018)
+- The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
+  delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
+- ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
+

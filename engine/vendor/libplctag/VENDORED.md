@@ -5,7 +5,7 @@
 - Copied: `src/libplctag`, `src/platform`, `src/utils`, `src/tools/ab_server`. CMake files are left out; the
   `cc` crate builds the sources (`engine/crates/opencap-plctag-sys/build.rs`, `engine/crates/opencap-ab-server/build.rs`).
 - **Only change to the sources:** in the comments of `src/libplctag/protocols/ab/cip.c` (lines 224-225) and
-  `src/libplctag/protocols/omron/cip.c` (lines 220-221), the example address `10.206.10.14` is written as
+  `src/libplctag/protocols/omron/cip.c` (lines 220-221), the example address (a private 10.x address) is written as
   `192.0.2.14` (the documentation range), because the repository's private-address check
   (`tests/unit/test_no_private_data.py`) scans every tracked file. No code changed.
 - To update: copy the new tag over these directories and repeat the comment edit.

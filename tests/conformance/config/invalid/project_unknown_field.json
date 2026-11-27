@@ -1,0 +1,10 @@
+{
+  "document": "project",
+  "expected_error": "Extra inputs are not permitted",
+  "semantic": false,
+  "data": {
+    "version": 2,
+    "channels": [],
+    "colour": "blue"
+  }
+}

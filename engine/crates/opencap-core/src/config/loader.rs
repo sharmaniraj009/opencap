@@ -26,6 +26,11 @@ pub const POLLER_FILE: &str = "poller.yaml";
 pub const DEVICES_FILE: &str = "devices.json";
 pub const MAP_FILE: &str = "devices_map.yaml";
 pub const OVERRIDES_FILE: &str = "overrides.yaml";
+pub const PROJECT_FILE: &str = "project.json"; // project v2 (ADR-0013)
+pub const NODE_FILE: &str = "node.yaml";
+
+const SERIAL_DRIVERS: [&str; 2] = ["ab_df1", "modbus_rtu"];
+const LIST_LIMIT: usize = 5;
 
 const DEVICE_SCALARS: [&str; 10] = [
     "enabled",
@@ -47,6 +52,10 @@ pub struct LoadedConfig {
     pub channels: Vec<Channel>,
     pub excluded: Vec<ExcludedDevice>,
     pub warnings: Vec<String>,
+    /// Project v2 `name` (system tag `_ProjectName`); `None` = the config directory's name.
+    pub project_name: Option<String>,
+    /// Project v2 `title` (system tag `_ProjectTitle`).
+    pub project_title: String,
 }
 
 impl LoadedConfig {
@@ -278,18 +287,58 @@ fn sparkplug_checks(poller: &PollerConfig, channels: &[Channel]) -> Result<Vec<S
     Ok(warnings)
 }
 
+/// Warnings for MQTT topics and SubDeviceIds shared by several devices.
+fn duplicate_warnings(devices: &[&Device]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (what, attr) in [("MQTT topic", "topic"), ("SubDeviceId", "sub_device_id")] {
+        let mut users: indexmap::IndexMap<String, Vec<String>> = Default::default();
+        for d in devices {
+            let value = if attr == "topic" { &d.publish.topic } else { &d.publish.sub_device_id };
+            if let Some(v) = value.as_ref().filter(|v| !v.is_empty()) {
+                users.entry(v.clone()).or_default().push(d.id.clone());
+            }
+        }
+        for (value, ids) in users {
+            if ids.len() > 1 {
+                out.push(format!("{what} {} is used by {} devices: {}", r(&value), ids.len(), ids_text(&ids)));
+            }
+        }
+    }
+    out
+}
+
+/// `poller.yaml` / `node.yaml`: parse and validate the node settings (missing file = defaults).
+pub fn load_node(path: &Path) -> Result<PollerConfig, ConfigError> {
+    let poller: PollerConfig = model(path, Json::Object(read_yaml(path)?))?;
+    poller.mqtt.validate().map_err(|e| invalid(format!("{}: mqtt: {e}", path.display())))?;
+    poller.api.validate().map_err(|e| invalid(format!("{}: api: {e}", path.display())))?;
+    poller.payload.validate().map_err(|e| invalid(format!("{}: {e}", path.display())))?;
+    poller.opcua_server.validate().map_err(|e| invalid(format!("{}: {e}", path.display())))?;
+    poller.plugins.python.validate().map_err(|e| invalid(format!("{}: {e}", path.display())))?;
+    poller.sparkplug.validate().map_err(|e| invalid(format!("{}: {e}", path.display())))?;
+    Ok(poller)
+}
+
+/// True when `config_dir` holds a project v2 (`project.json`).
+pub fn is_v2(config_dir: &Path) -> bool {
+    config_dir.join(PROJECT_FILE).exists()
+}
+
+/// Load the config directory: a project v2 if `project.json` exists, else the v1 layout.
 pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
+    if is_v2(config_dir) {
+        load_v2(config_dir)
+    } else {
+        load_v1(config_dir)
+    }
+}
+
+/// The v1 layout: `poller.yaml`, `devices.json`, `overrides.yaml`, `devices_map.yaml`.
+pub fn load_v1(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
     let config_dir = PathBuf::from(config_dir);
     let mut warnings: Vec<String> = Vec::new();
 
-    let poller_path = config_dir.join(POLLER_FILE);
-    let poller: PollerConfig = model(&poller_path, Json::Object(read_yaml(&poller_path)?))?;
-    poller.mqtt.validate().map_err(|e| invalid(format!("{}: mqtt: {e}", poller_path.display())))?;
-    poller.api.validate().map_err(|e| invalid(format!("{}: api: {e}", poller_path.display())))?;
-    poller.payload.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
-    poller.opcua_server.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
-    poller.plugins.python.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
-    poller.sparkplug.validate().map_err(|e| invalid(format!("{}: {e}", poller_path.display())))?;
+    let poller = load_node(&config_dir.join(POLLER_FILE))?;
     let devices_file = load_devices(&config_dir.join(DEVICES_FILE))?;
     let ov_path = config_dir.join(OVERRIDES_FILE);
     let overrides_raw = read_yaml(&ov_path)?;
@@ -409,23 +458,7 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
         ));
     }
 
-    let all: Vec<&Device> = channels.iter().flat_map(|c| c.devices.iter()).collect();
-    for (what, attr) in [("MQTT topic", "topic"), ("SubDeviceId", "sub_device_id")] {
-        let mut users: indexmap::IndexMap<String, Vec<String>> = Default::default();
-        for d in &all {
-            let value = if attr == "topic" { &d.publish.topic } else { &d.publish.sub_device_id };
-            if let Some(v) = value {
-                if !v.is_empty() {
-                    users.entry(v.clone()).or_default().push(d.id.clone());
-                }
-            }
-        }
-        for (value, ids) in users {
-            if ids.len() > 1 {
-                warnings.push(format!("{what} {} is used by {} devices: {}", r(&value), ids.len(), ids_text(&ids)));
-            }
-        }
-    }
+    warnings.extend(duplicate_warnings(&channels.iter().flat_map(|c| c.devices.iter()).collect::<Vec<_>>()));
 
     if devices_file.version < 2 {
         // names starting with '_' are an error from v2 on (spec 3.2)
@@ -447,7 +480,130 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
         excluded: devices_file.excluded.clone(),
     };
     validated.validate().map_err(invalid)?;
-    Ok(LoadedConfig { poller, channels: validated.channels, excluded: validated.excluded, warnings })
+    Ok(LoadedConfig {
+        poller,
+        channels: validated.channels,
+        excluded: validated.excluded,
+        warnings,
+        project_name: None,
+        project_title: String::new(),
+    })
+}
+
+// --- project v2 (ADR-0013, #186) --------------------------------------------------------
+
+/// Parse and validate `project.json`.
+pub fn load_project(path: &Path) -> Result<ProjectV2, ConfigError> {
+    let raw = std::fs::read(path).map_err(|e| invalid(format!("{}: cannot read: {e}", path.display())))?;
+    let raw = raw.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&raw); // utf-8-sig
+    let data: Json =
+        serde_json::from_slice(raw).map_err(|e| invalid(format!("{}: invalid JSON: {e}", path.display())))?;
+    if let Json::Object(o) = &data {
+        let version = o.get("version");
+        if version.and_then(Json::as_i64) != Some(2) || version.is_some_and(Json::is_boolean) {
+            return Err(invalid(format!(
+                "{}: version {}, a project v2 needs \"version\": 2",
+                path.display(),
+                version.map_or_else(|| "None".to_string(), crate::pyfmt::py_repr_json)
+            )));
+        }
+    }
+    let project: ProjectV2 = model(path, data)?;
+    project.validate().map_err(|e| invalid(format!("{}: {e}", path.display())))?;
+    Ok(project)
+}
+
+/// Project v2: `project.json` as written plus `node.yaml`, then the finalize steps.
+pub fn load_v2(config_dir: &Path) -> Result<LoadedConfig, ConfigError> {
+    let mut warnings: Vec<String> = Vec::new();
+    let (node_path, poller_path) = (config_dir.join(NODE_FILE), config_dir.join(POLLER_FILE));
+    let node = if node_path.exists() {
+        if poller_path.exists() {
+            warnings.push(format!("{POLLER_FILE} ignored: {NODE_FILE} holds the node settings of a project v2"));
+        }
+        load_node(&node_path)?
+    } else {
+        if poller_path.exists() {
+            warnings.push(format!("{NODE_FILE} is missing, read {POLLER_FILE} instead; rename it to {NODE_FILE}"));
+        }
+        load_node(&poller_path)?
+    };
+    for name in [DEVICES_FILE, MAP_FILE, OVERRIDES_FILE] {
+        if config_dir.join(name).exists() {
+            warnings.push(format!("{name} ignored: {PROJECT_FILE} is the project (v2)"));
+        }
+    }
+    finalize_project(&load_project(&config_dir.join(PROJECT_FILE))?, node, warnings)
+}
+
+/// The load-time steps a project v2 shares with v1: unmapped serial devices disabled, default
+/// topics, SubDeviceId and duplicate warnings. `project` is not changed. The serial endpoint
+/// check (host, port and transport of each serial device) happens where the driver is built.
+pub fn finalize_project(
+    project: &ProjectV2,
+    node: PollerConfig,
+    mut warnings: Vec<String>,
+) -> Result<LoadedConfig, ConfigError> {
+    let mut problems = underscore_names(&project.channels);
+    problems.extend(name_rule_problems(&project.channels));
+    if !problems.is_empty() {
+        // warnings in v1, errors in a project v2 (system-tags spec 3.2, PRJ-13)
+        let mut shown = problems.iter().take(LIST_LIMIT).cloned().collect::<Vec<_>>().join("; ");
+        if problems.len() > LIST_LIMIT {
+            shown.push_str(&format!("; ... (+{} more)", problems.len() - LIST_LIMIT));
+        }
+        return Err(invalid(format!(
+            "{PROJECT_FILE}: {shown}. In a project v2 the naming rules are errors and names starting with '_' are reserved for system tags"
+        )));
+    }
+    let mut channels: Vec<Channel> = Vec::new();
+    for ch in &project.channels {
+        let mut devices: Vec<Device> = Vec::new();
+        for device in &ch.devices {
+            let mut new = device.clone();
+            if SERIAL_DRIVERS.contains(&new.driver.as_str()) {
+                let transport = new.params.get("transport").and_then(Json::as_str).filter(|t| !t.is_empty());
+                if transport.unwrap_or("tcp").trim().to_lowercase() == "unmapped" {
+                    if new.enabled {
+                        let com = new.params.get("com_port").and_then(Json::as_str).filter(|c| !c.is_empty());
+                        warnings.push(format!(
+                            "{}: {} is not mapped to a transport (transport: unmapped); device skipped. Set params.transport, host and port in {PROJECT_FILE}",
+                            new.id,
+                            com.unwrap_or("its serial port")
+                        ));
+                    }
+                    new.enabled = false;
+                }
+            }
+            if new.publish.topic.is_none() {
+                new.publish.topic = Some(default_topic(&new, &node.mqtt.topic_prefix));
+            }
+            devices.push(new);
+        }
+        channels.push(Channel { name: ch.name.clone(), enabled: ch.enabled, devices });
+    }
+    let all: Vec<&Device> = channels.iter().flat_map(|c| c.devices.iter()).collect();
+    let unmapped: Vec<String> =
+        all.iter().filter(|d| d.publish.sub_device_id.is_none()).map(|d| d.id.clone()).collect();
+    if !unmapped.is_empty() {
+        warnings.push(format!(
+            "{} device(s) without SubDeviceId (publish.sub_device_id unset in {PROJECT_FILE}): {}",
+            unmapped.len(),
+            ids_text(&unmapped)
+        ));
+    }
+    warnings.extend(duplicate_warnings(&all));
+    warnings.extend(sparkplug_checks(&node, &channels).map_err(invalid)?);
+    let validated = ProjectV2 { channels, ..project.clone() };
+    validated.validate().map_err(invalid)?;
+    Ok(LoadedConfig {
+        poller: node,
+        channels: validated.channels,
+        excluded: validated.excluded,
+        warnings,
+        project_name: project.name.clone(),
+        project_title: project.title.clone(),
+    })
 }
 
 #[cfg(test)]

@@ -539,8 +539,57 @@ pub struct DevicesFile {
 
 impl DevicesFile {
     pub fn validate(&self) -> Result<(), String> {
+        validate_channels(&self.channels)
+    }
+}
+
+fn d_v2() -> i64 {
+    2
+}
+
+/// Schema of `config/project.json`, the project v2 (ADR-0013, #186): channels, devices and tags
+/// with everything v1 layers on at load time already applied. `revision` counts saved versions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectV2 {
+    #[serde(default = "d_v2")]
+    pub version: i64,
+    #[serde(default)]
+    pub revision: i64,
+    #[serde(default)]
+    pub generated_from: Option<String>,
+    #[serde(default)]
+    pub generated_at: Option<String>,
+    /// System tag `_ProjectName` (`None`: the config directory's name).
+    #[serde(default)]
+    pub name: Option<String>,
+    /// System tag `_ProjectTitle`.
+    #[serde(default)]
+    pub title: String,
+    pub channels: Vec<Channel>,
+    #[serde(default)]
+    pub excluded: Vec<ExcludedDevice>,
+}
+
+impl ProjectV2 {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.version != 2 {
+            return Err(format!("version: Input should be 2 (got {})", self.version));
+        }
+        if self.revision < 0 {
+            return Err(format!("revision: Input should be greater than or equal to 0 (got {})", self.revision));
+        }
+        validate_channels(&self.channels)
+    }
+}
+
+/// `config/node.yaml` (project v2): what differs per node. Today exactly `poller.yaml`'s fields.
+pub type NodeConfig = PollerConfig;
+
+fn validate_channels(channels: &[Channel]) -> Result<(), String> {
+    {
         let mut seen = std::collections::HashSet::new();
-        for ch in &self.channels {
+        for ch in channels {
             if let Some(word) = reserved_word(&ch.name, &RESERVED_CHANNEL_NAMES) {
                 return Err(format!(
                     "channel name {} is the reserved word {} (system-tag folder, docs/spec/system-tags.md 3.2)",

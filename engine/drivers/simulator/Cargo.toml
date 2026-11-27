@@ -1,0 +1,27 @@
+[package]
+name = "opencap-driver-simulator"
+description = "opencap engine driver: computed values for demos, the UI, desktop tests and benchmarks (no network)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencap-core.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+opencap-conformance = { path = "../../crates/opencap-conformance" }
+tokio = { workspace = true, features = ["test-util"] }
+# the vectors hold doubles to the last digit: parse them correctly rounded
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+
+[lints]
+workspace = true

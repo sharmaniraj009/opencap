@@ -16,13 +16,13 @@
 //! The engine implements [`EngineView`]; handlers never wait on PLC I/O except
 //! `read-once`, which is the one route that is supposed to.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::{Body, HttpBody};
-use axum::extract::{Path, Request, State};
+use axum::extract::{ConnectInfo, Path, Request, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -30,6 +30,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
+
+pub mod events;
+pub use events::{Refusal, RefusalLog};
 
 #[derive(Debug)]
 pub enum ReadOnceError {
@@ -47,6 +50,11 @@ pub trait EngineView: Send + Sync + 'static {
     async fn read_once(&self, device_id: &str) -> Result<Value, ReadOnceError>;
     /// Err = the new config was rejected; the old one is kept.
     async fn reload(&self) -> Result<Value, String>;
+    /// A reload asked for through the API: `who` is the token name and `via` `api` or `ui`, for the
+    /// `config_reloaded` line. Engines that do not log them can leave the default.
+    async fn reload_by(&self, _who: &str, _via: &str) -> Result<Value, String> {
+        self.reload().await
+    }
     /// Prometheus text exposition.
     fn metrics(&self) -> String;
     /// `/health/ready` (D-075): `{"ready", "waiting": [device ids], "reason"?}`.
@@ -148,6 +156,11 @@ impl Auth {
         Self { tokens: vec![(token.as_bytes().to_vec(), LEGACY_NAME.to_string(), Role::Admin)] }
     }
 
+    /// How many tokens are configured (the legacy one included).
+    pub fn token_count(&self) -> usize {
+        self.tokens.len()
+    }
+
     /// No token configured: read-only, loopback only.
     pub fn is_open(&self) -> bool {
         self.tokens.is_empty()
@@ -164,20 +177,24 @@ impl Auth {
         found
     }
 
-    /// Authorize a request (Python `Auth.principal`): Err is the 401/403 response.
+    /// Authorize a request (Python `Auth.principal`): Err is the 401/403 response and whom the
+    /// log names for it.
     #[allow(clippy::result_large_err)] // the Err is the response itself, built once per request
-    pub fn principal(&self, method: &Method, headers: &HeaderMap) -> Result<Principal, Response> {
+    pub fn principal(&self, method: &Method, headers: &HeaderMap) -> Result<Principal, Refused> {
         let safe = matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
         if self.is_open() {
             let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
             if !LOOPBACK_HOSTS.contains(&host_name(host).as_str()) {
-                return Err(detail(
-                    StatusCode::FORBIDDEN,
-                    "no API token is configured: only requests to localhost are answered",
+                return Err(Refused::new(
+                    detail(
+                        StatusCode::FORBIDDEN,
+                        "no API token is configured: only requests to localhost are answered",
+                    ),
+                    Some("anonymous"),
                 ));
             }
             if !safe {
-                return Err(detail(StatusCode::FORBIDDEN, OPEN_READ_ONLY));
+                return Err(Refused::new(detail(StatusCode::FORBIDDEN, OPEN_READ_ONLY), Some("anonymous")));
             }
             return Ok(Principal { name: "anonymous".into(), role: Role::Viewer });
         }
@@ -189,12 +206,27 @@ impl Auth {
         let Some((name, role)) = found else {
             let mut resp = detail(StatusCode::UNAUTHORIZED, "missing or bad bearer token");
             resp.headers_mut().insert(header::WWW_AUTHENTICATE, header::HeaderValue::from_static("Bearer"));
-            return Err(resp);
+            return Err(Refused::new(resp, None));
         };
         if !safe && role != Role::Admin {
-            return Err(detail(StatusCode::FORBIDDEN, format!("token {} has role viewer: read-only", py_repr(&name))));
+            return Err(Refused::new(
+                detail(StatusCode::FORBIDDEN, format!("token {} has role viewer: read-only", py_repr(&name))),
+                Some(&name),
+            ));
         }
         Ok(Principal { name, role })
+    }
+}
+
+/// A refused request: the response, and the token name the log gives for it (`None` = unknown).
+pub struct Refused {
+    pub response: Response,
+    pub who: Option<String>,
+}
+
+impl Refused {
+    fn new(response: Response, who: Option<&str>) -> Self {
+        Self { response, who: who.map(str::to_string) }
     }
 }
 
@@ -214,6 +246,7 @@ pub fn host_name(host: &str) -> String {
 struct AppState {
     view: Arc<dyn EngineView>,
     auth: Auth,
+    refusals: RefusalLog,
 }
 
 type St = State<Arc<AppState>>;
@@ -254,6 +287,15 @@ pub fn is_open_path(path: &str) -> bool {
 /// the fallback.
 async fn guard(State(st): St, req: Request, next: Next) -> Response {
     let (parts, mut body) = req.into_parts();
+    let client = parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map_or_else(|| events::UNKNOWN.to_string(), |c| c.0.ip().to_string());
+    let via =
+        if parts.headers.get("x-opencap-client").and_then(|v| v.to_str().ok()) == Some("ui") { "ui" } else { "api" };
+    let refuse = |status: StatusCode, who: Option<&str>| {
+        st.refusals.refused(parts.method.as_str(), parts.uri.path(), status.as_u16(), who, &client, via);
+    };
     let declared = parts
         .headers
         .get(header::CONTENT_LENGTH)
@@ -266,14 +308,21 @@ async fn guard(State(st): St, req: Request, next: Next) -> Response {
             || parts.headers.contains_key(header::TRANSFER_ENCODING)
             || (!body.is_end_stream() && body.size_hint().exact() != Some(0));
         if has_body {
+            refuse(StatusCode::PAYLOAD_TOO_LARGE, None);
             return closing(detail(StatusCode::PAYLOAD_TOO_LARGE, "this request takes no body"));
         }
         return next.run(Request::from_parts(parts, Body::empty())).await;
     }
-    if let Err(refused) = st.auth.principal(&parts.method, &parts.headers) {
-        return refused;
-    }
+    let principal = match st.auth.principal(&parts.method, &parts.headers) {
+        Ok(p) => p,
+        Err(refused) => {
+            refuse(refused.response.status(), refused.who.as_deref());
+            return refused.response;
+        }
+    };
+    let who = Some(principal.name.as_str());
     if let Some(declared) = declared.filter(|n| *n > MAX_BODY as u64) {
+        refuse(StatusCode::PAYLOAD_TOO_LARGE, who);
         if declared <= DRAIN_MAX {
             drain(body).await;
         }
@@ -286,13 +335,23 @@ async fn guard(State(st): St, req: Request, next: Next) -> Response {
         };
         if let Ok(data) = frame.into_data() {
             if bytes.len() + data.len() > MAX_BODY {
+                refuse(StatusCode::PAYLOAD_TOO_LARGE, who);
                 drain(body).await;
                 return too_large();
             }
             bytes.extend_from_slice(&data);
         }
     }
+    let mut parts = parts;
+    parts.extensions.insert(Caller { who: principal.name.clone(), via });
     next.run(Request::from_parts(parts, Body::from(bytes))).await
+}
+
+/// Who made the request, for the handlers' log lines (`config_reloaded` carries it).
+#[derive(Debug, Clone)]
+pub struct Caller {
+    pub who: String,
+    pub via: &'static str,
 }
 
 /// 413 for a body over the cap, closing the connection.
@@ -395,8 +454,12 @@ async fn device_post(State(st): St, Path(path): Path<String>) -> Response {
     }
 }
 
-async fn reload(State(st): St) -> Response {
-    match st.view.reload().await {
+async fn reload(State(st): St, caller: Option<axum::Extension<Caller>>) -> Response {
+    let result = match caller {
+        Some(axum::Extension(c)) => st.view.reload_by(&c.who, c.via).await,
+        None => st.view.reload().await,
+    };
+    match result {
         Ok(v) => Json(v).into_response(),
         Err(e) => detail(StatusCode::BAD_REQUEST, format!("reload failed, old config kept: {e}")),
     }
@@ -407,7 +470,12 @@ async fn not_found() -> Response {
 }
 
 pub fn router(view: Arc<dyn EngineView>, auth: Auth) -> Router {
-    let state = Arc::new(AppState { view, auth });
+    router_with(view, auth, RefusalLog::default())
+}
+
+/// [`router`] with the refusal log given (tests inject a clock).
+pub fn router_with(view: Arc<dyn EngineView>, auth: Auth, refusals: RefusalLog) -> Router {
+    let state = Arc::new(AppState { view, auth, refusals });
     Router::new()
         .route("/health", get(health))
         .route("/health/live", get(health_live))
@@ -423,6 +491,41 @@ pub fn router(view: Arc<dyn EngineView>, auth: Auth) -> Router {
         .with_state(state)
 }
 
+/// Why the API could not bind (`api.bind_failed`, D-079): `reason` is one of `in_use`,
+/// `permission_denied`, `address_unavailable`, `bad_address`, `config` and `io`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindError {
+    pub reason: &'static str,
+    pub message: String,
+}
+
+impl std::fmt::Display for BindError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Bind the API's listening socket, naming the reason when it fails.
+pub async fn bind_api(host: &str, port: u16) -> Result<tokio::net::TcpListener, BindError> {
+    use std::io::ErrorKind;
+    let fail = |reason: &'static str, e: std::io::Error| BindError {
+        reason,
+        message: format!("cannot bind {host}:{port}: {e}"),
+    };
+    if let Err(e) = tokio::net::lookup_host((host, port)).await {
+        return Err(fail("bad_address", e));
+    }
+    tokio::net::TcpListener::bind((host, port)).await.map_err(|e| {
+        let reason = match e.kind() {
+            ErrorKind::AddrInUse => "in_use",
+            ErrorKind::PermissionDenied => "permission_denied",
+            ErrorKind::AddrNotAvailable => "address_unavailable",
+            _ => "io",
+        };
+        fail(reason, e)
+    })
+}
+
 /// Bind and serve until `shutdown` resolves. Returns the bound address once listening.
 pub async fn bind(bind: &str, port: u16) -> std::io::Result<tokio::net::TcpListener> {
     tokio::net::TcpListener::bind((bind, port)).await
@@ -432,7 +535,10 @@ pub async fn serve<F>(listener: tokio::net::TcpListener, app: Router, shutdown: 
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
-    axum::serve(listener, app).with_graceful_shutdown(shutdown).await
+    // the peer address is what `api.request_refused` names as `client`
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown)
+        .await
 }
 
 #[cfg(test)]

@@ -2151,6 +2151,18 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
 
+### D-102 Rust simulator driver (#124)
+- `engine/drivers/simulator` (`opencap-driver-simulator`, feature `driver-simulator`) follows `docs/driver_params.md`
+  ("simulator") and D-071. It runs every vector of `tests/conformance/simulator/vectors.json` (84 valid, 41 invalid;
+  invalid addresses must fail with the Python message's reason). The vectors hold doubles to the last digit, so the
+  crate's tests parse them with serde_json's `float_roundtrip` (a dev-dependency only; the engine's parsing is unchanged).
+- Integer literals stay exact (`i128`) so RAMP uses integer arithmetic exactly when low, high and step are integer
+  literals (D-066). `COUNTER` counts good reads per tag; a failed read (`fail_every_n_reads`, latency at or above the
+  timeout) does not count. The clock is injectable (`SimulatorDriver::with_clock`); `latency_ms` sleeps with tokio's
+  timer, so tests run it on a paused clock.
+- The issue's last criterion (`tests/integration/test_simulator_poller.py` switched to the Rust binary) is not done
+  here: ADR-0018 forbids touching Python tests. The Rust behaviour is covered by `tests/driver.rs` and the vectors.
+
 ### D-120 DF1 serial is native Rust on opencap-serial; libplctag has no DF1 (#53)
 Status: accepted (ADR-0018 OSS-first rule, step d). PCCC address parsing, planning and decoding are shared
 Rust code, checked by the existing vectors.
@@ -2215,3 +2227,51 @@ Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then nativ
   can link both.
 - **Not done:** the `file_check` processor file directory (the parameter is accepted, as in the vectors, and
   ignored: libplctag does not expose the directory; the PLC rejects a missing file itself) and `identity`.
+
+### D-106 Config and API events in the Rust engine (#222, the Rust half of D-079)
+- **`api.request_refused`.** The API guard logs each 401, 403 and 413 it answers before a handler runs, with the Python
+  fields (`method`, `path`, `status`, `who`, `client`, `via`): WARNING for 401 and 403, INFO for 413; `who` is the token
+  name, `anonymous` in open mode, `unknown` without a valid token; `client` is the peer address (`unknown` when the
+  transport gives none); `via` is `ui` when the request carries `X-Opencap-Client: ui`, else `api`. At most one line per
+  client address and status each second; the next line carries `suppressed`. Never the token, query string or body.
+- **`api.bind_failed`.** Every way the API cannot start (token settings, open mode on a non-loopback bind, a port out of
+  range, `in_use`, `permission_denied`, `address_unavailable`, `bad_address`, `io`) logs one ERROR line with `bind`, `port`,
+  `reason`, `error`, and `run` exits with status 1 before the poller starts. The legacy `api_started` name stays (#134)
+  and gains `open_mode` and `tokens`; its `port` is the bound port.
+- **Correlation.** `config_reloaded` carries `revision`, and `who` and `via` when `POST /reload` caused it;
+  `poller_started` carries `engine`, `instance` and `revision`.
+- **Still to come:** `config.write_failed` and `config.change_rejected` come with the Rust config API (#140).
+- Tests: `crates/opencap-api/tests/refusal_events.rs` (fields, levels, no secret, the limiter on an injected clock, bind
+  reasons), `events.rs` unit tests, and `run_exits_1_when_the_api_cannot_start` in the engine.
+
+### D-105 Device time zone and the last of #112 in the Rust engine (DEV-13)
+- Of #112, the naming rules (PRJ-13, with the v2 errors from D-104), the reserved device names and the
+  `payload.timezone` check (LOG-21, shared `zones.json`) were already in the Rust models. What was missing is DEV-13:
+  `params.device_timezone` is validated when the device is loaded (an IANA name or a fixed offset `+05:30`, `-0800`,
+  `+02`, at most 14:00; the error names the key) and `opencap_core::device_time::DeviceZone::local_to_utc` turns a device's
+  local time into the UTC `source_ts`. No driver calls it yet (ADR-0006: timestamps stay UTC).
+- **DST rule.** A local time in the gap of a spring-forward does not exist: it is read with the offset in force before the
+  jump (02:30 in New York on 2026-03-08 is 07:30Z). A time in the overlap of a fall-back happens twice: the first
+  occurrence (the DST one) is taken and the helper reports `Fold::Ambiguous`. 30-minute jumps (Lord Howe) follow the same rule.
+- The 30 vectors are in `tests/conformance/timezones/device_time/convert.json` (derived by hand, not from the code) and run
+  by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
+  the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
+  `import-kep` reporting are Python code and are not ported.
+
+### D-107 One log line format in the Rust engine (#133, LOG-R3, LOG-R6, LOG-R7)
+- **Format.** `timestamp` (UTC, microseconds, `Z`), `level` (`debug`, `info`, `warning`, `error`), `event` (was `message`),
+  `instance` (`poller.yaml`), then the event's fields; no `target`. This is plan 15's open question 4: the Rust engine
+  changes, Python stays as it is, and the `jq` filters in `docs/deployment.md` match both. Event names are unchanged.
+- **Reason codes.** `opencap_core::reasons`: the closed lists of LOG-R6 (device communication, config writes, outbox) plus
+  `unsupported` (driver not built or not implemented) and `internal` (a bug, not a device fault) in the device list. A
+  warning or error that names no `reason` gets the default of its event (a table, then the words of its `error` text,
+  else `internal`), so driver crates need no edits; free text written under `reason` moves to `detail`. A device's
+  `last_reason` is the code of `last_error`. The class and text -> code mapping, the simulator's faults included
+  (`fail_connect` is `refused`; `fail_every_n_reads` and a latency at or above the timeout are `timeout`), is pinned by
+  `tests/conformance/reasons/classify.json`. Python has no reason codes and is frozen, so it is not run there.
+- **Flood control.** Warnings and errors with the same event, device and reason are written the first time; the next line
+  after 60 s carries `suppressed=N` (the repeats since). A burst of 1000 gives one line, then one more a minute later.
+  Nothing is written when a burst stops: the count is reported by the next occurrence, as `api.request_refused` does.
+  State-change warnings (`mqtt_disconnected`, `device.offline`, `device.demoted`, `device.resumed`, `mqtt_connected`,
+  `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
+  once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).

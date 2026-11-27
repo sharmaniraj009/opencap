@@ -273,6 +273,7 @@ async fn cmd_run(
     // `api.bind_failed` line (D-079) and exit status 1.
     let bind_failed = |reason: &str, error: &str| {
         error!(bind = %api_cfg.bind, port = api_cfg.port, reason, error, "api.bind_failed");
+        eprintln!("{error}"); // the operator running `run` by hand sees why it stopped
         Ok(1)
     };
     let auth = match opencap_api::Auth::new(opencap_api::token_from_env(&api_cfg.token_env), &specs, |name| {

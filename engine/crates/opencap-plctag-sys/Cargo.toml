@@ -1,0 +1,12 @@
+[package]
+name = "opencap-plctag-sys"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MPL-2.0"            # libplctag is MPL-2.0 OR LGPL-2+; used under MPL-2.0, statically, unmodified
+publish.workspace = true
+description = "Read-only FFI to the vendored libplctag (ADR-0018, ADR-0008): allow-listed read functions only"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1"

@@ -364,6 +364,22 @@ async fn retries_count_and_timeout_keeps_last_good_value() {
     assert_eq!((x.quality, x.value.clone()), (Quality::BadComm, Some(Value::Int(1))));
     let st = w.device_status("S/D").unwrap();
     assert_eq!(st.last_error.as_deref(), Some("fake a [1 tags]: CommError: no reply"));
+    assert_eq!(st.last_reason.as_deref(), Some("timeout"), "`no reply` is a timeout (LOG-R6)");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn last_reason_follows_last_error_and_clears_with_it() {
+    let mut d = device("S/D", &[("X", "a.0")]);
+    d.retries = 0;
+    let s = setup(vec![d]);
+    let w = &s.workers[0];
+    w.read_once("S/D").await.unwrap();
+    assert_eq!(w.device_status("S/D").unwrap().last_reason, None);
+    s.rig.script("S/D").read_failures.push_back(DriverError::Comm("Connection refused (os error 111)".into()));
+    w.read_once("S/D").await.unwrap();
+    let st = w.device_status("S/D").unwrap();
+    assert_eq!(st.last_reason.as_deref(), Some("refused"));
+    assert!(st.last_error.unwrap().contains("Connection refused"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -7,7 +7,7 @@
 //! the queued messages; the oldest rows are dropped first and counted.
 
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, params_from_iter, Connection};
 use tracing::{info, warn};
@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS outbox (
 )
 ";
 const CHUNK: usize = 500;
-const DROP_LOG_EVERY_S: f64 = 60.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutMsg {
@@ -55,8 +54,6 @@ pub struct StoreAndForward {
     db: Option<Connection>,
     count: i64,
     bytes: i64,
-    dropped_unlogged: u64,
-    drop_logged_at: Option<Instant>,
 }
 
 impl StoreAndForward {
@@ -71,8 +68,7 @@ impl StoreAndForward {
         db.execute_batch(SCHEMA)?;
         let (count, size): (i64, i64) =
             db.query_row("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM outbox", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        let mut s =
-            Self { path, max_bytes, db: Some(db), count, bytes: size, dropped_unlogged: 0, drop_logged_at: None };
+        let mut s = Self { path, max_bytes, db: Some(db), count, bytes: size };
         if count > 0 {
             info!(path = %s.path.display(), messages = count, bytes = size, "saf_reopened");
         }
@@ -130,20 +126,15 @@ impl StoreAndForward {
         self.count -= dropped;
         self.bytes -= freed;
         METRICS.saf_dropped.inc_by(dropped as u64);
-        // At the cap every put() drops a row or two: log a summary at most once a minute.
-        self.dropped_unlogged += dropped as u64;
-        let due = self.drop_logged_at.is_none_or(|t| t.elapsed().as_secs_f64() >= DROP_LOG_EVERY_S);
-        if due {
-            warn!(
-                dropped = self.dropped_unlogged,
-                max_bytes = self.max_bytes,
-                up_to_id = cutoff.unwrap_or(0),
-                queued = self.count,
-                "saf_dropped_oldest"
-            );
-            self.dropped_unlogged = 0;
-            self.drop_logged_at = Some(Instant::now());
-        }
+        // At the cap every put() drops a row or two: one line each, which the engine's flood
+        // control (LOG-R7) turns into the first line and a summary with `suppressed` a minute.
+        warn!(
+            dropped = dropped as u64,
+            max_bytes = self.max_bytes,
+            up_to_id = cutoff.unwrap_or(0),
+            queued = self.count,
+            "saf_dropped_oldest"
+        );
         Ok(())
     }
 

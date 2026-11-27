@@ -110,6 +110,8 @@ pub struct DeviceStatus {
     pub errors: u64,
     pub cycle_ms: Option<f64>,
     pub last_error: Option<String>,
+    /// Stable code of `last_error` (LOG-R6, `crate::reasons`); `None` when there is no error.
+    pub last_reason: Option<String>,
     pub connected: bool,
     /// Failed cycles in a row (system-tag `_Error` is `consecutive_failures > 0`, spec section 9).
     pub consecutive_failures: i64,
@@ -330,6 +332,7 @@ impl Runner {
                 errors: 0,
                 cycle_ms: None,
                 last_error: None,
+                last_reason: None,
                 connected: false,
                 consecutive_failures: 0,
                 error_since: None,
@@ -378,12 +381,27 @@ impl Runner {
 
     fn refresh_status(&self, st: &RunnerState, w: &Shared) {
         let hs = st.health.status();
+        let (last_error, last_reason) = match (&st.last_error, self.not_polled_reason(st, w)) {
+            (Some(e), _) => (Some(e.clone()), Some(crate::reasons::of_last_error(e).to_string())),
+            (None, Some(why)) => {
+                let code = if self.broken().is_some() {
+                    Some("unsupported")
+                } else if why == "no readable blocks" {
+                    Some("address_rejected")
+                } else {
+                    None
+                };
+                (Some(why), code.map(str::to_string))
+            }
+            (None, None) => (None, None),
+        };
         let snap = DeviceStatus {
             state: hs.state,
             last_good: hs.last_good,
             errors: hs.errors,
             cycle_ms: st.cycle_ms,
-            last_error: st.last_error.clone().or_else(|| self.not_polled_reason(st, w)),
+            last_error,
+            last_reason,
             connected: st.connected && st.driver.as_ref().is_some_and(|d| d.connected()),
             consecutive_failures: st.health.consecutive_failures,
             error_since: st.health.error_since.map(crate::value::iso_utc),

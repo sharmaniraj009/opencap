@@ -40,3 +40,4 @@ an ADR in a PR.
 ## Alternatives considered
 ## Revisit when
 ```
+| [0018](0018-rust-only-engine.md) | Rust is the only engine; Python frozen and deleted at v0.1; OSS drivers first | Accepted |

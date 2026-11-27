@@ -2150,3 +2150,8 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   count). `_Error` is `consecutive_failures > 0` (spec section 9).
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
+
+### D-097 Rust is the only engine (ADR-0018)
+- The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
+  delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
+- ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.

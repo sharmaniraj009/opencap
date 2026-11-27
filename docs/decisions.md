@@ -2151,6 +2151,18 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
 
+### D-102 Rust simulator driver (#124)
+- `engine/drivers/simulator` (`opencap-driver-simulator`, feature `driver-simulator`) follows `docs/driver_params.md`
+  ("simulator") and D-071. It runs every vector of `tests/conformance/simulator/vectors.json` (84 valid, 41 invalid;
+  invalid addresses must fail with the Python message's reason). The vectors hold doubles to the last digit, so the
+  crate's tests parse them with serde_json's `float_roundtrip` (a dev-dependency only; the engine's parsing is unchanged).
+- Integer literals stay exact (`i128`) so RAMP uses integer arithmetic exactly when low, high and step are integer
+  literals (D-066). `COUNTER` counts good reads per tag; a failed read (`fail_every_n_reads`, latency at or above the
+  timeout) does not count. The clock is injectable (`SimulatorDriver::with_clock`); `latency_ms` sleeps with tokio's
+  timer, so tests run it on a paused clock.
+- The issue's last criterion (`tests/integration/test_simulator_poller.py` switched to the Rust binary) is not done
+  here: ADR-0018 forbids touching Python tests. The Rust behaviour is covered by `tests/driver.rs` and the vectors.
+
 ### D-120 DF1 serial is native Rust on opencap-serial; libplctag has no DF1 (#53)
 Status: accepted (ADR-0018 OSS-first rule, step d). PCCC address parsing, planning and decoding are shared
 Rust code, checked by the existing vectors.

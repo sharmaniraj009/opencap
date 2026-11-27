@@ -67,6 +67,10 @@ pub struct Payload {
     pub data: Vec<(String, Value)>,
     pub date_time: String,
     pub bad_tags: Option<Vec<String>>,
+    /// The device's `_System.*` / `_Statistics.*` tags, after the I/O tags in `Data`, keyed by
+    /// their device-relative path; `None` is JSON `null` (`include_system_tags`, D-103). They
+    /// never reach `BadTags`, `DataValid` or `DateTime`.
+    pub system: Vec<(String, Option<Value>)>,
 }
 
 /// Build the message for one device from a store snapshot. `now` is only used when no
@@ -109,7 +113,23 @@ pub fn build_payload(
         data,
         date_time: format_datetime(when, &cfg.timezone)?,
         bad_tags: (cfg.bad_tags_field && !bad.is_empty()).then_some(bad),
+        system: Vec::new(),
     })
+}
+
+/// The device's system and statistics tags as payload entries, in catalogue order
+/// (`_System._State`, ..., `_Statistics._SuccessfulReads`, ...). Empty unless the device has
+/// `publish.include_system_tags`. `system` and `statistics` are the two folder snapshots.
+pub fn system_entries(device: &Device, system: &Snapshot, statistics: &Snapshot) -> Vec<(String, Option<Value>)> {
+    if !device.publish.include_system_tags {
+        return Vec::new();
+    }
+    let part = |prefix: &str, snap: &Snapshot| -> Vec<(String, Option<Value>)> {
+        snap.iter().map(|(name, tv)| (format!("{prefix}.{name}"), tv.value.clone())).collect()
+    };
+    let mut out = part("_System", system);
+    out.extend(part("_Statistics", statistics));
+    out
 }
 
 /// Append a value as Python's `json.dumps` writes it.
@@ -161,6 +181,17 @@ pub fn encode(p: &Payload) -> Vec<u8> {
         write_json_str(&mut out, name);
         out.push(':');
         write_value(&mut out, v);
+    }
+    for (i, (name, v)) in p.system.iter().enumerate() {
+        if i > 0 || !p.data.is_empty() {
+            out.push(',');
+        }
+        write_json_str(&mut out, name);
+        out.push(':');
+        match v {
+            Some(v) => write_value(&mut out, v),
+            None => out.push_str("null"),
+        }
     }
     out.push_str("},\"DateTime\":");
     write_json_str(&mut out, &p.date_time);
@@ -218,6 +249,39 @@ mod tests {
 
     fn snap(v: Vec<(&str, TagValue)>) -> Snapshot {
         v.into_iter().map(|(k, tv)| (k.to_string(), tv)).collect()
+    }
+
+    #[test]
+    fn system_tags_follow_the_io_tags_and_leave_validity_alone() {
+        use opencap_core::store::Snapshot;
+        let mut d = dev(vec![tag("A", DType::Int16)], "test");
+        let snap = Snapshot::from_pairs(&d.id, [("A", TagValue::good(Value::Int(1), t0()))]);
+        let sys = Snapshot::from_pairs(
+            "Site 001.8 PUMP._System",
+            [
+                ("_State", TagValue::good(Value::Str("ok".into()), t0())),
+                ("_LastGood", TagValue::new(None, Quality::Good, Some(t0()))),
+            ],
+        );
+        let stats =
+            Snapshot::from_pairs("Site 001.8 PUMP._Statistics", [("_Timeouts", TagValue::good(Value::Int(3), t0()))]);
+        let cfg = PayloadCfg::default();
+        let plain = encode(&build_payload(&d, &snap, &cfg, false, None).unwrap());
+        assert!(system_entries(&d, &sys, &stats).is_empty(), "off by default");
+        d.publish.include_system_tags = true;
+        let mut p = build_payload(&d, &snap, &cfg, false, None).unwrap();
+        assert_eq!(encode(&p), plain, "no entries yet: byte-identical");
+        p.system = system_entries(&d, &sys, &stats);
+        let text = String::from_utf8(encode(&p)).unwrap();
+        assert!(
+            text.contains(
+                "\"Data\":{\"A\":1,\"_System._State\":\"ok\",\"_System._LastGood\":null,\"_Statistics._Timeouts\":3}"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("\"DataValid\":true") && !text.contains("BadTags"));
+        p.data.clear();
+        assert!(String::from_utf8(encode(&p)).unwrap().contains("\"Data\":{\"_System._State\""));
     }
 
     #[test]

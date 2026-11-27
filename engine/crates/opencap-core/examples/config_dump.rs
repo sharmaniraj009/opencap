@@ -12,7 +12,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use opencap_core::config::loader::{from_json, load_config, DEVICES_FILE};
-use opencap_core::config::{DeviceMap, DevicesFile, Overrides, PollerConfig};
+use opencap_core::config::{DeviceMap, DevicesFile, Overrides, PollerConfig, ProjectV2};
 use serde_json::{json, Map, Value};
 
 fn model(document: &str, data: Value) -> Result<Value, String> {
@@ -29,7 +29,12 @@ fn model(document: &str, data: Value) -> Result<Value, String> {
             o.validate()?;
             dump(serde_json::to_value(o))
         }
-        "poller" => {
+        "project" => {
+            let p = from_json::<ProjectV2>(data)?;
+            p.validate()?;
+            dump(serde_json::to_value(p))
+        }
+        "poller" | "node" => {
             let p = from_json::<PollerConfig>(data)?;
             p.mqtt.validate().map_err(|e| format!("mqtt: {e}"))?;
             p.api.validate().map_err(|e| format!("api: {e}"))?;

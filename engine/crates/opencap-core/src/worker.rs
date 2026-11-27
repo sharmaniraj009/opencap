@@ -111,6 +111,12 @@ pub struct DeviceStatus {
     pub cycle_ms: Option<f64>,
     pub last_error: Option<String>,
     pub connected: bool,
+    /// Failed cycles in a row (system-tag `_Error` is `consecutive_failures > 0`, spec section 9).
+    pub consecutive_failures: i64,
+    /// UTC time the current failure run began; `None` when there is none.
+    pub error_since: Option<String>,
+    /// The most recent connect attempt failed (false before the first attempt).
+    pub last_connect_failed: bool,
 }
 
 impl DeviceStatus {
@@ -206,6 +212,7 @@ struct RunnerState {
     backoff: Backoff,
     driver: Option<Box<dyn Driver>>,
     connected: bool,
+    last_connect_failed: bool,
     link_up: bool,
     last_error: Option<String>,
     connect_error: Option<String>,
@@ -270,6 +277,7 @@ impl Runner {
             backoff: Backoff::new(w.opts.backoff_base_s, w.opts.backoff_max_s),
             driver: None,
             connected: false,
+            last_connect_failed: false,
             link_up: false,
             last_error: None,
             connect_error: None,
@@ -294,6 +302,9 @@ impl Runner {
                 cycle_ms: None,
                 last_error: None,
                 connected: false,
+                consecutive_failures: 0,
+                error_since: None,
+                last_connect_failed: false,
             }),
             unsupported: StdMutex::new(None),
             stats: StdMutex::new(CycleStats::default()),
@@ -343,6 +354,9 @@ impl Runner {
             cycle_ms: st.cycle_ms,
             last_error: st.last_error.clone().or_else(|| self.not_polled_reason(st, w)),
             connected: st.connected && st.driver.as_ref().is_some_and(|d| d.connected()),
+            consecutive_failures: st.health.consecutive_failures,
+            error_since: st.health.error_since.map(crate::value::iso_utc),
+            last_connect_failed: st.last_connect_failed,
         };
         *lock(&self.status) = snap;
     }
@@ -415,6 +429,7 @@ impl Runner {
         let ms = round1((mono() - t0) * 1000.0);
         if let Some(reason) = reason {
             let err = format!("connect failed: {reason}");
+            st.last_connect_failed = true;
             st.connect_error = Some(err.clone());
             METRICS.poll_requests.with_label_values(&[&self.id, "conn_error"]).inc();
             let delay = st.backoff.failure(mono());
@@ -428,6 +443,7 @@ impl Runner {
             return Ok(Some(err));
         }
         st.connected = true;
+        st.last_connect_failed = false;
         st.connect_error = None;
         st.backoff.reset();
         if !st.link_up {
@@ -632,7 +648,7 @@ impl Runner {
         let (outcome, event) = if any_ok {
             (Outcome::Good, st.health.record_good(now, w.clock()))
         } else if comm_failed {
-            (Outcome::Failed, st.health.record_failure(now))
+            (Outcome::Failed, st.health.record_failure(now, w.clock()))
         } else {
             (Outcome::Neutral, None)
         };

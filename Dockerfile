@@ -19,19 +19,37 @@ ARG RUST_IMAGE=rust:1-slim-bookworm
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 
 # --- build ------------------------------------------------------------------------------------
-FROM ${RUST_IMAGE} AS build
+# The build stage always runs on the builder's own architecture and cross-compiles for the target
+# platform: a Rust build under QEMU emulation of arm64 takes over an hour, a cross build a few minutes.
+FROM --platform=$BUILDPLATFORM ${RUST_IMAGE} AS build
 ARG FEATURES=""
-# a C compiler for the bundled SQLite and ring
+ARG BUILDARCH
+ARG TARGETARCH
+# a C compiler for the bundled SQLite and ring, and the arm64 cross toolchain on an x86_64 builder
+# (the other way round, an arm64 builder for an amd64 image, is not supported)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
+ && if [ "$TARGETARCH" = arm64 ] && [ "$BUILDARCH" != arm64 ]; then \
+      apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross; \
+    fi \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 # engine/ holds the sources and the web UI bundle (engine/ui); proto/ the gRPC and Sparkplug schemas
 COPY engine ./engine
 COPY proto ./proto
 COPY LICENSE NOTICE ./
-RUN cargo build --release --locked --manifest-path engine/Cargo.toml -p opencap-engine ${FEATURES} \
- && strip engine/target/release/opencap-engine
+ENV CARGO_PROFILE_RELEASE_STRIP=true \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+# the binary lands in /out whatever the target is; `strip` is cargo's (CARGO_PROFILE_RELEASE_STRIP)
+RUN case "$TARGETARCH" in \
+      arm64) triple=aarch64-unknown-linux-gnu ;; \
+      amd64) triple=x86_64-unknown-linux-gnu ;; \
+      *) echo "unsupported TARGETARCH '$TARGETARCH'" >&2; exit 1 ;; \
+    esac \
+ && rustup target add "$triple" \
+ && cargo build --release --locked --manifest-path engine/Cargo.toml -p opencap-engine ${FEATURES} --target "$triple" \
+ && mkdir /out && cp "engine/target/$triple/release/opencap-engine" /out/
 
 # --- runtime ----------------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE}
@@ -50,7 +68,7 @@ RUN groupadd --system --gid 10001 opencap \
  && useradd --system --uid 10001 --gid opencap --home-dir /opencap --no-create-home \
             --shell /usr/sbin/nologin opencap
 
-COPY --from=build /src/engine/target/release/opencap-engine /usr/local/bin/opencap-engine
+COPY --from=build /out/opencap-engine /usr/local/bin/opencap-engine
 COPY LICENSE NOTICE /usr/share/doc/opencap/
 
 # Relative paths in poller.yaml (saf.path: data/saf.sqlite) resolve from here.

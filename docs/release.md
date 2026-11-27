@@ -27,7 +27,7 @@ How opencap is versioned, how a release is cut, and what is published where. The
    git push origin v0.2.0
    ```
 3. The **Release** workflow runs: the Rust engine's checks (`rust-engine.yml`, the same jobs as on a
-   PR), then builds and publishes. It takes about half an hour, mostly the arm64 image under emulation.
+   PR), then builds and publishes. It takes about twenty minutes: the images are cross-compiled on the runner (only the final apt step of the arm64 image runs under emulation).
 4. Check the release page and the image (below), then announce.
 
 If a step fails after the image was pushed, fix the cause on `main` and cut a new PATCH
@@ -63,7 +63,7 @@ gh attestation verify oci://ghcr.io/sharmaniraj009/opencap:0.2.0 --repo sharmani
 ## Dry runs
 
 Every run that is not a release is a dry run: it builds the engine binaries and both images,
-smoke-tests both images (arm64 under QEMU), writes the SBOMs and `SHA256SUMS`, and publishes
+smoke-tests both images (the arm64 smoke test runs under QEMU), writes the SBOMs and `SHA256SUMS`, and publishes
 nothing (no push, no attestation, no release). The run's summary lists what a release would
 attach. Dry runs happen:
 

@@ -302,8 +302,12 @@ pub struct PublishCfg {
     pub format: PublishFormat,
     /// Add the device's `_System.*` and `_Statistics.*` tags to `Data` (spec `system-tags.md`
     /// section 10; D-103). Off by default: the payload is then byte-identical to before.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub include_system_tags: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Default for PublishCfg {

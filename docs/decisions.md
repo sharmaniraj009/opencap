@@ -2179,7 +2179,8 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   test), keyed by their device-relative path; the datetime placeholder is `null`. They never reach `BadTags`,
   `DataValid` or `DateTime`, and the on_change loop wakes only on the device's own tags, so they never cause a publish
   on their own (a heartbeat or interval publish carries the current values).
-- The shared `schema/*.json` files and the config conformance fixtures are generated from, and checked against, the
-  frozen Python models, which reject the new key. They are left unchanged until Python is deleted; the Rust model is the
+- The field is left out of a serialized `PublishCfg` while it is false, so the Rust dump of every existing fixture still
+  equals Python's (`compare.py` runs in CI). The shared `schema/*.json` files and the config conformance fixtures are
+  generated from, and checked against, the frozen Python models, which reject the new key. They are left unchanged until Python is deleted; the Rust model is the
   source of truth for this field.
 

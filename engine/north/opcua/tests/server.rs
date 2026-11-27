@@ -236,7 +236,7 @@ fn scratch_dir(tag: &str) -> std::path::PathBuf {
 
 /// True when a session with this client certificate store and user opens and reads a value.
 async fn secure_read_works(port: u16, client_pki: &std::path::Path, user: &str, pass: &str) -> bool {
-    tokio::time::timeout(Duration::from_secs(10), secure_read_inner(port, client_pki, user, pass))
+    tokio::time::timeout(Duration::from_secs(30), secure_read_inner(port, client_pki, user, pass))
         .await
         .unwrap_or(false)
 }
@@ -263,7 +263,7 @@ async fn secure_read_inner(port: u16, client_pki: &std::path::Path, user: &str, 
         return false;
     };
     let handle = event_loop.spawn();
-    let connected = tokio::time::timeout(Duration::from_secs(5), session.wait_for_connection()).await.unwrap_or(false);
+    let connected = tokio::time::timeout(Duration::from_secs(20), session.wait_for_connection()).await.unwrap_or(false);
     let ok = connected && {
         let v = read(&session, &nid("SITE.PLC.Pv")).await;
         v.value == Some(Variant::from(12.5f64))
@@ -294,19 +294,17 @@ async fn secure_channel_needs_a_trusted_client_certificate_and_a_valid_user() {
         },
     )
     .await;
-    // an unknown client certificate is refused (the server trusts nothing it was not given)
-    assert!(
-        !secure_read_works(r.port, &client_pki, "operator", "s3cret").await,
-        "an untrusted client certificate must be refused"
-    );
-    // the server stores the refused certificate just after answering, so give it a moment on a loaded runner
+    // an unknown client certificate is refused (the server trusts nothing it was not given) and is written to
+    // rejected/ before it answers. A loaded runner can make one attempt run out of time (RSA key generation in a
+    // debug build) before the certificate is presented, so attempt again until the file is there.
     let mut rejected: Vec<_> = Vec::new();
-    for _ in 0..100 {
+    let deadline = std::time::Instant::now() + Duration::from_secs(120);
+    while rejected.is_empty() && std::time::Instant::now() < deadline {
+        assert!(
+            !secure_read_works(r.port, &client_pki, "operator", "s3cret").await,
+            "an untrusted client certificate must be refused"
+        );
         rejected = std::fs::read_dir(server_pki.join("rejected")).map(|d| d.flatten().collect()).unwrap_or_default();
-        if !rejected.is_empty() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     assert!(!rejected.is_empty(), "the refused certificate must land in rejected/");
     // the operator trusts it by moving the file from rejected/ to trusted/ (the name carries the thumbprint);

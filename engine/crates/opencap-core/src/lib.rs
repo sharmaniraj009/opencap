@@ -13,6 +13,7 @@ pub mod pyfmt;
 pub mod registry;
 pub mod scheduler;
 pub mod store;
+pub mod system_tags;
 pub mod value;
 pub mod worker;
 

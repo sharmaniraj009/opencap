@@ -2138,8 +2138,20 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - **Rust:** the Rust Modbus RTU driver (#149, D-070) should get the same shared-line check and the
   multi-drop timeout rule. That belongs in its loader and driver, not in this PR.
 
+### D-100 System tags in Rust, part 1: the pure evaluator and the health fields (#56)
+- `opencap_core::system_tags` is the Rust *state -> system tags* function of `docs/spec/system-tags.md`,
+  split by level (`node_tags`, `north_tags`, `channel_tags`, `device_tags`) so the runtime task can
+  recompute one device and its channel on a device event and leave the rest to the once-a-second tick
+  (D-095). The state is a typed struct (serde) in the shape of `tests/conformance/system_tags/README.md`;
+  `TICK_TAGS` is the `tick` class and a test compares it with the catalogue.
+- `DeviceHealth` gains `error_since` (set by the first failed cycle of a run, cleared by a good one);
+  `record_failure` now takes the UTC time. `DeviceStatus` gains `consecutive_failures`, `error_since`
+  and `last_connect_failed` (set by each real connect attempt; a connect skipped for backoff does not
+  count). `_Error` is `consecutive_failures > 0` (spec section 9).
+- All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
+  The tag store task, the counters, the payload flag and the API follow in part 2.
+
 ### D-097 Rust is the only engine (ADR-0018)
 - The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
   delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
 - ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
-

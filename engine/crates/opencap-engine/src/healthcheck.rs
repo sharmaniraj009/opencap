@@ -47,6 +47,8 @@ pub fn status_of(url: &str) -> Result<u16, String> {
         match sock.read(&mut head[got..]) {
             Ok(0) => break,
             Ok(n) => got += n,
+            // a reset after the first bytes still left us the status line
+            Err(_) if got > 0 => break,
             Err(e) => return Err(format!("{authority}: {e}")),
         }
     }
@@ -81,8 +83,14 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
-            let mut buf = [0u8; 512];
-            let _ = s.read(&mut buf);
+            // read the whole request, so the close below does not reset the connection under the client
+            let (mut buf, mut seen) = ([0u8; 512], Vec::new());
+            while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+                match s.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => seen.extend_from_slice(&buf[..n]),
+                }
+            }
             let _ = write!(s, "HTTP/1.1 {status}\r\ncontent-length: 2\r\n\r\n{{}}");
         });
         format!("http://127.0.0.1:{port}/health/live")

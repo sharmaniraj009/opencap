@@ -661,6 +661,61 @@ impl SysValue {
     }
 }
 
+/// The device-level tags in catalogue order (spec section 13: the SubDevice JSON adds them in
+/// this order). A test compares both tables with `tests/conformance/system_tags_catalogue.json`.
+pub const DEVICE_SYSTEM_ORDER: &[&str] = &[
+    "_State",
+    "_Error",
+    "_NoError",
+    "_SecondsInError",
+    "_AutoDemoted",
+    "_FailedConnection",
+    "_Connected",
+    "_LastGood",
+    "_LastError",
+    "_ErrorCount",
+    "_CycleMs",
+    "_Overruns",
+    "_Enabled",
+    "_Driver",
+    "_DeviceId",
+    "_Description",
+    "_Simulated",
+    "_ScanMode",
+    "_ScanRateMs",
+    "_RequestTimeout",
+    "_RequestAttempts",
+    "_AutoDemotionEnabled",
+    "_AutoDemotedFailureCount",
+    "_AutoDemotionIntervalMS",
+    "_EncapsulationIp",
+    "_EncapsulationPort",
+    "_EncapsulationProtocol",
+];
+
+pub const DEVICE_STATISTICS_ORDER: &[&str] = &[
+    "_SuccessfulReads",
+    "_FailedReads",
+    "_RxBytes",
+    "_TxBytes",
+    "_RequestsOk",
+    "_Timeouts",
+    "_ConnErrors",
+    "_BadConfig",
+    "_OtherErrors",
+];
+
+/// Position of a tag in its folder's catalogue order (unknown names last, then by name).
+fn rank(folder: &str, name: &str) -> usize {
+    let table = if folder.ends_with("._Statistics") { DEVICE_STATISTICS_ORDER } else { DEVICE_SYSTEM_ORDER };
+    table.iter().position(|n| *n == name).unwrap_or(usize::MAX)
+}
+
+/// The virtual device holding one device's `_System` or `_Statistics` tags (`part`).
+pub fn device_folder(channel: &str, device: &str, part: &str) -> String {
+    format!("{channel}.{device}.{part}")
+}
+
 /// The folder (virtual device id) of a system-tag path: everything before the last dot.
 pub fn folder_of(path: &str) -> &str {
     path.rsplit_once('.').map(|(f, _)| f).unwrap_or(path)
@@ -697,6 +752,8 @@ impl SystemTagWriter {
         }
         let mut changed = 0;
         for (name, entries) in by_folder {
+            let mut entries = entries;
+            entries.sort_by(|a, b| rank(name, a.0).cmp(&rank(name, b.0)).then(a.0.cmp(b.0)));
             let want: Vec<String> = entries.iter().map(|(n, _)| (*n).to_string()).collect();
             let stale = self.folders.get(name).is_none_or(|f| f.names != want || !f.writer.is_current());
             if stale {

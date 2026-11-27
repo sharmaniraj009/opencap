@@ -2171,3 +2171,15 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - **API.** `GET /api/v1/system/tags[?prefix=]` (viewer) and `GET /devices/{id}/values?include_system=true`.
   `api/openapi.json` is not changed: the contract file belongs to the Python-side issue #127 and the API parity
   work (#140) adds the path there.
+
+### D-103 `publish.include_system_tags` in the Rust engine (#56)
+- `PublishCfg.include_system_tags` (default false; devices.json `publish`, and the map and overrides `publish` blocks).
+  Off: the payload is byte-identical to before (the golden tests). On: the device's `_System.*` then `_Statistics.*`
+  tags follow the I/O tags inside `Data`, in catalogue order (`DEVICE_SYSTEM_ORDER`, compared with the catalogue by a
+  test), keyed by their device-relative path; the datetime placeholder is `null`. They never reach `BadTags`,
+  `DataValid` or `DateTime`, and the on_change loop wakes only on the device's own tags, so they never cause a publish
+  on their own (a heartbeat or interval publish carries the current values).
+- The shared `schema/*.json` files and the config conformance fixtures are generated from, and checked against, the
+  frozen Python models, which reject the new key. They are left unchanged until Python is deleted; the Rust model is the
+  source of truth for this field.
+

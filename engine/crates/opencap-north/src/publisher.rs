@@ -32,7 +32,9 @@ use opencap_core::config::{default_topic, Device, PayloadCfg, PublishMode};
 use opencap_core::store::{Change, DeviceId, Snapshot, TagStoreReader};
 use opencap_core::value::{Quality, TagValue, Value};
 
-use crate::payload::{build_payload, clean_value, encode, encode_status, status_topic};
+use opencap_core::system_tags::device_folder;
+
+use crate::payload::{build_payload, clean_value, encode, encode_status, status_topic, system_entries};
 use crate::plugin::{DeviceStatusReader, NorthContext, NorthError, NorthPlugin};
 
 /// Floor for interval_ms / heartbeat_ms (protects against 0 in config).
@@ -220,9 +222,15 @@ impl Publisher {
         set.shutdown().await;
     }
 
-    fn publish_data(&self, dev: &Device, snapshot: &Snapshot) {
+    fn publish_data(&self, dev: &Device, snapshot: &Snapshot, store: &TagStoreReader) {
         let payload = match build_payload(dev, snapshot, &self.cfg, self.sink.is_secure(), None) {
-            Ok(p) => p,
+            Ok(mut p) => {
+                if dev.publish.include_system_tags {
+                    let folder = |part| store.snapshot(&device_folder(&dev.channel, &dev.name, part));
+                    p.system = system_entries(dev, &folder("_System"), &folder("_Statistics"));
+                }
+                p
+            }
             Err(e) => {
                 warn!(device = %dev.id, error = %e, "publish_failed");
                 return;
@@ -244,7 +252,7 @@ impl Publisher {
             tokio::time::sleep_until(next_t).await;
             let snap = store.snapshot(&dev.id);
             if ever_good(&snap) {
-                self.publish_data(dev, &snap);
+                self.publish_data(dev, &snap, &store);
             }
             next_t += period;
             let now = Instant::now();
@@ -285,7 +293,7 @@ impl Publisher {
                 Some(old) => due || changed(dev, old, &snap, decimals),
             };
             if send {
-                self.publish_data(dev, &snap);
+                self.publish_data(dev, &snap, &store);
                 last_sent = Some(snap);
                 last_sent_t = now;
             }

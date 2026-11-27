@@ -144,6 +144,22 @@ fn tick_table_is_the_catalogue() {
     assert!(is_tick("_DateTime") && !is_tick("_Error"));
 }
 
+#[test]
+fn device_order_tables_are_the_catalogue_order() {
+    let cat = catalogue();
+    let names = |level: &str| -> Vec<String> {
+        cat["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["level"] == level)
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(names("device"), opencap_core::system_tags::DEVICE_SYSTEM_ORDER);
+    assert_eq!(names("device_statistics"), opencap_core::system_tags::DEVICE_STATISTICS_ORDER);
+}
+
 /// Every tag a full snapshot produces is in the catalogue with the same dtype, and every
 /// catalogue tag name is produced by the vectors' states (checked by the vectors themselves).
 #[test]

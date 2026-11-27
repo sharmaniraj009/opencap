@@ -80,9 +80,14 @@ impl OpcUaNorth {
             l.subscriptions.min_sampling_interval_ms = cfg.min_sampling_interval_ms.max(0) as f64;
             l.subscriptions.max_monitored_items_per_sub = usize::try_from(cfg.max_monitored_items).unwrap_or(100_000);
         }
-        if let Some(dir) = &cfg.pki_dir {
-            b = b.pki_dir(dir.clone());
-        }
+        // async-opcua defaults to `pki/` in the working directory, which would litter wherever the engine
+        // was started: without a configured pki_dir the trust store lives in the temporary directory.
+        let pki = cfg
+            .pki_dir
+            .clone()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("opencap-opcua-pki"));
+        b = b.pki_dir(pki);
         if let (Some(cert), Some(key)) = (&cfg.certificate, &cfg.private_key) {
             b = b.certificate_path(cert.clone()).private_key_path(key.clone());
         } else if cfg.security_policies.iter().any(|p| p != "None") {

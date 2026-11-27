@@ -1,0 +1,260 @@
+{
+ "format": 1,
+ "area": "reasons",
+ "description": "Driver error (class, text) -> the stable reason code of LOG-R6 (#133), simulator faults included. Run by the Rust engine; the Python engine has no reason codes (frozen).",
+ "vectors": [
+  {
+   "id": "refused-os",
+   "description": "CommError: 'Connection refused (os error 111)' is refused",
+   "input": {
+    "class": "CommError",
+    "error": "Connection refused (os error 111)"
+   },
+   "expected": {
+    "reason": "refused"
+   }
+  },
+  {
+   "id": "refused-connect",
+   "description": "ConnectionLost: 'connect failed: Connection refused' is refused",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "connect failed: Connection refused"
+   },
+   "expected": {
+    "reason": "refused"
+   }
+  },
+  {
+   "id": "timeout-plain",
+   "description": "CommError: 'timed out' is timeout",
+   "input": {
+    "class": "CommError",
+    "error": "timed out"
+   },
+   "expected": {
+    "reason": "timeout"
+   }
+  },
+  {
+   "id": "timeout-block",
+   "description": "CommError: 'HR 0..9 (10 regs): timeout' is timeout",
+   "input": {
+    "class": "CommError",
+    "error": "HR 0..9 (10 regs): timeout"
+   },
+   "expected": {
+    "reason": "timeout"
+   }
+  },
+  {
+   "id": "timeout-no-answer",
+   "description": "CommError: 'no answer within 1000 ms' is timeout",
+   "input": {
+    "class": "CommError",
+    "error": "no answer within 1000 ms"
+   },
+   "expected": {
+    "reason": "timeout"
+   }
+  },
+  {
+   "id": "reset-peer",
+   "description": "ConnectionLost: 'Connection reset by peer (os error 104)' is reset",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "Connection reset by peer (os error 104)"
+   },
+   "expected": {
+    "reason": "reset"
+   }
+  },
+  {
+   "id": "reset-broken-pipe",
+   "description": "ConnectionLost: 'Broken pipe (os error 32)' is reset",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "Broken pipe (os error 32)"
+   },
+   "expected": {
+    "reason": "reset"
+   }
+  },
+  {
+   "id": "unreachable-network",
+   "description": "CommError: 'Network is unreachable (os error 101)' is unreachable",
+   "input": {
+    "class": "CommError",
+    "error": "Network is unreachable (os error 101)"
+   },
+   "expected": {
+    "reason": "unreachable"
+   }
+  },
+  {
+   "id": "unreachable-route",
+   "description": "CommError: 'No route to host (os error 113)' is unreachable",
+   "input": {
+    "class": "CommError",
+    "error": "No route to host (os error 113)"
+   },
+   "expected": {
+    "reason": "unreachable"
+   }
+  },
+  {
+   "id": "name-resolution",
+   "description": "ConnectionLost: 'failed to lookup address information: Name or service not known' is name_resolution",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "failed to lookup address information: Name or service not known"
+   },
+   "expected": {
+    "reason": "name_resolution"
+   }
+  },
+  {
+   "id": "port-missing",
+   "description": "ConnectionLost: 'could not open port /dev/ttyUSB9: No such file or directory' is port_missing",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "could not open port /dev/ttyUSB9: No such file or directory"
+   },
+   "expected": {
+    "reason": "port_missing"
+   }
+  },
+  {
+   "id": "port-denied",
+   "description": "ConnectionLost: 'could not open port COM3: Access is denied' is port_busy",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "could not open port COM3: Access is denied"
+   },
+   "expected": {
+    "reason": "port_busy"
+   }
+  },
+  {
+   "id": "port-busy",
+   "description": "ConnectionLost: 'Device or resource busy (os error 16)' is port_busy",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "Device or resource busy (os error 16)"
+   },
+   "expected": {
+    "reason": "port_busy"
+   }
+  },
+  {
+   "id": "line-baud",
+   "description": "CommError: 'baud rate 1234 is not supported' is line_settings",
+   "input": {
+    "class": "CommError",
+    "error": "baud rate 1234 is not supported"
+   },
+   "expected": {
+    "reason": "line_settings"
+   }
+  },
+  {
+   "id": "line-parity",
+   "description": "CommError: 'parity error on the line' is line_settings",
+   "input": {
+    "class": "CommError",
+    "error": "parity error on the line"
+   },
+   "expected": {
+    "reason": "line_settings"
+   }
+  },
+  {
+   "id": "protocol-header",
+   "description": "CommError: 'unexpected reply header 0x1234' is protocol_error",
+   "input": {
+    "class": "CommError",
+    "error": "unexpected reply header 0x1234"
+   },
+   "expected": {
+    "reason": "protocol_error"
+   }
+  },
+  {
+   "id": "protocol-unknown",
+   "description": "CommError: 'something nobody has seen' is protocol_error",
+   "input": {
+    "class": "CommError",
+    "error": "something nobody has seen"
+   },
+   "expected": {
+    "reason": "protocol_error"
+   }
+  },
+  {
+   "id": "rejected-block",
+   "description": "BlockConfigError: 'HR 70000: illegal data address' is address_rejected",
+   "input": {
+    "class": "BlockConfigError",
+    "error": "HR 70000: illegal data address"
+   },
+   "expected": {
+    "reason": "address_rejected"
+   }
+  },
+  {
+   "id": "rejected-ignores-words",
+   "description": "BlockConfigError: \"connection refused by the PLC's address filter\" is address_rejected",
+   "input": {
+    "class": "BlockConfigError",
+    "error": "connection refused by the PLC's address filter"
+   },
+   "expected": {
+    "reason": "address_rejected"
+   }
+  },
+  {
+   "id": "unsupported",
+   "description": "NotImplementedError: 'connect() not implemented yet' is unsupported",
+   "input": {
+    "class": "NotImplementedError",
+    "error": "connect() not implemented yet"
+   },
+   "expected": {
+    "reason": "unsupported"
+   }
+  },
+  {
+   "id": "sim-fail-connect",
+   "description": "ConnectionLost: 'simulated connect failure (params.fail_connect)' is refused",
+   "input": {
+    "class": "ConnectionLost",
+    "error": "simulated connect failure (params.fail_connect)"
+   },
+   "expected": {
+    "reason": "refused"
+   }
+  },
+  {
+   "id": "sim-fail-every-n",
+   "description": "CommError: 'simulated read failure (read 3, params.fail_every_n_reads=3)' is timeout",
+   "input": {
+    "class": "CommError",
+    "error": "simulated read failure (read 3, params.fail_every_n_reads=3)"
+   },
+   "expected": {
+    "reason": "timeout"
+   }
+  },
+  {
+   "id": "sim-latency",
+   "description": "CommError: 'no answer within 300 ms (simulated latency 500 ms)' is timeout",
+   "input": {
+    "class": "CommError",
+    "error": "no answer within 300 ms (simulated latency 500 ms)"
+   },
+   "expected": {
+    "reason": "timeout"
+   }
+  }
+ ]
+}

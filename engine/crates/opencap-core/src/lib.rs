@@ -11,6 +11,7 @@ pub mod driver;
 pub mod health;
 pub mod metrics;
 pub mod pyfmt;
+pub mod reasons;
 pub mod registry;
 pub mod scheduler;
 pub mod store;

@@ -15,6 +15,7 @@
 //! Reads the same config directory as the Python `opencap` CLI.
 
 mod check;
+mod logging;
 mod runtime;
 #[cfg(unix)]
 mod sdnotify;
@@ -104,7 +105,7 @@ enum Cmd {
 /// Where `configure_logging` writes: stdout, or this file (a Windows service has no console).
 static LOG_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
-fn configure_logging(level: &str) {
+fn configure_logging(level: &str, instance: Option<&str>) {
     let lvl = match level.to_ascii_uppercase().as_str() {
         "DEBUG" => "debug",
         "WARNING" | "WARN" => "warn",
@@ -114,12 +115,11 @@ fn configure_logging(level: &str) {
     // Library chatter stays at WARN unless DEBUG is asked for (Python logsetup does the same).
     let libs = if lvl == "debug" { "debug" } else { "warn" };
     let filter = format!("{lvl},rumqttc={libs},tokio_modbus={libs},hyper={libs},axum={libs}");
+    if let Some(name) = instance {
+        logging::set_instance(name);
+    }
     let builder = tracing_subscriber::fmt()
-        .json()
-        .flatten_event(true)
-        .with_current_span(false)
-        .with_span_list(false)
-        .with_target(true)
+        .event_format(logging::LineFormat::new())
         .with_env_filter(tracing_subscriber::EnvFilter::new(filter));
     let file = LOG_FILE.get().and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
     let _ = match file {
@@ -149,7 +149,7 @@ fn find_device(config_dir: &Path, device_id: &str) -> Result<(LoadedConfig, Chan
 }
 
 async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Result<i32> {
-    configure_logging("WARNING");
+    configure_logging("WARNING", None);
     let (loaded, channel, device) = find_device(config_dir, device_id)?;
     let (plugins, factory) = factory_for(&loaded, std::slice::from_ref(&channel)).await;
     let plan = plan_device(&device, &factory);
@@ -186,7 +186,7 @@ async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Resu
 }
 
 async fn cmd_identity(config_dir: &Path, device_id: &str) -> Result<i32> {
-    configure_logging("WARNING");
+    configure_logging("WARNING", None);
     let (loaded, channel, device) = find_device(config_dir, device_id)?;
     let (plugins, factory) = factory_for(&loaded, std::slice::from_ref(&channel)).await;
     let result = async {
@@ -255,7 +255,7 @@ async fn cmd_run(
         eprintln!("unknown site(s): {}", unknown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
         return Ok(1);
     }
-    configure_logging(&loaded.poller.log_level);
+    configure_logging(&loaded.poller.log_level, Some(&loaded.poller.instance));
     let api_cfg = loaded.poller.api.clone();
     let specs: Vec<opencap_api::TokenSpec> = api_cfg
         .tokens

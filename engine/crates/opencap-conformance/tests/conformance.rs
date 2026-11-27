@@ -527,3 +527,14 @@ fn device_time_vectors() {
     });
     assert!(n >= 25, "{n}");
 }
+
+/// LOG-R6 (#133): a driver error's class and text -> the stable reason code (`tests/conformance/reasons/`).
+#[test]
+fn reason_code_vectors() {
+    let n = run_area("reasons", |input| {
+        let class = input["class"].as_str().ok_or("class")?;
+        let text = input["error"].as_str().ok_or("error")?;
+        Ok(json!({"reason": opencap_core::reasons::classify(class, text)}))
+    });
+    assert!(n >= 20, "{n}");
+}

@@ -15,6 +15,7 @@ on:
     paths: ["engine/**", "proto/**", "src/**", "tests/**", "config/**", "pyproject.toml", "deploy/opencapd.service", "deploy/windows/engine_service_smoke.py", ".github/workflows/rust-engine.yml"]
   schedule:
     - cron: "41 2 * * *"          # nightly, after CI's Python acceptance run (UTC)
+  workflow_call:                  # the release workflow's gate (release.yml)
   workflow_dispatch:
     inputs:
       outage_s:

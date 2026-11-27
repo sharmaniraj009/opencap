@@ -15,6 +15,7 @@
 //! Reads the same config directory as the Python `opencap` CLI.
 
 mod check;
+mod healthcheck;
 mod logging;
 mod runtime;
 #[cfg(unix)]
@@ -83,6 +84,9 @@ enum Cmd {
         #[arg(long)]
         site: Vec<String>,
     },
+    /// Exit 0 when the engine's API answers 200 at `$OPENCAP_HEALTH_URL` (default
+    /// `http://127.0.0.1:8080/health/live`): the container's HEALTHCHECK, no curl needed.
+    Healthcheck,
     /// Print, as JSON, which of the drivers the config schema knows this build implements.
     /// The acceptance harness (tests/helpers/engine.py) skips suites for drivers not ported yet.
     Drivers,
@@ -393,6 +397,7 @@ fn main() {
             }
             Cmd::Read { device_id, tag, config } => cmd_read(&config, &device_id, tag.as_deref()).await,
             Cmd::Identity { device_id, config } => cmd_identity(&config, &device_id).await,
+            Cmd::Healthcheck => healthcheck::run(),
             Cmd::Run { config, site } => {
                 #[cfg(unix)]
                 let ready = || sdnotify::notify("READY=1\nSTATUS=running");

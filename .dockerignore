@@ -1,4 +1,13 @@
-# Only pyproject.toml, README.md, LICENSE and src/ are needed to build the image.
+# The image needs engine/, proto/, LICENSE and NOTICE only.
+engine/target/
+desktop/
+demo/
+src/
+schema/
+api/
+bench/
+spikes/
+reports/
 # Real site data must never enter a build context.
 .private/
 config/

@@ -1,20 +1,22 @@
 name: Release
 
-# A tagged release (docs/release.md): the CI checks, then wheel + sdist, the container image for
-# linux/amd64 and linux/arm64 (each smoke-tested, then pushed to GHCR), the desktop installers
-# with the engine bundled (desktop.yml, #58), SBOMs (syft), provenance attestations (GitHub's
-# attestation action) and a GitHub Release with SHA256SUMS.
+# A tagged release (docs/release.md): the Rust engine's checks (rust-engine.yml), the container
+# image for linux/amd64 and linux/arm64 (each smoke-tested, then pushed to GHCR), the engine
+# binaries for Linux and Windows, the desktop installers with the engine bundled (desktop.yml,
+# #58), SBOMs (syft), provenance attestations (GitHub's attestation action) and a GitHub
+# Release with SHA256SUMS. No Python wheel, sdist or image: the Rust engine is the only
+# engine (ADR-0018).
 #
-# Publishes only for a pushed tag `v<__version__>` (or a manual run on such a tag with
-# dry_run off). Everything else is a dry run that builds and tests all of it and publishes
-# nothing: manual runs by default, and pull requests that touch this file, the Dockerfile or
-# pyproject.toml. Only GITHUB_TOKEN is used. PyPI is ready but gated by the owner (job `pypi`).
+# Publishes only for a pushed tag `v<version>` (the version of engine/Cargo.toml) or a manual
+# run on such a tag with dry_run off. Everything else is a dry run that builds and tests all of
+# it and publishes nothing: manual runs by default, and pull requests that touch this file, the
+# Dockerfile or engine/Cargo.toml. Only GITHUB_TOKEN is used.
 
 on:
   push:
     tags: ["v*"]
   pull_request:
-    paths: [".github/workflows/release.yml", "Dockerfile", "pyproject.toml"]
+    paths: [".github/workflows/release.yml", "Dockerfile", ".dockerignore", "engine/Cargo.toml"]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -50,22 +52,20 @@ jobs:
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
           OWNER: ${{ github.repository_owner }}
         run: |
-          version="$(python3 -c 'import ast, pathlib
-          tree = ast.parse(pathlib.Path("src/opencap/__init__.py").read_text())
-          print(next(n.value.value for n in tree.body if isinstance(n, ast.Assign)
-                     and any(getattr(t, "id", "") == "__version__" for t in n.targets)))')"
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p}' engine/Cargo.toml | head -n 1)"
+          test -n "$version" || { echo "::error::no version in engine/Cargo.toml"; exit 1; }
           publish=false
           if [ "$REF_TYPE" = tag ]; then
             if [ "$REF_NAME" != "v$version" ]; then
-              echo "::error::tag $REF_NAME does not match opencap.__version__ $version (expected v$version)"
+              echo "::error::tag $REF_NAME does not match engine/Cargo.toml version $version (expected v$version)"
               exit 1
             fi
             if [ "$EVENT" = push ] || { [ "$EVENT" = workflow_dispatch ] && [ "$DRY_RUN_INPUT" = false ]; }; then
               publish=true
             fi
           fi
-          # PEP 440 pre-releases (0.2.0rc1, 0.2.0b1, 0.2.0.dev1) are GitHub pre-releases and do not move :latest.
-          if [[ "$version" =~ [a-z] ]]; then prerelease=true; else prerelease=false; fi
+          # SemVer pre-releases (0.2.0-rc.1) are GitHub pre-releases and do not move :latest.
+          if [[ "$version" == *-* ]]; then prerelease=true; else prerelease=false; fi
           image="ghcr.io/${OWNER,,}/opencap"
           {
             echo "version=$version"; echo "publish=$publish"; echo "prerelease=$prerelease"; echo "image=$image"
@@ -73,53 +73,68 @@ jobs:
           echo "::notice::opencap $version, ref $REF, publish=$publish, prerelease=$prerelease, image $image"
 
   ci:
-    name: CI checks
+    name: Rust engine checks
     needs: plan
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/rust-engine.yml
 
-  dist:
-    name: wheel and sdist
+  binaries:
+    name: engine binary (${{ matrix.name }})
     needs: [plan, ci]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-22.04, name: linux-x86_64, exe: "", pack: tar}
+          - {os: windows-latest, name: windows-x86_64, exe: ".exe", pack: zip}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch, 2026-11-18
         with:
-          python-version: "3.12"
-      - name: Build (pypa/build, MIT)
-        run: |
-          python -m pip install --upgrade pip
-          pip install build==1.6.1
-          python -m build --sdist --wheel --outdir dist
-          ls -l dist
-      - name: Check names and versions
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: engine
+      - name: Build the release binary
+        run: cargo build --release --locked --manifest-path engine/Cargo.toml -p opencap-engine
+      - name: Check it runs and reports the release version
         env:
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          test -f "dist/opencap-$VERSION-py3-none-any.whl"
-          test -f "dist/opencap-$VERSION.tar.gz"
-      - name: Install the wheel and the sdist in clean venvs
+          bin="engine/target/release/opencap-engine${{ matrix.exe }}"
+          "$bin" --version | grep -F "$VERSION"
+          "$bin" drivers > /dev/null
+          "$bin" check --config demo/config > /dev/null
+      - name: Package (binary, licence, notice, example config)
         env:
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          for artefact in "dist/opencap-$VERSION-py3-none-any.whl" "dist/opencap-$VERSION.tar.gz"; do
-            rm -rf /tmp/v && python -m venv /tmp/v
-            /tmp/v/bin/pip install --quiet "${artefact}[all]"
-            /tmp/v/bin/opencap --help > /dev/null
-            test "$(/tmp/v/bin/python -c 'import opencap; print(opencap.__version__)')" = "$VERSION"
-          done
+          dir="opencap-engine-$VERSION-${{ matrix.name }}"
+          mkdir -p "pack/$dir"
+          cp "engine/target/release/opencap-engine${{ matrix.exe }}" LICENSE NOTICE "pack/$dir/"
+          cp -r demo/config "pack/$dir/example-config"
+          mkdir -p out
+          if [ "${{ matrix.pack }}" = tar ]; then
+            tar -C pack -czf "out/$dir.tar.gz" "$dir"
+          else
+            (cd pack && 7z a -tzip "../out/$dir.zip" "$dir" > /dev/null)
+          fi
+          ls -l out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dist
-          path: dist/
+          name: engine-${{ matrix.name }}
+          path: out/
           if-no-files-found: error
 
   image-test:
     name: image ${{ matrix.arch }} (build, smoke test, SBOM)
     needs: [plan, ci]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -143,16 +158,15 @@ jobs:
       - name: Smoke test (the CI package job's checks, under QEMU for arm64)
         env:
           ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -x
           plat=(--platform "linux/$ARCH")
           want=$([ "$ARCH" = arm64 ] && echo aarch64 || echo x86_64)
           test "$(docker run --rm "${plat[@]}" --entrypoint uname opencap:smoke -m)" = "$want"
-          mkdir -p /tmp/ci-config && chmod 777 /tmp/ci-config
-          docker run --rm "${plat[@]}" opencap:smoke --help
-          docker run --rm "${plat[@]}" -v /tmp/ci-config:/opencap/config -v "$PWD/tests/fixtures:/in:ro" \
-            opencap:smoke import-kep /in/project_sample.json
-          docker run --rm "${plat[@]}" -v /tmp/ci-config:/opencap/config:ro opencap:smoke check
+          docker run --rm "${plat[@]}" opencap:smoke --version | grep -F "$VERSION"
+          docker run --rm "${plat[@]}" opencap:smoke drivers
+          docker run --rm "${plat[@]}" -v "$PWD/demo/config:/opencap/config:ro" opencap:smoke check
           test "$(docker run --rm "${plat[@]}" --entrypoint id opencap:smoke -u)" = "10001"
       - name: SBOM (syft, SPDX JSON)
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
@@ -170,7 +184,7 @@ jobs:
 
   image-push:
     name: image linux/amd64 + linux/arm64 (push to GHCR, provenance)
-    needs: [plan, image-test, dist]
+    needs: [plan, image-test, binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -241,7 +255,7 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [plan, dist, image-test, image-push, desktop]
+    needs: [plan, binaries, image-test, image-push, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -255,8 +269,9 @@ jobs:
       # records (*.dockerbuild), which are not release assets.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dist
+          pattern: engine-*
           path: assets
+          merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: sbom-*
@@ -275,8 +290,8 @@ jobs:
           find . -mindepth 1 -type d -empty -delete
           expected="opencap-$VERSION-image-linux-amd64.spdx.json
           opencap-$VERSION-image-linux-arm64.spdx.json
-          opencap-$VERSION-py3-none-any.whl
-          opencap-$VERSION.tar.gz"
+          opencap-engine-$VERSION-linux-x86_64.tar.gz
+          opencap-engine-$VERSION-windows-x86_64.zip"
           # plus one installer of each kind (named by Tauri after the desktop app's own version)
           actual="$(find . -mindepth 1 -printf '%P\n' | grep -vE '\.(deb|AppImage|msi)$' | LC_ALL=C sort)"
           if [ "$actual" != "$(echo "$expected" | sed 's/^ *//' | LC_ALL=C sort)" ]; then
@@ -292,13 +307,13 @@ jobs:
         run: |
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
-      - name: Provenance attestation for the wheel and sdist
+      - name: Provenance attestation for the engine binaries
         if: needs.plan.outputs.publish == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
-            assets/opencap-${{ needs.plan.outputs.version }}-py3-none-any.whl
-            assets/opencap-${{ needs.plan.outputs.version }}.tar.gz
+            assets/opencap-engine-${{ needs.plan.outputs.version }}-linux-x86_64.tar.gz
+            assets/opencap-engine-${{ needs.plan.outputs.version }}-windows-x86_64.zip
       - name: Create the release (gh, GITHUB_TOKEN)
         if: needs.plan.outputs.publish == 'true'
         env:
@@ -322,23 +337,3 @@ jobs:
             cat assets/SHA256SUMS
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-  pypi:
-    name: PyPI (gated, owner setup in docs/release.md)
-    needs: [plan, release]
-    # Off until the owner has set up PyPI trusted publishing and the repository variable
-    # PYPI_PUBLISH=true (docs/release.md, "PyPI"). No token or secret is involved.
-    if: needs.plan.outputs.publish == 'true' && vars.PYPI_PUBLISH == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment:
-      name: pypi
-      url: https://pypi.org/project/opencap/${{ needs.plan.outputs.version }}/
-    permissions:
-      id-token: write          # PyPI trusted publishing (OIDC)
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist
-          path: dist
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

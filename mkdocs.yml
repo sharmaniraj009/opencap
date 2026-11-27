@@ -67,6 +67,7 @@ nav:
       - How it works: how-it-works/index.md
       - Configuration: configuration/index.md
       - Deployment: deployment.md
+      - "Run the engine on Linux": run-linux.md
       - Admin API, metrics, web UI: api/index.md
   - Import from KEPServerEX: import/index.md
   - Commissioning: commissioning/index.md

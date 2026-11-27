@@ -79,6 +79,14 @@ pub static DRIVERS: &[DriverEntry] = &[
         #[cfg(not(feature = "driver-omron-fins"))]
         create: None,
     },
+    DriverEntry {
+        name: "ab_df1",
+        feature: "driver-ab-df1",
+        #[cfg(feature = "driver-ab-df1")]
+        create: Some(|d| Ok(Box::new(opencap_driver_ab_df1::AbDf1Driver::new(d)?))),
+        #[cfg(not(feature = "driver-ab-df1"))]
+        create: None,
+    },
 ];
 
 /// Driver names this build can poll, in table order.

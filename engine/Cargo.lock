@@ -1020,7 +1020,9 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "opencap-core",
+ "opencap-driver-ab-df1",
  "opencap-driver-ab-logix",
+ "opencap-driver-ab-pccc",
  "opencap-driver-melsec-mc",
  "opencap-driver-modbus-tcp",
  "opencap-driver-s7",
@@ -1053,6 +1055,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencap-driver-ab-df1"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "opencap-core",
+ "opencap-driver-ab-pccc",
+ "opencap-serial",
+ "rand",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "opencap-driver-ab-logix"
 version = "0.1.0"
 dependencies = [
@@ -1064,6 +1081,17 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "opencap-driver-ab-pccc"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "opencap-core",
+ "opencap-driver-ab-logix",
+ "regex",
+ "serde_json",
 ]
 
 [[package]]
@@ -1137,6 +1165,7 @@ name = "opencap-drivers"
 version = "0.1.0"
 dependencies = [
  "opencap-core",
+ "opencap-driver-ab-df1",
  "opencap-driver-ab-logix",
  "opencap-driver-melsec-mc",
  "opencap-driver-modbus-rtu",

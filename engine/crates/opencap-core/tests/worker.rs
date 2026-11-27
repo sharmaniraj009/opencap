@@ -748,13 +748,23 @@ async fn a_block_that_fails_inside_a_batch_is_retried_alone_and_the_rest_stay_go
             && snap.get("Z").is_some_and(|t| t.quality == Quality::Good)
     })
     .await;
+    // the cycle that turned b bad may have started before the timeout was set: wait for a cycle that began after it
+    wait_for("a batched cycle after b started timing out", 3.0, || s.rig.script("S/D").batch_calls > bc0).await;
+    wait_for("b bad_comm while a and c stay good, again", 3.0, || {
+        let snap = s.store.snapshot("S/D");
+        snap.get("Y").is_some_and(|t| t.quality == Quality::BadComm)
+            && snap.get("X").is_some_and(|t| t.quality == Quality::Good)
+            && snap.get("Z").is_some_and(|t| t.quality == Quality::Good)
+    })
+    .await;
     {
         let sc = s.rig.script("S/D");
         // in every batched cycle b costs its batch read plus at least one single-block attempt; a and c one read
+        // the newest batched call may still be in flight (counted on entry, its single-block retry not yet made)
         let cycles = sc.batch_calls - bc0;
         assert!(cycles >= 1, "no batched cycle ran");
         assert!(
-            sc.reads_of("b") - b0 >= 2 * cycles,
+            sc.reads_of("b") - b0 >= 2 * (cycles - 1),
             "b was retried alone: {} reads in {cycles} cycles",
             sc.reads_of("b") - b0
         );

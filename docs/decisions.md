@@ -2306,6 +2306,39 @@ Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then nativ
   the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
   `import-kep` reporting are Python code and are not ported.
 
+### D-123 OPC UA server: async-opcua, read-only, KEPServerEX-style address space (#50)
+Status: accepted (ADR-0018 order: Rust crate first). Crate `north/opcua` (`opencap-north-opcua`), plugin kind `opcua`.
+
+- **Rust crates searched** (crates.io): `async-opcua` 0.19.0 (MPL-2.0; first published January 2025, 362k downloads, 133k
+  in the last 90 days, last release July 2026; the successor of `opcua`/locka99) and the older `opcua` 0.12. async-opcua
+  has the server, the client, all seven security policies the config names, user/password, X.509 user tokens, a
+  certificate store with trusted/rejected folders and subscriptions. It is usable, so the C library `open62541` was not
+  evaluated (ADR-0018 uses C only when no usable Rust crate exists). Dependencies: no licence outside the ADR-0007 allow-list.
+- **Benchmark gate** (`north/opcua/tests/bench.rs`, `#[ignore]`d, release build, Linux): 250 devices x 1000 tags =
+  250k variables in groups: the server is listening 0.9 s after start; RSS +457 MB, **1.87 KB per variable** (the gate in
+  `04-scale-reliability.md` §4.1 is 0.6-2 KB, 150-500 MB: inside it, at the upper end); a change of all 250k tags in the
+  store takes 27 ms to write and the address space follows within one `update_ms` tick with +21 MB. Not measured: the CPU of
+  250k monitored items sampled at 1 s (needs a subscribing client at that scale), so the "~1 core" line stays open.
+- **Address space** as in Python: `Objects/<channel>/<device>/<group>/.../<tag>`, `ns=2;s=<channel>.<device>.<group>.<tag>`
+  (the tag namespace is registered first after the server's own, so it is ns=2). A tag name's dots are its group path; a
+  name that is both a tag and a group is skipped with a warning. DataType follows the tag dtype (Double when scaled),
+  StatusCode follows ADR-0006 (`values::status_code`), SourceTimestamp is the store's `source_ts`. Values are copied from
+  the change bus, batched per `update_ms` (default 250), and on `Lagged` resynchronised from snapshots.
+- **Read-only (ADR-0008), tested with the async-opcua client:** every variable has `AccessLevel`/`UserAccessLevel` =
+  CurrentRead; `Write` returns a bad status and the value is unchanged; `AddNodes`, `DeleteNodes`, `Call` and
+  `HistoryUpdate` are refused (and the node survives). No write callback is registered.
+- **Security:** policies from `security_policies`, one endpoint each; user tokens from `username_env/password_env/users`
+  (variable names, values from the environment; a missing variable fails the start); anonymous only when `anonymous`.
+  **Fail closed:** `trust_client_certs(false)`, so a client certificate is accepted only from `trusted/`; a refused one is
+  saved in `rejected/` (the operator moves the file to trust it). Tested: untrusted certificate refused, `rejected/`
+  filled, trusted certificate with a wrong password refused, with the right password accepted. `rejected/` is capped at
+  100 files (oldest removed every 30 s, `pki::prune_rejected`) so an anonymous client cannot fill the disk (#248).
+- **Runtime:** `opcua_server.enabled` starts the plugin from `Runtime::start` and restarts it on a reload that changes the
+  config or the devices (a restart, not a live address-space edit: clients reconnect).
+- **Not in this PR (follow-ups):** X.509 user tokens (`x509_users`, `<pki_dir>/users/`), the `_System` folder per device,
+  array tags and `EURange`/`EngineeringUnits` on scaled tags, `advertised_endpoint` host rewriting, the
+  `allow_insecure_remote` check, session and monitored-item counters as metrics, `BrowseNext` limit
+  (`max_references_per_browse`), and the OPC UA **client** driver (#46).
 ### D-108 IoT Gateway JSON in the Rust engine (#170, the Rust half of D-072)
 - `opencap_north::payload_iotgw::build_iotgw` writes the standard template byte for byte as Python does; the shared
   vectors `tests/conformance/payload/iotgw/` pass in `opencap-conformance` (`payload_iotgw`). The MQTT plugin picks the
@@ -2368,6 +2401,21 @@ Status: accepted (ADR-0018: an existing native driver is replaced only if the OS
   `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
   once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).
 
+### D-127 Advisory RUSTSEC-2023-0071 (rsa, Marvin attack) is ignored for async-opcua, owner decision
+Status: accepted by the owner (option (a) of three; confirmed to the drivers session directly on 2026-11-27).
+
+- **Finding:** `cargo deny check advisories` fails on `rsa` 0.9.10, which async-opcua-crypto and async-opcua-client 0.19 require
+  as `^0.9`. The advisory is a non-constant-time RSA implementation: information about the private key leaks through timing
+  that is observable over the network. No patched release exists; the fix is the `rsa` 0.10 series (pre-release), which
+  async-opcua has not adopted.
+- **Exposure:** the RSA private key is used only by the OPC UA server (D-123) and client (D-124), both opt-in, for the
+  secure-channel handshake and the decryption of user-name tokens under a security policy other than None. A practical
+  attack needs a very large number of measured handshakes from a position on the network path; the server limits sessions
+  (`max_sessions`) and accepts only clients whose certificate is in `trusted/` (fail closed). Nothing else in the engine uses RSA.
+- **Decision:** `engine/deny.toml` ignores RUSTSEC-2023-0071 with the reason and a removal condition (async-opcua on `rsa` >= 0.10),
+  like the rumqttc entries. No other part of the gate changes; the `url` advisory (RUSTSEC-2026-0592) was fixed by locking `url` 2.5.9.
+- **Alternatives rejected:** shipping the server without the secure policies (an OPC UA server that can only run unencrypted
+  is not usable on a plant network) and holding the PRs until upstream moves.
 ### D-125 Siemens S7: native client stays; snap7 and the Rust S7 crates evaluated, not adopted (task 4)
 Status: accepted (ADR-0018 order: Rust crate, then C/C++ FFI, then native; an existing native driver is replaced only if the OSS one clearly wins a test).
 

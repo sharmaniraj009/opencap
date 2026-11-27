@@ -1,0 +1,28 @@
+[package]
+name = "opencap-north-opcua"
+description = "OPC UA server for the opencap tag store: the KEPServerEX-style read-only address space (#50), on async-opcua"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencap-core.workspace = true
+opcua = { package = "async-opcua", version = "0.19", default-features = false, features = ["server"] }
+tokio.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+opencap-north.workspace = true
+serde_json.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+opcua = { package = "async-opcua", version = "0.19", default-features = false, features = ["server", "client"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time"] }
+
+[lints]
+workspace = true

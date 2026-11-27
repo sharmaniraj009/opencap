@@ -56,6 +56,7 @@ pub struct Poller {
     north: tokio::sync::Mutex<Option<NorthHandle>>,
     /// What the Sparkplug edge node was started from, and the node (#51).
     sparkplug: tokio::sync::Mutex<(Option<Value>, Option<NorthHandle>)>,
+    opcua: tokio::sync::Mutex<(Option<Value>, Option<NorthHandle>)>,
     reload_lock: tokio::sync::Mutex<()>,
     me: Weak<Poller>,
     /// Readiness (D-075): process start, end of `start()` (north side up), and the latched
@@ -97,6 +98,7 @@ impl Poller {
             link_task: StdMutex::new(None),
             north: tokio::sync::Mutex::new(None),
             sparkplug: tokio::sync::Mutex::new((None, None)),
+            opcua: tokio::sync::Mutex::new((None, None)),
             reload_lock: tokio::sync::Mutex::new(()),
             t0: std::time::Instant::now(),
             started_at: OnceLock::new(),
@@ -132,15 +134,7 @@ impl Poller {
         self.apply_channels(&channels);
         self.restart_publisher().await;
         self.restart_sparkplug(true).await;
-        if cfg.opcua_server.enabled {
-            // Python serves it (D-046); the Rust server is #46. Polling and MQTT run as usual,
-            // as they do in Python when its server cannot start.
-            warn!(
-                endpoint = %cfg.opcua_server.endpoint,
-                error = "the Rust engine has no OPC UA server yet (#46); it is not started",
-                "opcua_server_start_failed"
-            );
-        }
+        self.restart_opcua(true).await;
         let devices: usize = self.active_channels().iter().map(|c| c.devices.len()).sum();
         info!(version = FIRM_VERSION, channels = rlock(&self.state).workers.len(), devices, "poller_started");
         let _ = self.started_at.set(std::time::Instant::now());
@@ -151,6 +145,9 @@ impl Poller {
     pub async fn stop(&self) {
         self.stop_publisher().await;
         if let Some(h) = self.sparkplug.lock().await.1.take() {
+            h.stop(NORTH_STOP_GRACE).await;
+        }
+        if let Some(h) = self.opcua.lock().await.1.take() {
             h.stop(NORTH_STOP_GRACE).await;
         }
         let workers: Vec<Arc<ChannelWorker>> = wlock(&self.state).workers.drain(..).map(|(_, w)| w).collect();
@@ -313,6 +310,43 @@ impl Poller {
         }
     }
 
+    /// (Re)start the OPC UA server (#50) when its config or the device set changed (the address space
+    /// is built from the devices), or always with `force`. Clients reconnect to the new server.
+    async fn restart_opcua(&self, force: bool) {
+        let (cfg, devices) = {
+            let l = rlock(&self.loaded);
+            let devices: Vec<_> =
+                self.active_channels().into_iter().flat_map(|c| c.devices).filter(|d| d.enabled).collect();
+            (l.poller.opcua_server.clone(), devices)
+        };
+        let fingerprint = json!({"opcua_server": cfg, "devices": devices});
+        let mut guard = self.opcua.lock().await;
+        if !force && guard.0.as_ref() == Some(&fingerprint) {
+            return;
+        }
+        if let Some(h) = guard.1.take() {
+            h.stop(NORTH_STOP_GRACE).await;
+        }
+        guard.0 = Some(fingerprint);
+        if !cfg.enabled {
+            return;
+        }
+        let endpoint = cfg.endpoint.clone();
+        let north = match opencap_north_opcua::OpcUaNorth::new(cfg, devices, &|name| std::env::var(name).ok()) {
+            Ok(n) => n,
+            Err(e) => {
+                error!(endpoint = %endpoint, error = %e, "opcua_server_start_failed");
+                return;
+            }
+        };
+        let me = self.me.clone();
+        let status = DeviceStatusReader::new(move |id: &str| {
+            me.upgrade().and_then(|p| p.worker_for(id)).and_then(|w| w.health(id))
+        });
+        let ctx = NorthContext::new(opencap_north_opcua::KIND, self.store.reader(), status);
+        guard.1 = Some(plugin::spawn(Box::new(north), ctx));
+    }
+
     async fn stop_publisher(&self) {
         if let Some(old) = self.north.lock().await.take() {
             old.stop(NORTH_STOP_GRACE).await;
@@ -342,6 +376,7 @@ impl Poller {
         let changed = self.apply_channels(&channels);
         self.restart_publisher().await;
         self.restart_sparkplug(false).await;
+        self.restart_opcua(false).await;
         let n = |k: &str| changed[k].as_array().map(|a| a.len()).unwrap_or(0);
         info!(
             started = n("started"),

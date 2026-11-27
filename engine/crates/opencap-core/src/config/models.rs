@@ -1030,9 +1030,8 @@ pub struct OpcUaUserCfg {
     pub password_env: String,
 }
 
-/// `poller.yaml` `opcua_server` (Python `OpcUaServerCfg`, D-046, D-088). The Rust engine has no OPC UA
-/// server yet (#46): it reads and validates the section like Python, so the same file loads in
-/// both engines, and warns at start when `enabled` is set.
+/// `poller.yaml` `opcua_server` (Python `OpcUaServerCfg`, D-046, D-088). The Rust engine serves it
+/// with `opencap-north-opcua` (#50, D-123); the same file loads in both engines.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpcUaServerCfg {

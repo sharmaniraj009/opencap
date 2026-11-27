@@ -15,6 +15,7 @@
 //! Reads the same config directory as the Python `opencap` CLI.
 
 mod check;
+mod logging;
 mod runtime;
 #[cfg(unix)]
 mod sdnotify;
@@ -25,9 +26,9 @@ mod winsvc;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
-use tracing::info;
+use tracing::{error, info};
 
 use opencap_api::EngineView as _;
 use opencap_core::config::{load_config, Channel, Device, LoadedConfig};
@@ -104,7 +105,7 @@ enum Cmd {
 /// Where `configure_logging` writes: stdout, or this file (a Windows service has no console).
 static LOG_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
-fn configure_logging(level: &str) {
+fn configure_logging(level: &str, instance: Option<&str>) {
     let lvl = match level.to_ascii_uppercase().as_str() {
         "DEBUG" => "debug",
         "WARNING" | "WARN" => "warn",
@@ -114,12 +115,11 @@ fn configure_logging(level: &str) {
     // Library chatter stays at WARN unless DEBUG is asked for (Python logsetup does the same).
     let libs = if lvl == "debug" { "debug" } else { "warn" };
     let filter = format!("{lvl},rumqttc={libs},tokio_modbus={libs},hyper={libs},axum={libs}");
+    if let Some(name) = instance {
+        logging::set_instance(name);
+    }
     let builder = tracing_subscriber::fmt()
-        .json()
-        .flatten_event(true)
-        .with_current_span(false)
-        .with_span_list(false)
-        .with_target(true)
+        .event_format(logging::LineFormat::new())
         .with_env_filter(tracing_subscriber::EnvFilter::new(filter));
     let file = LOG_FILE.get().and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
     let _ = match file {
@@ -149,7 +149,7 @@ fn find_device(config_dir: &Path, device_id: &str) -> Result<(LoadedConfig, Chan
 }
 
 async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Result<i32> {
-    configure_logging("WARNING");
+    configure_logging("WARNING", None);
     let (loaded, channel, device) = find_device(config_dir, device_id)?;
     let (plugins, factory) = factory_for(&loaded, std::slice::from_ref(&channel)).await;
     let plan = plan_device(&device, &factory);
@@ -186,7 +186,7 @@ async fn cmd_read(config_dir: &Path, device_id: &str, tag: Option<&str>) -> Resu
 }
 
 async fn cmd_identity(config_dir: &Path, device_id: &str) -> Result<i32> {
-    configure_logging("WARNING");
+    configure_logging("WARNING", None);
     let (loaded, channel, device) = find_device(config_dir, device_id)?;
     let (plugins, factory) = factory_for(&loaded, std::slice::from_ref(&channel)).await;
     let result = async {
@@ -255,7 +255,7 @@ async fn cmd_run(
         eprintln!("unknown site(s): {}", unknown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
         return Ok(1);
     }
-    configure_logging(&loaded.poller.log_level);
+    configure_logging(&loaded.poller.log_level, Some(&loaded.poller.instance));
     let api_cfg = loaded.poller.api.clone();
     let specs: Vec<opencap_api::TokenSpec> = api_cfg
         .tokens
@@ -269,16 +269,30 @@ async fn cmd_run(
             token_env: t.token_env.clone(),
         })
         .collect();
-    let auth = opencap_api::Auth::new(opencap_api::token_from_env(&api_cfg.token_env), &specs, |name| {
+    // The process does not run without its API: every way the API cannot start is one
+    // `api.bind_failed` line (D-079) and exit status 1.
+    let bind_failed = |reason: &str, error: &str| {
+        error!(bind = %api_cfg.bind, port = api_cfg.port, reason, error, "api.bind_failed");
+        eprintln!("{error}"); // the operator running `run` by hand sees why it stopped
+        Ok(1)
+    };
+    let auth = match opencap_api::Auth::new(opencap_api::token_from_env(&api_cfg.token_env), &specs, |name| {
         opencap_api::token_from_env(name)
-    })
-    .map_err(anyhow::Error::msg)?;
-    opencap_api::check_bind(&api_cfg.bind, &auth, &api_cfg.token_env).map_err(anyhow::Error::msg)?;
-    let port = u16::try_from(api_cfg.port).context("api.port out of range")?;
-    let listener = opencap_api::bind(&api_cfg.bind, port)
-        .await
-        .with_context(|| format!("cannot bind the API to {}:{}", api_cfg.bind, api_cfg.port))?;
+    }) {
+        Ok(a) => a,
+        Err(e) => return bind_failed("config", &e),
+    };
+    if let Err(e) = opencap_api::check_bind(&api_cfg.bind, &auth, &api_cfg.token_env) {
+        return bind_failed("config", &e);
+    }
+    let Ok(port) = u16::try_from(api_cfg.port) else { return bind_failed("config", "api.port out of range") };
+    let listener = match opencap_api::bind_api(&api_cfg.bind, port).await {
+        Ok(l) => l,
+        Err(e) => return bind_failed(e.reason, &e.message),
+    };
 
+    let (open_mode, tokens) = (auth.is_open(), auth.token_count());
+    let listener_port = listener.local_addr().map_or(api_cfg.port, |a| i64::from(a.port()));
     let only = if sites.is_empty() { None } else { Some(sites) };
     let poller = runtime::Poller::new(
         config_dir.to_path_buf(),
@@ -293,7 +307,14 @@ async fn cmd_run(
     let api = tokio::spawn(opencap_api::serve(listener, opencap_api::router(view, auth), async move {
         let _ = api_stop_rx.await;
     }));
-    info!(bind = %api_cfg.bind, port = api_cfg.port, health = %poller.health()["status"], "api_started");
+    info!(
+        bind = %api_cfg.bind,
+        port = listener_port,
+        open_mode = open_mode,
+        tokens = tokens,
+        health = %poller.health()["status"],
+        "api_started"
+    );
     on_ready();
 
     #[cfg(unix)]
@@ -411,6 +432,31 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The process does not run without its API (D-079): a taken port, and open mode on a
+    /// non-loopback bind, end `run` with status 1 before anything is started.
+    #[tokio::test]
+    async fn run_exits_1_when_the_api_cannot_start() {
+        let dir = std::env::temp_dir().join(format!("opencap-bindfail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("devices.json"), r#"{"channels": []}"#).unwrap();
+        let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = taken.local_addr().unwrap().port();
+        std::env::remove_var("OPENCAP_API_TOKEN");
+        for (api, why) in [
+            (format!("{{bind: 127.0.0.1, port: {port}}}"), "port in use"),
+            ("{bind: 0.0.0.0, port: 0}".to_string(), "open mode on a public bind"),
+            ("{bind: 127.0.0.1, port: 70000}".to_string(), "port out of range"),
+        ] {
+            std::fs::write(dir.join("poller.yaml"), format!("api: {api}\n")).unwrap();
+            let code = cmd_run(&dir, Vec::new(), std::future::pending(), || panic!("must not become ready: {why}"))
+                .await
+                .unwrap();
+            assert_eq!(code, 1, "{why}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn drivers_json_partitions_the_known_drivers() {

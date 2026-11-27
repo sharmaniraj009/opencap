@@ -1,0 +1,20 @@
+[package]
+name = "opencap-driver-ab-pccc"
+description = "Allen-Bradley PCCC (SLC 500 / MicroLogix / PLC-5) data-table addresses, block planning and decoding, shared by the EtherNet/IP and DF1 drivers (read-only)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencap-core.workspace = true
+opencap-driver-ab-logix.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

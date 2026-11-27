@@ -2234,3 +2234,18 @@ Rust code, checked by the existing vectors.
 - **Not yet.** The rest of the contract answers 501 `…not implemented in the Rust engine yet (#140)`, so a client cannot
   mistake it for a missing resource: the configuration reads (`channels`, `devices`, `tags`, `map`, `overrides`,
   `project…`, `audit`, `drivers`), `plan`, `identity`, the writes and the WebSocket (#164). They follow in their own PRs.
+
+### D-111 The configuration API's reads in the Rust engine (#140, second slice)
+- `opencap_core::config::reader::ConfigReader` builds the resources of `ConfigStore` from the files, with the same shapes:
+  `channels`, `channels/{c}`, `devices` (and `?channel=`), `devices/{id}`, `devices/{id}/tags[/{tag}]`, `map`, `map/devices/{id}`,
+  `overrides`, `overrides/channels/{c}`, `overrides/devices/{id}`, `project` (the files' texts, `?download=true`),
+  `project/status`. The list routes take `q`, `sort`, `order`, `limit`, `offset` (natural sort, 422 with `loc` for a field the
+  collection does not offer); every answer carries `revision` and the `ETag`. Devices come out of the models' dump without
+  `null` keys, as Python's `model_dump(exclude_none=True)`.
+- **v2.** A project v2 is read too, which Python's store still refuses (409): its devices carry their own publish settings, so
+  the map and the overrides are empty and `sub_device_id` comes from the device.
+- **Writes.** `POST`/`PUT`/`PATCH`/`DELETE` on these paths answer 501 `…not implemented in the Rust engine yet (#140)`;
+  `GET /audit` is an empty list and `project/revisions` has no entries until there are writes. `plan`, `identity`, `drivers`,
+  `project/validate`, `project/schema` and the WebSocket are still 501 or 404.
+- Without a config directory the reads answer 503, as Python's `Unavailable`. The UI loads its Config page against this (checked
+  in Chromium: no HTTP error; the only console error is the missing `/api/v1/ws`).

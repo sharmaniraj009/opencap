@@ -290,9 +290,13 @@ async fn cmd_run(
     poller.start().await?;
     let view: Arc<dyn opencap_api::EngineView> = poller.clone();
     let (api_stop_tx, api_stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let api = tokio::spawn(opencap_api::serve(listener, opencap_api::router(view, auth), async move {
-        let _ = api_stop_rx.await;
-    }));
+    let api = tokio::spawn(opencap_api::serve(
+        listener,
+        opencap_api::router_with_config(view, auth, Some(config_dir.to_path_buf())),
+        async move {
+            let _ = api_stop_rx.await;
+        },
+    ));
     info!(bind = %api_cfg.bind, port = api_cfg.port, health = %poller.health()["status"], "api_started");
     on_ready();
 

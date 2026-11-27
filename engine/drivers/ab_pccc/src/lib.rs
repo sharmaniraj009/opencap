@@ -7,6 +7,7 @@ pub mod address;
 pub mod decode;
 pub mod plan;
 pub mod status;
+pub mod values;
 
 pub use address::{check_dtype, parse_pccc_address, PcccAddress};
 pub use decode::{decode_block, DecodeError};

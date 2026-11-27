@@ -16,6 +16,7 @@ use opencap_core::worker::scale_value;
 use opencap_core::FIRM_VERSION;
 use opencap_driver_modbus_tcp::{decode_block, plan_tags, ModbusBlock, ModbusParams, Reply};
 use opencap_north::payload::{build_payload, encode};
+use opencap_north::payload_iotgw::build_iotgw;
 
 fn tags_of(input: &Json) -> Result<Vec<Tag>, String> {
     serde_json::from_value(input["tags"].clone()).map_err(|e| format!("tags: {e}"))
@@ -154,6 +155,29 @@ fn payload() {
             text.replace(&format!("\"FirmVersion\":\"{FIRM_VERSION}\""), &format!("\"FirmVersion\":\"{py_version}\""));
         Ok(json!({"bytes": text}))
     });
+}
+
+/// IoT Gateway JSON (`publish.format: iotgw_json`, #36, #170): the same device/values/cfg input as
+/// the SubDevice payload, without `firm_version` and `is_secure`.
+#[test]
+fn payload_iotgw() {
+    let n = run_area("payload/iotgw", |input| {
+        let device: Device = serde_json::from_value(input["device"].clone()).map_err(|e| format!("device: {e}"))?;
+        let cfg: PayloadCfg = serde_json::from_value(input["cfg"].clone()).map_err(|e| format!("cfg: {e}"))?;
+        let mut pairs = Vec::new();
+        for (name, tv) in input["values"].as_object().ok_or("no values")? {
+            let value = decode_value(&tv["value"])?;
+            pairs.push((
+                name.clone(),
+                TagValue::new(value, quality(tv["quality"].as_str().unwrap_or(""))?, ts(&tv["source_ts"])?),
+            ));
+        }
+        let snapshot = Snapshot::from_pairs(&device.id, pairs);
+        let now = ts(&input["now"])?.ok_or("no now")?;
+        let bytes = build_iotgw(&device, &snapshot, &cfg, now);
+        Ok(json!({"bytes": String::from_utf8(bytes).map_err(|e| e.to_string())?}))
+    });
+    assert!(n >= 10, "{n}");
 }
 
 // --- Allen-Bradley Logix / Micro800 (#43) ---------------------------------------------------------

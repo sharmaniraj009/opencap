@@ -2151,6 +2151,54 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
 
+### D-101 System tags in Rust, part 2: counters, task, store, API (#56)
+- **Counters (D-095).** `opencap_core::metrics::DeviceCounts` holds one device's series of `poll_requests_total`,
+  `poll_failed_reads_total` (new) and `poll_overrun_total`, resolved once; each series is itself an atomic, so a
+  system-tag recompute reads `get()` on a few atomics and never gathers the registry. The worker holds its
+  device's `Arc<DeviceCounts>`. Byte counters (`_RxBytes`, `_TxBytes`) stay absent until a driver counts bytes (#130).
+- **Channel in-flight.** The channel's wire lock hands out a guard that counts requests on the wire
+  (`_PendingReads`) and the high-water mark (`_MaxPendingReads`).
+- **Task.** `systags.rs` is the only writer of the virtual devices (`_System`, `Plant A._Statistics`,
+  `Plant A.PLC1._System`, ...: the folder is the device id, the tag the last path segment). A device cycle marks the
+  device; marks arriving within 50 ms are computed once and recompute that device's folders and its channel's, nothing
+  else. A tick at each UTC second recomputes node, north-agent and channel tags and the devices in error (their
+  `_SecondsInError` counts). Static state (names, settings, tag counts, revision) is built once per config load.
+  A tag is written only when its value changed; quality is always `good`, `source_ts` the computation time.
+- **Placeholders.** A `datetime` with no value is a good tag whose value is null. The Rust engine has no OPC UA
+  server (#46), so its `opcua_server` north folder, when configured, reports `_Running` false with the reason.
+  The Sparkplug node has no folder yet (its link state is not exposed); the payload flag `include_system_tags`
+  follows in the next PR.
+- **API.** `GET /api/v1/system/tags[?prefix=]` (viewer) and `GET /devices/{id}/values?include_system=true`.
+  `api/openapi.json` is not changed: the contract file belongs to the Python-side issue #127 and the API parity
+  work (#140) adds the path there.
+
+### D-103 `publish.include_system_tags` in the Rust engine (#56)
+- `PublishCfg.include_system_tags` (default false; devices.json `publish`, and the map and overrides `publish` blocks).
+  Off: the payload is byte-identical to before (the golden tests). On: the device's `_System.*` then `_Statistics.*`
+  tags follow the I/O tags inside `Data`, in catalogue order (`DEVICE_SYSTEM_ORDER`, compared with the catalogue by a
+  test), keyed by their device-relative path; the datetime placeholder is `null`. They never reach `BadTags`,
+  `DataValid` or `DateTime`, and the on_change loop wakes only on the device's own tags, so they never cause a publish
+  on their own (a heartbeat or interval publish carries the current values).
+- The field is left out of a serialized `PublishCfg` while it is false, so the Rust dump of every existing fixture still
+  equals Python's (`compare.py` runs in CI). The shared `schema/*.json` files and the config conformance fixtures are
+  generated from, and checked against, the frozen Python models, which reject the new key. They are left unchanged until Python is deleted; the Rust model is the
+  source of truth for this field.
+
+### D-104 The Rust engine loads a project v2 (#186)
+- `load_config` reads a project v2 when `project.json` exists, else the v1 layout, as the Python loader does.
+  `ProjectV2` and `NodeConfig` (= `PollerConfig`, read from `node.yaml`, or from `poller.yaml` with a warning) are
+  checked by the shared fixtures `valid/project_basic`, `valid/node_basic` and four `invalid/project_*`/`node_*`
+  fixtures, which both engines pass (`compare.py` agrees on all 59).
+- The v2 path applies only the finalize steps: names starting with `_` and the naming rules are errors; an unmapped
+  serial line is disabled with the Python warning; unset topics get the default topic of `node.yaml`'s
+  `mqtt.topic_prefix`; SubDeviceId and duplicate warnings have the Python texts (checked against the Python loader on
+  the same directory). v1 files beside the project give the "ignored" warnings.
+- `config_revision` of a project covers `project.json` and `node.yaml` (as the Python store does), so `/support`,
+  the system tag `_ProjectRevision` and the ETag follow edits to those files.
+- **Not done here.** The serial *endpoint* check (host, port, transport values of each serial device) is not part of
+  the Rust loader in v1 either; it runs when the driver is built. `compare.py` and an acceptance scenario on a migrated
+  directory need Python test edits, which ADR-0018 rules out; the loader tests in `tests/project_v2.rs` replace them.
+
 ### D-102 Rust simulator driver (#124)
 - `engine/drivers/simulator` (`opencap-driver-simulator`, feature `driver-simulator`) follows `docs/driver_params.md`
   ("simulator") and D-071. It runs every vector of `tests/conformance/simulator/vectors.json` (84 valid, 41 invalid;
@@ -2193,6 +2241,57 @@ Rust code, checked by the existing vectors.
   delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
 - ADR-0008 stays: FFI wrappers expose reads only, with a CI check that no write function is bound.
 
+### D-121 SLC/MicroLogix/PLC-5 over EtherNet/IP: libplctag through FFI (#48)
+Status: accepted (ADR-0018 order: Rust crate, then C/C++ through FFI, then native). Driver name `ab_pccc`.
+
+- **Rust crates searched** (crates.io, `cargo search` and `cargo info`, 2026-11-27): `ciplink` 0.3.7 (MIT; SLC 500 /
+  MicroLogix PCCC and Logix; the only Rust crate found with PCCC data files), `rust-ethernet-ip` 1.2.1 and
+  `ethernetip-logix` 0.1.1 (described as Logix tag clients), `rseip` 0.3.1 (generic CIP client), `ethernetip-core`
+  (encapsulation primitives). No Rust DF1 crate exists (see D-120).
+- **ciplink: rejected on maturity, not benchmarked.** First published October 2026, 122 downloads, one maintainer,
+  blocking I/O on std threads, a public write API in the same crate, and a dependency tree with rustls, ring, chacha20
+  and serialport that the engine does not otherwise need. It does not meet "widely used and tested". The other
+  crates are described as Logix or generic CIP clients; they were not examined for PCCC support.
+- **libplctag 2.7.2 chosen** (C, MPL-2.0 OR LGPL-2+, used under MPL-2.0, code unmodified (four comment lines edited, see `engine/vendor/libplctag/VENDORED.md`), linked statically; 15 years of
+  field use; covers PCCC for SLC 500, MicroLogix and PLC-5 over EtherNet/IP). Vendored in `engine/vendor/libplctag`
+  and compiled by `cargo build` through the `cc` crate (`crates/opencap-plctag-sys/build.rs`): no system package,
+  the Windows platform files are selected by target. `omron_device_tag.c` and `handle_system.c` are not built (they
+  are not in upstream's CMake source lists). Dependency on a hand-written FFI allow-list instead of bindgen: 17
+  declarations, auditable, and no libclang in CI or on Windows.
+- **Read-only (ADR-0008).** `opencap-plctag-sys` declares only read functions (no `plc_tag_write`, no
+  `plc_tag_set_*` except the debug level). `tests/read_only.rs` fails if the crate declares a function outside the
+  allow-list, or if any engine source (`opencap-plctag-sys/src`, `drivers/*/src`) mentions `plc_tag_write`,
+  `plc_tag_set_*`, `plc_tag_lock` or `plc_tag_abort`. libplctag's own write code is compiled in but unreachable from
+  Rust. The safe wrapper (`safe::Tag`) can only create, read and drop.
+- **Tests, against libplctag's own simulator.** `crates/opencap-ab-server` builds `ab_server` (SLC 500 mode) from the
+  vendored sources with `cargo build`; `tests/pccc_eip.rs` starts it and reads N (int16, uint16 view), F (float32,
+  float64 view), L and B (bits) values, a missing file (`PLCTAG_ERR_REMOTE_ERR` -> BlockConfig), a gateway that
+  disappears (comm timeout, never a wrong value), a refused connect, a restart with reconnect, and a 300-round soak.
+  The simulator starts zeroed and knows only B3, N7, F8, ST18 and L19; the test seeds it with libplctag write calls
+  declared in that test only. Timer, counter, string and I/O files are covered by the shared `ab_pccc` vectors and by
+  the DF1 fake PLC, not by this simulator.
+- **Linking detail.** The simulator has its own `mem_*`, `mutex_*`, `socket_*` and `thread_*` helpers with the same
+  names as libplctag's platform layer; the simulator's are renamed (`absim_` prefix) at compile time so the test
+  can link both.
+- **Not done:** the `file_check` processor file directory (the parameter is accepted, as in the vectors, and
+  ignored: libplctag does not expose the directory; the PLC rejects a missing file itself) and `identity`.
+
+### D-106 Config and API events in the Rust engine (#222, the Rust half of D-079)
+- **`api.request_refused`.** The API guard logs each 401, 403 and 413 it answers before a handler runs, with the Python
+  fields (`method`, `path`, `status`, `who`, `client`, `via`): WARNING for 401 and 403, INFO for 413; `who` is the token
+  name, `anonymous` in open mode, `unknown` without a valid token; `client` is the peer address (`unknown` when the
+  transport gives none); `via` is `ui` when the request carries `X-Opencap-Client: ui`, else `api`. At most one line per
+  client address and status each second; the next line carries `suppressed`. Never the token, query string or body.
+- **`api.bind_failed`.** Every way the API cannot start (token settings, open mode on a non-loopback bind, a port out of
+  range, `in_use`, `permission_denied`, `address_unavailable`, `bad_address`, `io`) logs one ERROR line with `bind`, `port`,
+  `reason`, `error`, and `run` exits with status 1 before the poller starts. The legacy `api_started` name stays (#134)
+  and gains `open_mode` and `tokens`; its `port` is the bound port.
+- **Correlation.** `config_reloaded` carries `revision`, and `who` and `via` when `POST /reload` caused it;
+  `poller_started` carries `engine`, `instance` and `revision`.
+- **Still to come:** `config.write_failed` and `config.change_rejected` come with the Rust config API (#140).
+- Tests: `crates/opencap-api/tests/refusal_events.rs` (fields, levels, no secret, the limiter on an injected clock, bind
+  reasons), `events.rs` unit tests, and `run_exits_1_when_the_api_cannot_start` in the engine.
+
 ### D-105 Device time zone and the last of #112 in the Rust engine (DEV-13)
 - Of #112, the naming rules (PRJ-13, with the v2 errors from D-104), the reserved device names and the
   `payload.timezone` check (LOG-21, shared `zones.json`) were already in the Rust models. What was missing is DEV-13:
@@ -2224,6 +2323,50 @@ Rust code, checked by the existing vectors.
   the tree and branch protection may require the name); only its container steps changed. Both go with the Python deletion
   (v0.1 plan, "Deleting Python"). `import-kep` (the KEPServerEX importer) is Python-only and not in the image.
 
+### D-108 IoT Gateway JSON in the Rust engine (#170, the Rust half of D-072)
+- `opencap_north::payload_iotgw::build_iotgw` writes the standard template byte for byte as Python does; the shared
+  vectors `tests/conformance/payload/iotgw/` pass in `opencap-conformance` (`payload_iotgw`). The MQTT plugin picks the
+  body by `publish.format` per device; topic, schedule, retain flag, the outbox and the status message do not depend
+  on it, and `payload.timezone` and `bad_tags_field` do not apply. `PublishCfg.format` was already in the Rust model.
+- `publisher::tests::iotgw_format_publishes_the_standard_template` checks the route end to end with a fake sink.
+
+### D-122 Logix: libplctag against the native client; native stays, no same-simulator comparison possible (task 2)
+Status: accepted (ADR-0018: an existing native driver is replaced only if the OSS one is clearly better in a test).
+
+- **What was run.** libplctag 2.7.2 (the read-only FFI of D-121) and the native `ab_logix` client, both pointed at
+  libplctag's `ab_server` in ControlLogix mode (`--plc=ControlLogix --path=1,0`, two arrays, `DINT[100]` and
+  `REAL[100]`, seeded with write calls in the test).
+- **The native client cannot talk to `ab_server`.** `AbLogixDriver::connect` failed with `encapsulation status
+  0x0001` (invalid command). The native client opens with an EtherNet/IP ListIdentity, then uploads the Symbol Object
+  tag list and the UDT templates to resolve tag names and types. `ab_server` implements neither (a search of
+  `src/tools/ab_server` finds no ListIdentity command and no Symbol Object service); it exists to serve libplctag,
+  which names tags directly. The native driver has no Rust simulator (its `tests/` hold read-only checks of the service builders), and
+  its behaviour is checked by the Python CIP simulator (`tests/helpers/cip_sim.py`), which is a library with no
+  command-line entry point and may not be extended. So correctness, latency and CPU cannot be compared on one
+  simulator without forking `ab_server` or changing the native client, and neither is proportionate.
+- **What was measured (libplctag only, release build, Linux, loopback, `ab_server`).** 2 arrays x 20 elements
+  (20 DINT and 20 REAL) read per round, 1000 rounds: all 40 values equal the seeded data; 0.20 ms mean and median
+  per round (p99 0.29 ms); 0.22 s CPU for the 1000 rounds. These are loopback numbers against a simulator with no
+  PLC scan time; they say nothing about a real controller. No native figures exist to compare them with.
+- **Decision.** Keep the native `ab_logix` driver. It meets the engine's own acceptance suites, has the tag list
+  cache and Multiple Service Packet packing, and is the only one of the two that the Python CIP simulator and the
+  shared Logix vectors cover. libplctag is not clearly better in any test that could be run, so it is not swapped
+  in. Revisit with a Logix simulator that both clients can use, or a real controller (v0.1 package 7).
+- The libplctag FFI stays available for Logix (the allow-list and the `Tag` wrapper are protocol-independent).
+
+### D-109 The web UI and the runtime half of `/api/v1` in the Rust engine (#140, first slice)
+- **The UI.** `engine/ui/` is a copy of the Python engine's UI bundle (ADR-0010), compiled into the binary
+  (`include_bytes!`, one list in `opencap-api/src/ui.rs`; a test fails when a file in `engine/ui/` is not listed). It is
+  served at `/ui/…` with the Python security headers (CSP without inline script, `nosniff`, `DENY`), `/` and `/ui` redirect
+  with 307, and it is open like in Python. After Python is deleted `engine/ui/` is the only copy.
+- **Runtime routes.** `/api/v1/auth-info` (open), `whoami`, `status`, `project/pending`, `reload`, and for a device
+  `…/status`, `…/values`, `POST …/read-once`, next to the legacy paths (same handlers). `whoami` says `config_writable:
+  false` with the reason; `pending_reload` compares the revision of the files on disk with the one the running config was
+  read from.
+- **Not yet.** The rest of the contract answers 501 `…not implemented in the Rust engine yet (#140)`, so a client cannot
+  mistake it for a missing resource: the configuration reads (`channels`, `devices`, `tags`, `map`, `overrides`,
+  `project…`, `audit`, `drivers`), `plan`, `identity`, the writes and the WebSocket (#164). They follow in their own PRs.
+
 ### D-107 One log line format in the Rust engine (#133, LOG-R3, LOG-R6, LOG-R7)
 - **Format.** `timestamp` (UTC, microseconds, `Z`), `level` (`debug`, `info`, `warning`, `error`), `event` (was `message`),
   `instance` (`poller.yaml`), then the event's fields; no `target`. This is plan 15's open question 4: the Rust engine
@@ -2241,3 +2384,50 @@ Rust code, checked by the existing vectors.
   State-change warnings (`mqtt_disconnected`, `device.offline`, `device.demoted`, `device.resumed`, `mqtt_connected`,
   `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
   once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).
+
+### D-125 Siemens S7: native client stays; snap7 and the Rust S7 crates evaluated, not adopted (task 4)
+Status: accepted (ADR-0018 order: Rust crate, then C/C++ FFI, then native; an existing native driver is replaced only if the OSS one clearly wins a test).
+
+- **Rust crates searched** (crates.io API, 2026-11-27): `snap7-client` 0.1.7 (2.2k downloads, first published May 2026), `tokio-s7`
+  0.1.7 (1.3k, June 2026), `turbos7` 0.2.1 (128, May 2026), `s7-connector` 0.1.2 (128, April 2026), `s7` 0.1.9 (19k downloads, last
+  release 2019). None is widely used or tested; the most downloaded is seven years old and unmaintained.
+  `rust-snap7` (9.5k downloads, binds the C++ library with its sources) is MulanPSL-2.0, which is not on the ADR-0007 allow-list
+  (it already stands as "Avoid" in `oss-reuse.md`); `snap7-rs` was last released in 2023.
+- **snap7 (C++, Davide Nardella):** the sources bundled in `rust-snap7` carry the header "GNU Lesser General Public License,
+  version 3 or later". ADR-0018 item 5 allows LGPL only as a dynamically loaded, replaceable library with a documented
+  relink path; snap7 would have to be built as a shared library and shipped beside the engine (Linux, Windows and the
+  container image), which the vendored-source `cc` build used for libplctag (MPL-2.0, D-121) does not need.
+- **Not benchmarked.** A comparison needs snap7 built as a shared library and bound by FFI, plus a simulator both clients can
+  use. The simulator in the tree (`tests/helpers/s7_sim.py`) is a Python library with no command-line entry point and may not
+  be extended; snap7's own server would mean a second C++ build for tests. The cost is out of proportion to the question:
+  the native client is small (`conn.rs` and `proto.rs`, about 800 lines), is the engine's own code, passes the 331 shared S7
+  vectors (address, plan, decode, frame, reply), the Rust fake-CPU tests (`drivers/s7/tests`) and the Python simulator suite,
+  and is read-only by construction (`check_read_only` refuses every other function before it reaches the socket).
+- **Decision:** keep the native S7 driver. Revisit when a Rust S7 crate with real adoption exists, or with a real CPU
+  (v0.1 package 7) if the native client misbehaves.
+
+### D-126 Batch reads on the Driver trait; S7 packs multi-item read var (#227)
+Status: accepted.
+
+- **Trait:** `Driver::supports_batch()` (default false) and `Driver::read_many(&[&dyn Block]) -> Vec<ReadResult>` (default: one
+  `read` per block). Read-only like `read`; no write method exists.
+- **Worker:** when the driver supports it, is connected and the cycle has two or more blocks, the cycle makes one `read_many`
+  call under the wire lock (safety net: the sum of the blocks' budgets). Blocks that came back good are used; every other
+  block goes through the existing single-block path, with its retries, reconnect and error classification, so those rules
+  stay in one place. The first cycle after a connect uses the single-block path (it is the one that connects).
+- **S7 packing** (`drivers/s7/src/pack.rs`): next-fit in planner order, at most 20 items per request, request `12 + 12 n`
+  bytes and reply `14 + sum(4 + data, odd lengths padded)` bytes both within the negotiated PDU. Python has no packing (its
+  docstring says "no multi-read optimizer"); python-snap7's `read_multi_vars` exists but the Python driver never used it.
+  A failed request (timeout, lost connection, header error) fails the blocks that had an item in it; an item return code
+  fails only its own block (BlockConfig for the "wrong address" codes). A mute CPU drops the connection as before.
+- **Negotiated PDU:** the S7 drivers of one device (the registry's planner instance and the worker's) now share the negotiated
+  PDU through a registry keyed by device id and address, so `wire_requests()` and the read budget follow the PDU the CPU
+  granted, not the configured one.
+- **Tests:** pack unit tests (limits, padding, order), a fake multi-item CPU (one request of eight items, PDU splitting into
+  2 + 2 + 1, a refused DB failing alone, a mute CPU, not connected, shared PDU), and three worker tests with a batching
+  fake driver (one `read_many` per cycle, a rejected block, a block failing inside a batch retried alone).
+  The conformance vectors are JSON data checked by the Python harness, whose area list may not be extended without Python,
+  so the packed-request bytes are pinned by Rust tests instead.
+- **Other drivers:** MELSEC MC's batch read (0401) is already one request per block and its random read (0403) is not used
+  (read-only rule in the driver), so it keeps the default. BACnet (#203) can implement `read_many` with ReadPropertyMultiple
+  when its driver exists.

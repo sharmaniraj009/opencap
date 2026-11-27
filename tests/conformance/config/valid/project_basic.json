@@ -1,0 +1,34 @@
+{
+  "document": "project",
+  "data": {
+    "version": 2,
+    "revision": 3,
+    "name": "plant-a",
+    "title": "Plant A",
+    "channels": [
+      {
+        "name": "Plant A",
+        "devices": [
+          {
+            "id": "Plant A/PLC1",
+            "channel": "Plant A",
+            "name": "PLC1",
+            "driver": "modbus_tcp",
+            "host": "192.0.2.10",
+            "port": 502,
+            "publish": {
+              "sub_device_id": "OL_PLANT_A_PLC1"
+            },
+            "tags": [
+              {
+                "name": "FLOW_1",
+                "address": "400001",
+                "dtype": "float32"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

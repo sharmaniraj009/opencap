@@ -7,6 +7,8 @@ members = [
     "crates/opencap-api",
     "crates/opencap-engine",
     "crates/opencap-serial",
+    "crates/opencap-plctag-sys",      # vendored libplctag, read-only FFI (ADR-0018)
+    "crates/opencap-ab-server",       # libplctag ab_server simulator, test tool only
     "crates/opencap-conformance",     # shared conformance-vector harness (#40, ADR-0014)
     "crates/opencap-plugin",
     "drivers/*",                      # one crate per driver (#67): see README "How to add a driver crate"
@@ -35,6 +37,8 @@ opencap-driver-simulator = { path = "drivers/simulator" }
 opencap-driver-ab-logix = { path = "drivers/ab_logix" }
 opencap-driver-ab-pccc = { path = "drivers/ab_pccc" }
 opencap-driver-ab-df1 = { path = "drivers/ab_df1" }
+opencap-driver-ab-pccc-eip = { path = "drivers/ab_pccc_eip" }
+opencap-plctag-sys = { path = "crates/opencap-plctag-sys" }
 opencap-plugin = { path = "crates/opencap-plugin" }
 
 anyhow = "1"

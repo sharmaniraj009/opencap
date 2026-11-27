@@ -2394,3 +2394,19 @@ Status: accepted (ADR-0018: an existing native driver is replaced only if the OS
   State-change warnings (`mqtt_disconnected`, `device.offline`, `device.demoted`, `device.resumed`, `mqtt_connected`,
   `sparkplug.session_lost`) and everything at `info` or below are never suppressed. `saf_dropped_oldest` lost its own
   once-a-minute limiter: it logs each trim and the processor does the rest (its `dropped` is now per trim).
+
+### D-127 Advisory RUSTSEC-2023-0071 (rsa, Marvin attack) is ignored for async-opcua, owner decision
+Status: accepted by the owner (option (a) of three; confirmed to the drivers session directly on 2026-11-27).
+
+- **Finding:** `cargo deny check advisories` fails on `rsa` 0.9.10, which async-opcua-crypto and async-opcua-client 0.19 require
+  as `^0.9`. The advisory is a non-constant-time RSA implementation: information about the private key leaks through timing
+  that is observable over the network. No patched release exists; the fix is the `rsa` 0.10 series (pre-release), which
+  async-opcua has not adopted.
+- **Exposure:** the RSA private key is used only by the OPC UA server (D-123) and client (D-124), both opt-in, for the
+  secure-channel handshake and the decryption of user-name tokens under a security policy other than None. A practical
+  attack needs a very large number of measured handshakes from a position on the network path; the server limits sessions
+  (`max_sessions`) and accepts only clients whose certificate is in `trusted/` (fail closed). Nothing else in the engine uses RSA.
+- **Decision:** `engine/deny.toml` ignores RUSTSEC-2023-0071 with the reason and a removal condition (async-opcua on `rsa` >= 0.10),
+  like the rumqttc entries. No other part of the gate changes; the `url` advisory (RUSTSEC-2026-0592) was fixed by locking `url` 2.5.9.
+- **Alternatives rejected:** shipping the server without the secure policies (an OPC UA server that can only run unencrypted
+  is not usable on a plant network) and holding the PRs until upstream moves.

@@ -33,6 +33,7 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
 pub mod config_api;
+pub mod live;
 pub mod ui;
 
 #[derive(Debug)]
@@ -63,6 +64,11 @@ pub trait EngineView: Send + Sync + 'static {
     /// running one? `{"available", "pending_reload", "revision"}`.
     fn config_status(&self) -> Value {
         json!({"available": false, "pending_reload": false})
+    }
+    /// The device's change counter, `None` while it is not polled (unknown, its channel disabled
+    /// or not selected). The live feed (`/api/v1/ws`) diffs a device when this moves.
+    fn live_version(&self, _device_id: &str) -> Option<u64> {
+        None
     }
 }
 
@@ -224,6 +230,8 @@ struct AppState {
     view: Arc<dyn EngineView>,
     auth: Auth,
     config: Option<Arc<opencap_core::config::reader::ConfigReader>>,
+    live: Arc<live::LiveHub>,
+    cors_origins: Vec<String>,
 }
 
 type St = State<Arc<AppState>>;
@@ -263,6 +271,11 @@ pub fn is_open_path(path: &str) -> bool {
 /// the fallback.
 async fn guard(State(st): St, req: Request, next: Next) -> Response {
     let (parts, mut body) = req.into_parts();
+    if parts.uri.path() == live::PATH {
+        // the handler authenticates: a browser cannot set Authorization on a WebSocket, so the
+        // token may come as a subprotocol (checked there, before the upgrade)
+        return next.run(Request::from_parts(parts, Body::empty())).await;
+    }
     let declared = parts
         .headers
         .get(header::CONTENT_LENGTH)
@@ -474,6 +487,45 @@ async fn reload(State(st): St) -> Response {
     }
 }
 
+/// `GET /api/v1/ws`: the live feed (viewer). See [`live`].
+async fn v1_ws(
+    State(st): St,
+    headers: HeaderMap,
+    ws: Result<axum::extract::WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>,
+) -> Response {
+    let header_str = |name| headers.get(name).and_then(|v| v.to_str().ok());
+    if !live::origin_allowed(header_str(header::ORIGIN), header_str(header::HOST), &st.cors_origins) {
+        return detail(StatusCode::FORBIDDEN, "this Origin may not open the live feed");
+    }
+    let offered: Vec<String> = header_str(header::SEC_WEBSOCKET_PROTOCOL)
+        .map(|v| v.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_default();
+    let mut auth_headers = headers.clone();
+    if let Some(token) = live::bearer_from_protocols(&offered) {
+        if let Ok(v) = header::HeaderValue::from_str(&format!("Bearer {token}")) {
+            auth_headers.insert(header::AUTHORIZATION, v);
+        }
+    }
+    let principal = match st.auth.principal(&Method::GET, &auth_headers) {
+        Ok(p) => p,
+        Err(refused) => return refused,
+    };
+    let ws = match ws {
+        Ok(ws) => ws,
+        Err(_) => return detail(StatusCode::BAD_REQUEST, "this is a WebSocket endpoint: send an Upgrade request"),
+    };
+    if st.live.full() {
+        return detail(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("at most {} live connections", st.live.max_connections()),
+        );
+    }
+    let hub = st.live.clone();
+    ws.protocols([live::PROTOCOL])
+        .max_message_size(live::MAX_MESSAGE)
+        .on_upgrade(move |socket| live::serve(hub, socket, principal.name))
+}
+
 async fn not_found() -> Response {
     detail(StatusCode::NOT_FOUND, "Not Found")
 }
@@ -484,8 +536,23 @@ pub fn router(view: Arc<dyn EngineView>, auth: Auth) -> Router {
 
 /// [`router`] with the configuration API's reads served from `config_dir` (`None`: they answer 503).
 pub fn router_with_config(view: Arc<dyn EngineView>, auth: Auth, config_dir: Option<std::path::PathBuf>) -> Router {
-    let config = config_dir.map(|d| Arc::new(opencap_core::config::reader::ConfigReader::new(d)));
-    let state = Arc::new(AppState { view, auth, config: config.clone() });
+    router_with_options(view, auth, ApiOptions { config_dir, ..ApiOptions::default() })
+}
+
+/// What the router needs beyond the engine view and the tokens.
+#[derive(Default)]
+pub struct ApiOptions {
+    /// The configuration API's reads come from here (`None`: they answer 503).
+    pub config_dir: Option<std::path::PathBuf>,
+    /// `api.cors_origins`: browser origins besides the API's own that may open the live feed.
+    pub cors_origins: Vec<String>,
+    pub live: live::LiveCfg,
+}
+
+pub fn router_with_options(view: Arc<dyn EngineView>, auth: Auth, opts: ApiOptions) -> Router {
+    let config = opts.config_dir.map(|d| Arc::new(opencap_core::config::reader::ConfigReader::new(d)));
+    let live = live::LiveHub::new(view.clone(), opts.live);
+    let state = Arc::new(AppState { view, auth, config: config.clone(), live, cors_origins: opts.cors_origins });
     Router::new()
         .route("/health", get(health))
         .route("/health/live", get(health_live))
@@ -501,6 +568,7 @@ pub fn router_with_config(view: Arc<dyn EngineView>, auth: Auth, config_dir: Opt
         .route("/api/v1/whoami", get(v1_whoami))
         .route("/api/v1/status", get(v1_status))
         .route("/api/v1/project/pending", get(v1_pending))
+        .route(live::PATH, get(v1_ws))
         .route(
             "/api/v1/devices/{*path}",
             get(v1_device_get)

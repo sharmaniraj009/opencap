@@ -2249,3 +2249,18 @@ Rust code, checked by the existing vectors.
   `project/validate`, `project/schema` and the WebSocket are still 501 or 404.
 - Without a config directory the reads answer 503, as Python's `Unavailable`. The UI loads its Config page against this (checked
   in Chromium: no HTTP error; the only console error is the missing `/api/v1/ws`).
+
+## D-112 — Quick Client live feed over WebSocket (#164)
+
+- **Where.** `GET /api/v1/ws`, protocol `opencap.v1`, in `opencap-api/src/live.rs`: the Rust port of `src/opencap/api/live.py`. axum's
+  `ws` feature only (tungstenite, sha1 and friends come with it; `tokio-tungstenite` is a dev-dependency for the tests).
+- **Auth.** The REST API's tokens and roles, checked before the upgrade. A browser cannot set `Authorization` on a WebSocket, so the
+  token may also come as the subprotocol `opencap.bearer.<base64url>` next to `opencap.v1`. The guard lets this one path through and
+  the handler authenticates; open mode answers loopback `Host`s only, as for REST. A browser `Origin` must be the API's own host or in
+  `api.cors_origins` (403 otherwise); no `Origin` (a script) passes.
+- **Messages.** `subscribe` replaces the previous subscription; the server answers `subscribed`, then a `snapshot` per device, then
+  `changes` carrying only the tags that moved. A device the engine does not poll gets `unavailable` and stays subscribed: it gets a
+  snapshot when it appears. Unusable input gets `error` and the connection stays.
+- **Cost.** One hub, one 50 ms tick, one change counter per subscribed device (`EngineView::live_version`, the tag store's version):
+  a device is diffed once per 250 ms slot however many clients watch it. A client has a bounded queue; one that falls behind loses it
+  and gets fresh snapshots, never a backlog. At most 256 connections (503 beyond). Nothing waits on PLC I/O.

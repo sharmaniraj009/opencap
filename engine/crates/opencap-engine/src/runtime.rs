@@ -504,6 +504,11 @@ impl EngineView for Poller {
         Some(Value::Object(snap.iter().map(|(n, tv)| (n.to_string(), tv.to_api_json())).collect()))
     }
 
+    fn live_version(&self, device_id: &str) -> Option<u64> {
+        self.worker_for(device_id)?;
+        Some(self.store.version(device_id))
+    }
+
     async fn read_once(&self, device_id: &str) -> Result<Value, ReadOnceError> {
         let worker = self.worker_for(device_id).ok_or(ReadOnceError::UnknownDevice)?;
         let snap = worker.read_once(device_id).await.map_err(|e| match e {

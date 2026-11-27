@@ -292,7 +292,15 @@ async fn cmd_run(
     let (api_stop_tx, api_stop_rx) = tokio::sync::oneshot::channel::<()>();
     let api = tokio::spawn(opencap_api::serve(
         listener,
-        opencap_api::router_with_config(view, auth, Some(config_dir.to_path_buf())),
+        opencap_api::router_with_options(
+            view,
+            auth,
+            opencap_api::ApiOptions {
+                config_dir: Some(config_dir.to_path_buf()),
+                cors_origins: api_cfg.cors_origins.clone(),
+                ..Default::default()
+            },
+        ),
         async move {
             let _ = api_stop_rx.await;
         },

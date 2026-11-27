@@ -23,18 +23,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
-use opencap_core::config::{default_topic, Device, PayloadCfg, PublishMode};
+use opencap_core::config::{default_topic, Device, PayloadCfg, PublishFormat, PublishMode};
 use opencap_core::store::{Change, DeviceId, Snapshot, TagStoreReader};
 use opencap_core::value::{Quality, TagValue, Value};
 
 use opencap_core::system_tags::device_folder;
 
 use crate::payload::{build_payload, clean_value, encode, encode_status, status_topic, system_entries};
+use crate::payload_iotgw::build_iotgw;
 use crate::plugin::{DeviceStatusReader, NorthContext, NorthError, NorthPlugin};
 
 /// Floor for interval_ms / heartbeat_ms (protects against 0 in config).
@@ -223,20 +225,24 @@ impl Publisher {
     }
 
     fn publish_data(&self, dev: &Device, snapshot: &Snapshot, store: &TagStoreReader) {
-        let payload = match build_payload(dev, snapshot, &self.cfg, self.sink.is_secure(), None) {
-            Ok(mut p) => {
-                if dev.publish.include_system_tags {
-                    let folder = |part| store.snapshot(&device_folder(&dev.channel, &dev.name, part));
-                    p.system = system_entries(dev, &folder("_System"), &folder("_Statistics"));
+        let body = if dev.publish.format == PublishFormat::IotgwJson {
+            build_iotgw(dev, snapshot, &self.cfg, Utc::now())
+        } else {
+            match build_payload(dev, snapshot, &self.cfg, self.sink.is_secure(), None) {
+                Ok(mut p) => {
+                    if dev.publish.include_system_tags {
+                        let folder = |part| store.snapshot(&device_folder(&dev.channel, &dev.name, part));
+                        p.system = system_entries(dev, &folder("_System"), &folder("_Statistics"));
+                    }
+                    encode(&p)
                 }
-                p
-            }
-            Err(e) => {
-                warn!(device = %dev.id, error = %e, "publish_failed");
-                return;
+                Err(e) => {
+                    warn!(device = %dev.id, error = %e, "publish_failed");
+                    return;
+                }
             }
         };
-        match self.sink.publish(&self.data_topic[&dev.id], &encode(&payload), false) {
+        match self.sink.publish(&self.data_topic[&dev.id], &body, false) {
             Ok(()) => {
                 self.data_published[&dev.id].fetch_add(1, Ordering::Relaxed);
             }
@@ -445,6 +451,32 @@ mod tests {
         assert_eq!(r.publisher.data_published("S/D"), 3);
         r.handle.stop(Duration::from_secs(1)).await;
         assert_eq!(r.store.version("S/D"), 2);
+    }
+
+    /// `publish.format: iotgw_json` (#170): the standard template on the same topic, schedule and status message.
+    #[tokio::test(start_paused = true)]
+    async fn iotgw_format_publishes_the_standard_template() {
+        let mut d = dev(PublishMode::Interval, 0.0);
+        d.publish.format = PublishFormat::IotgwJson;
+        let r = rig(d, 64, "mqtt", PublisherOptions::default());
+        write(&r.writer, &snap(None, true)); // A is bad, B good
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let data = r.sink.data();
+        assert_eq!(data.len(), 1, "{data:?}");
+        let v: serde_json::Value = serde_json::from_str(&data[0]).unwrap();
+        assert!(v["timestamp"].as_i64().unwrap() > 1_700_000_000_000, "epoch ms: {v}");
+        let values = v["values"].as_array().unwrap();
+        let ids: Vec<&str> = values.iter().map(|e| e["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["S.D.A", "S.D.B"]);
+        assert_eq!(
+            (values[0]["q"].as_bool(), values[0]["v"].is_null()),
+            (Some(false), true),
+            "bad tag: q false, v null"
+        );
+        assert_eq!((values[1]["q"].as_bool(), values[1]["v"].as_bool()), (Some(true), Some(true)));
+        assert_eq!(values[1]["t"], 1_794_823_200_000i64, "source_ts of the read, in ms");
+        assert!(!data[0].contains("SubDeviceId") && !data[0].contains("DataValid"));
+        r.handle.stop(Duration::from_secs(1)).await;
     }
 
     /// on_change wakes on the device's change batches, not on the poll timer.

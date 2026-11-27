@@ -297,7 +297,7 @@ pub struct PublishCfg {
     pub heartbeat_ms: i64,
     #[serde(default)]
     pub deadband: f64,
-    /// Message body format (D-072). Accepted and kept; the MQTT plugin does not dispatch on it yet (#170).
+    /// Message body format (D-072): the MQTT plugin writes SubDevice JSON or the IoT Gateway template (#170).
     #[serde(default)]
     pub format: PublishFormat,
     /// Add the device's `_System.*` and `_Statistics.*` tags to `Data` (spec `system-tags.md`

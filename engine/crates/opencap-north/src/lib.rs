@@ -4,6 +4,7 @@
 
 pub mod mqtt;
 pub mod payload;
+pub mod payload_iotgw;
 pub mod plugin;
 pub mod publisher;
 pub mod saf;

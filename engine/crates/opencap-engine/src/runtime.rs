@@ -19,6 +19,9 @@ use opencap_core::config::{config_revision, load_config, Channel, LoadedConfig};
 use opencap_core::driver::DriverFactory;
 use opencap_core::registry::Registry;
 use opencap_core::store::TagStore;
+use opencap_core::system_tags::{
+    ChannelState, DeviceState, DeviceStatusState, NodeState, NorthState, Outbox, State as SysState,
+};
 use opencap_core::worker::{ChannelWorker, WorkerOptions};
 use opencap_core::FIRM_VERSION;
 use opencap_north::mqtt::{LinkOptions, MqttLink};
@@ -26,6 +29,8 @@ use opencap_north::plugin::{self, DeviceStatusReader, NorthContext, NorthHandle}
 use opencap_north::publisher::{Publisher, PublisherOptions, Sink};
 use opencap_north::saf::StoreAndForward;
 use opencap_plugin::PluginRegistry;
+
+use crate::systags::{Source, SystemTags};
 
 /// Agent name of the MQTT link's publisher (`north_lagged_total{agent}`).
 pub const MQTT_AGENT: &str = "mqtt";
@@ -60,6 +65,10 @@ pub struct Poller {
     /// Revision of the files `loaded` came from (`pending_reload` compares the disk with it).
     revision: StdMutex<String>,
     me: Weak<Poller>,
+    /// System and diagnostic tags (#56): the only writer of the `_System` virtual devices.
+    systags: Arc<SystemTags>,
+    systags_task: StdMutex<Option<JoinHandle<()>>>,
+    started_utc: chrono::DateTime<chrono::Utc>,
     /// Readiness (D-075): process start, end of `start()` (north side up), and the latched
     /// initial-scan duration (set once, never cleared).
     t0: std::time::Instant,
@@ -83,6 +92,7 @@ impl Poller {
         factory: DriverFactory,
         plugins: Arc<PluginRegistry>,
     ) -> Arc<Self> {
+        let store = Arc::new(TagStore::new());
         let config_dir_for_revision = config_dir.clone();
         Arc::new_cyclic(|me| Self {
             config_dir,
@@ -95,7 +105,10 @@ impl Poller {
             factory: plugins.factory(factory),
             plugins,
             loaded: RwLock::new(loaded),
-            store: Arc::new(TagStore::new()),
+            systags: SystemTags::new(store.clone(), me.clone() as Weak<dyn Source>, None),
+            systags_task: StdMutex::new(None),
+            started_utc: chrono::Utc::now(),
+            store,
             link: StdMutex::new(None),
             link_task: StdMutex::new(None),
             north: tokio::sync::Mutex::new(None),
@@ -139,6 +152,8 @@ impl Poller {
         let channels = rlock(&self.loaded).channels.clone();
         self.plugins.prepare(&cfg.plugins.python, &self.selected(&channels)).await;
         self.apply_channels(&channels);
+        self.systags.rebuild();
+        *lock(&self.systags_task) = Some(tokio::spawn(self.systags.clone().run()));
         self.restart_publisher().await;
         self.restart_sparkplug(true).await;
         if cfg.opcua_server.enabled {
@@ -166,6 +181,9 @@ impl Poller {
     }
 
     pub async fn stop(&self) {
+        if let Some(t) = lock(&self.systags_task).take() {
+            t.abort();
+        }
         self.stop_publisher().await;
         if let Some(h) = self.sparkplug.lock().await.1.take() {
             h.stop(NORTH_STOP_GRACE).await;
@@ -245,8 +263,9 @@ impl Poller {
                 .filter_map(|d| st.registry.plans.get(&d.id).map(|p| (d.id.clone(), p.clone())))
                 .collect();
             let me = self.me.clone();
-            let on_cycle: opencap_core::worker::OnCycle = Arc::new(move |_: &str| {
+            let on_cycle: opencap_core::worker::OnCycle = Arc::new(move |id: &str| {
                 if let Some(p) = me.upgrade() {
+                    p.systags.mark(id);
                     p.check_ready();
                 }
             });
@@ -364,6 +383,7 @@ impl Poller {
         *wlock(&self.loaded) = loaded;
         *lock(&self.revision) = revision;
         let changed = self.apply_channels(&channels);
+        self.systags.rebuild();
         self.restart_publisher().await;
         self.restart_sparkplug(false).await;
         let n = |k: &str| changed[k].as_array().map(|a| a.len()).unwrap_or(0);
@@ -529,6 +549,16 @@ impl EngineView for Poller {
         Some(Value::Object(snap.iter().map(|(n, tv)| (n.to_string(), tv.to_api_json())).collect()))
     }
 
+    fn device_system_values(&self, device_id: &str) -> Option<Value> {
+        let (channel, device) = device_id.split_once('/')?;
+        Some(Value::Object(self.systags.device_values(channel, device)))
+    }
+
+    fn system_tags(&self, prefix: &str) -> Value {
+        json!({"items": self.systags.items(prefix),
+               "revision": opencap_core::config::config_revision(&self.config_dir)})
+    }
+
     async fn read_once(&self, device_id: &str) -> Result<Value, ReadOnceError> {
         let worker = self.worker_for(device_id).ok_or(ReadOnceError::UnknownDevice)?;
         let snap = worker.read_once(device_id).await.map_err(|e| match e {
@@ -548,5 +578,256 @@ impl EngineView for Poller {
 
     fn metrics(&self) -> String {
         opencap_core::metrics::render()
+    }
+}
+
+// --- system tags (#56) --------------------------------------------------------------------------
+
+impl Source for Poller {
+    fn static_state(&self) -> SysState {
+        let l = rlock(&self.loaded);
+        let cfg = &l.poller;
+        let mut north = vec![json!({"name": "mqtt", "kind": "mqtt", "enabled": true})];
+        if cfg.opcua_server.enabled {
+            let error = "the Rust engine has no OPC UA server yet (#46)";
+            north.push(json!({"name": "opcua_server", "kind": "opcua_server", "enabled": true,
+                              "running": false, "last_error": error}));
+        }
+        let channels: Vec<Value> = l
+            .channels
+            .iter()
+            .filter(|c| self.only.as_ref().is_none_or(|o| o.contains(&c.name)))
+            .map(|ch| {
+                let devices: Vec<Value> = ch
+                    .devices
+                    .iter()
+                    .map(|d| {
+                        json!({"name": d.name, "enabled": d.enabled, "driver": d.driver, "host": d.host,
+                               "port": d.port, "params": d.params, "scan_ms": d.scan_ms,
+                               "timeout_ms": d.timeout_ms, "retries": d.retries, "demote_after": d.demote_after,
+                               "demote_for_ms": d.demote_for_ms,
+                               "tags_enabled": d.tags.iter().filter(|t| t.enabled).count()})
+                    })
+                    .collect();
+                json!({"name": ch.name, "enabled": ch.enabled, "devices": devices})
+            })
+            .collect();
+        let project = self.config_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        serde_json::from_value(json!({
+            "now": opencap_core::value::iso_utc(chrono::Utc::now()),
+            "node": {"product_version": env!("CARGO_PKG_VERSION"), "engine": "rust", "instance": cfg.instance,
+                     "project_name": project, "project_revision": opencap_core::config::config_revision(&self.config_dir),
+                     "start_time": opencap_core::value::iso_utc(self.started_utc), "timezone": cfg.payload.timezone},
+            "north": north,
+            "channels": channels,
+        }))
+        .expect("system-tag state")
+    }
+
+    fn refresh_device(&self, channel: &ChannelState, dev: &mut DeviceState) {
+        let id = format!("{}/{}", channel.name, dev.name);
+        dev.counters = opencap_core::metrics::device_counts(&id).snapshot();
+        let polled = channel.enabled && dev.enabled;
+        let status = polled.then(|| self.worker_for(&id).and_then(|w| w.device_status(&id))).flatten();
+        dev.tags_scanned = status.as_ref().map_or(0, |s| s.scanned_tags);
+        dev.status = Some(match status {
+            Some(s) => DeviceStatusState {
+                state: s.state.as_str().to_string(),
+                consecutive_failures: s.consecutive_failures,
+                error_since: s.error_since,
+                last_good: s.last_good,
+                errors: s.errors,
+                last_error: s.last_error,
+                cycle_ms: s.cycle_ms,
+                connected: s.connected,
+                last_connect_failed: s.last_connect_failed,
+            },
+            // an enabled device without a worker (yet): spec section 9, "no cycle counted yet"
+            None => DeviceStatusState {
+                state: "offline".into(),
+                consecutive_failures: 0,
+                error_since: None,
+                last_good: None,
+                errors: 0,
+                last_error: None,
+                cycle_ms: None,
+                connected: false,
+                last_connect_failed: false,
+            },
+        });
+    }
+
+    fn refresh_channel(&self, ch: &mut ChannelState) {
+        let (n, max) = rlock(&self.state).workers.get(&ch.name).map_or((0, 0), |w| w.in_flight());
+        ch.in_flight = n;
+        ch.max_in_flight = max;
+    }
+
+    fn refresh_node(&self, _node: &mut NodeState, north: &mut Vec<NorthState>) {
+        for agent in north.iter_mut().filter(|a| a.kind == "mqtt") {
+            let Some(link) = self.link() else { continue };
+            agent.connected = link.connected();
+            agent.published = opencap_core::metrics::METRICS.mqtt_published.get();
+            let saf = lock(link.saf());
+            let (bytes, max_bytes) = (saf.size_bytes().max(0) as u64, saf.max_bytes.max(0) as u64);
+            let oldest = saf.oldest_created().and_then(|t| {
+                chrono::DateTime::from_timestamp_micros((t * 1e6) as i64).map(opencap_core::value::iso_utc)
+            });
+            agent.outbox = Some(Outbox {
+                messages: saf.count().max(0) as u64,
+                bytes,
+                oldest,
+                max_bytes,
+                full: !saf.closed() && bytes >= max_bytes,
+                disk_free_bytes: None,
+                disk_low: false,
+                available: !saf.closed(),
+                dropped: opencap_core::metrics::METRICS.saf_dropped.get(),
+                forward_mode: None,
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opencap_core::value::Value as V;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// A Modbus TCP server that answers every read with zeros until `stop` is set; then it
+    /// refuses new connections and closes the open ones (a killed PLC).
+    async fn fake_modbus(port: u16, stop: Arc<AtomicBool>) -> JoinHandle<()> {
+        let listener = TcpListener::bind(("127.0.0.1", port)).await.expect("bind");
+        tokio::spawn(async move {
+            while !stop.load(Ordering::SeqCst) {
+                let Ok(Ok((mut sock, _))) = tokio::time::timeout(Duration::from_millis(50), listener.accept()).await
+                else {
+                    continue;
+                };
+                let stop = stop.clone();
+                tokio::spawn(async move {
+                    let mut head = [0u8; 12];
+                    while !stop.load(Ordering::SeqCst) && sock.read_exact(&mut head).await.is_ok() {
+                        let qty = usize::from(u16::from_be_bytes([head[10], head[11]]));
+                        let mut reply = Vec::new();
+                        reply.extend_from_slice(&head[..4]);
+                        reply.extend_from_slice(&((3 + qty * 2) as u16).to_be_bytes());
+                        reply.extend_from_slice(&[head[6], head[7], (qty * 2) as u8]);
+                        reply.extend(std::iter::repeat_n(0u8, qty * 2));
+                        if sock.write_all(&reply).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        })
+    }
+
+    async fn until(what: &str, mut pred: impl FnMut() -> bool) {
+        for _ in 0..400 {
+            if pred() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("timed out waiting for {what}");
+    }
+
+    /// Spec section 13.2 test 2: kill one device, bring it back; the tags follow, and equal the
+    /// status and the counters (section 11). Timeouts are bounds, never assertions of speed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn system_tags_follow_a_killed_device() {
+        let dir = std::env::temp_dir().join(format!("opencap-systags-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("config")).unwrap();
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        let device = json!({"id": "Plant A/PLC1", "channel": "Plant A", "name": "PLC1", "driver": "modbus_tcp",
+            "host": "127.0.0.1", "port": port, "scan_ms": 100, "timeout_ms": 300, "retries": 0,
+            "demote_after": 2, "demote_for_ms": 400,
+            "tags": [{"name": "T1", "address": "400001", "dtype": "int16"}]});
+        let cfg = dir.join("config");
+        std::fs::write(
+            cfg.join("devices.json"),
+            json!({"version": 1, "channels": [{"name": "Plant A", "devices": [device]}]}).to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            cfg.join("devices_map.yaml"),
+            "defaults: {env: test}\ndevices:\n  Plant A/PLC1: {sub_device_id: OL_1}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            cfg.join("poller.yaml"),
+            format!(
+                "instance: t\nlog_level: WARNING\nmqtt: {{host: 127.0.0.1, port: 1}}\nsaf: {{path: \"{}\"}}\n",
+                dir.join("saf.sqlite").display().to_string().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let server = fake_modbus(port, stop.clone()).await;
+        let loaded = load_config(&cfg).expect("config");
+        let poller = Poller::new(cfg.clone(), loaded, None, opencap_drivers::default_factory(), PluginRegistry::new());
+        poller.start().await.expect("start");
+
+        let tag = |folder: &str, name: &str| poller.store.get(folder, name).and_then(|t| t.value);
+        let sys = "Plant A.PLC1._System";
+        until("the device to be ok", || tag(sys, "_State") == Some(V::Str("ok".into()))).await;
+        assert_eq!(tag(sys, "_Error"), Some(V::Bool(false)));
+        assert_eq!(tag(sys, "_Driver"), Some(V::Str("modbus_tcp".into())));
+        assert_eq!(tag("_System", "_Engine"), Some(V::Str("rust".into())));
+        assert_eq!(tag("Plant A._System", "_DeviceCount"), Some(V::Int(1)));
+
+        // kill the PLC
+        stop.store(true, Ordering::SeqCst);
+        server.await.unwrap();
+        until("_Error", || tag(sys, "_Error") == Some(V::Bool(true))).await;
+        until("auto-demotion", || tag(sys, "_AutoDemoted") == Some(V::Bool(true))).await;
+        until("_DevicesDemoted", || tag("_System", "_DevicesDemoted") == Some(V::Int(1))).await;
+        assert_eq!(tag(sys, "_NoError"), Some(V::Bool(false)));
+        assert_eq!(tag(sys, "_State"), Some(V::Str("demoted".into())));
+        assert_eq!(tag("_System", "_DevicesOk"), Some(V::Int(0)));
+
+        // the tags agree with the status API and the counters
+        let status = poller.worker_for("Plant A/PLC1").unwrap().device_status("Plant A/PLC1").unwrap();
+        assert!(status.consecutive_failures > 0);
+        let counts = opencap_core::metrics::device_counts("Plant A/PLC1").snapshot();
+        assert!(counts.timeout + counts.conn_error > 0);
+        assert!(counts.failed_reads > 0);
+        until("_Timeouts and _ConnErrors to match the counters", || {
+            let c = opencap_core::metrics::device_counts("Plant A/PLC1").snapshot();
+            tag("Plant A.PLC1._Statistics", "_Timeouts") == Some(V::from_u64(c.timeout))
+                && tag("Plant A.PLC1._Statistics", "_ConnErrors") == Some(V::from_u64(c.conn_error))
+                && tag("Plant A.PLC1._Statistics", "_FailedReads") == Some(V::from_u64(c.failed_reads))
+        })
+        .await;
+
+        // bring it back: the probe succeeds and the failure clears
+        stop.store(false, Ordering::SeqCst);
+        let server = fake_modbus(port, stop.clone()).await;
+        until("recovery", || {
+            tag(sys, "_Error") == Some(V::Bool(false)) && tag(sys, "_State") == Some(V::Str("ok".into()))
+        })
+        .await;
+        until("_DevicesOk", || tag("_System", "_DevicesOk") == Some(V::Int(1))).await;
+        assert_eq!(tag(sys, "_SecondsInError"), Some(V::Int(0)));
+
+        // system tags are read-only by construction and listed by the API view
+        let items = EngineView::system_tags(&*poller, "Plant A.PLC1._System._Err");
+        assert!(items["items"].as_array().unwrap().iter().any(|i| i["path"] == "Plant A.PLC1._System._Error"));
+        assert_eq!(items["items"][0]["quality"], "good");
+        let vals = EngineView::device_system_values(&*poller, "Plant A/PLC1").unwrap();
+        assert!(vals.get("_System._Error").is_some() && vals.get("_Statistics._SuccessfulReads").is_some());
+
+        poller.stop().await;
+        stop.store(true, Ordering::SeqCst);
+        let _ = server.await;
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

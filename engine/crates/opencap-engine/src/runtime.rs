@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use opencap_api::{EngineView, ReadOnceError};
-use opencap_core::config::{load_config, Channel, LoadedConfig};
+use opencap_core::config::{config_revision, load_config, Channel, LoadedConfig};
 use opencap_core::driver::DriverFactory;
 use opencap_core::registry::Registry;
 use opencap_core::store::TagStore;
@@ -142,7 +142,15 @@ impl Poller {
             );
         }
         let devices: usize = self.active_channels().iter().map(|c| c.devices.len()).sum();
-        info!(version = FIRM_VERSION, channels = rlock(&self.state).workers.len(), devices, "poller_started");
+        info!(
+            version = FIRM_VERSION,
+            engine = "rust",
+            instance = %cfg.instance,
+            revision = %config_revision(&self.config_dir),
+            channels = rlock(&self.state).workers.len(),
+            devices,
+            "poller_started"
+        );
         let _ = self.started_at.set(std::time::Instant::now());
         self.check_ready();
         Ok(())
@@ -323,6 +331,11 @@ impl Poller {
 
     /// SIGHUP / POST /reload: re-read config, restart only the channels that changed.
     pub async fn reload(&self) -> Result<Value, String> {
+        self.reload_as(None).await
+    }
+
+    /// `by` = (token name, `api` or `ui`) when the API asked for the reload.
+    pub async fn reload_as(&self, by: Option<(&str, &str)>) -> Result<Value, String> {
         let _guard = self.reload_lock.lock().await;
         let loaded = match load_config(&self.config_dir) {
             Ok(l) => l,
@@ -343,13 +356,24 @@ impl Poller {
         self.restart_publisher().await;
         self.restart_sparkplug(false).await;
         let n = |k: &str| changed[k].as_array().map(|a| a.len()).unwrap_or(0);
-        info!(
-            started = n("started"),
-            restarted = n("restarted"),
-            stopped = n("stopped"),
-            unchanged = n("unchanged"),
-            "config_reloaded"
-        );
+        let revision = config_revision(&self.config_dir);
+        macro_rules! reloaded {
+            ($($extra:tt)*) => {
+                info!(
+                    started = n("started"),
+                    restarted = n("restarted"),
+                    stopped = n("stopped"),
+                    unchanged = n("unchanged"),
+                    revision = %revision,
+                    $($extra)*
+                    "config_reloaded"
+                )
+            };
+        }
+        match by {
+            Some((who, via)) => reloaded!(who = who, via = via,),
+            None => reloaded!(),
+        }
         Ok(changed)
     }
 
@@ -390,7 +414,8 @@ impl Poller {
         match w.device_status(id) {
             Some(s) => json!({
                 "state": s.state.as_str(), "last_good": s.last_good, "errors": s.errors,
-                "cycle_ms": s.cycle_ms, "last_error": s.last_error, "connected": s.connected,
+                "cycle_ms": s.cycle_ms, "last_error": s.last_error, "last_reason": s.last_reason,
+                "connected": s.connected,
             }),
             None => json!({"state": "offline"}),
         }
@@ -499,6 +524,10 @@ impl EngineView for Poller {
 
     async fn reload(&self) -> Result<Value, String> {
         Poller::reload(self).await
+    }
+
+    async fn reload_by(&self, who: &str, via: &str) -> Result<Value, String> {
+        Poller::reload_as(self, Some((who, via))).await
     }
 
     fn metrics(&self) -> String {

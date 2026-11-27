@@ -17,15 +17,15 @@ core. The product has to scale, so the owner decided on one engine.
 2. **Python is deleted when v0.1 is done** (see `docs/plan/v0.1-rust.md`, "Deleting Python"). Until then
    `src/opencap/` and the Python test harness (`tests/`) stay in the tree, untouched, only so the Rust
    engine can still be checked against them.
-3. **Drivers: open source first.** For each protocol, in this order:
-   a. evaluate an existing open-source library (Rust crate, or a C/C++ library bound through FFI);
-   b. test it against a simulator or a real device: connect, read every supported data type, error and
-      timeout paths, reconnect, a soak run;
-   c. if it passes and the licence passes the ADR-0007 gate, use it;
-   d. if it fails the tests or the licence, write our own and record why in `docs/decisions.md`.
-   Drivers that already exist natively in `engine/drivers/` stay unless an OSS library clearly beats them
-   in a test (field-proven C libraries have more real-hardware mileage than our simulator-tested code,
-   so a comparison test is worth running for Allen-Bradley and Siemens).
+3. **Drivers: open source first, Rust before C/C++.** For each protocol, in this order:
+   a. an existing open-source **Rust** crate (maintained, tested, licence passes);
+   b. only if no usable Rust crate exists: an open-source **C/C++** library bound through FFI;
+   c. only if neither works: our own native driver, with the reason recorded in `docs/decisions.md`.
+   "Works" means tested for real, not read about: connect, read every supported data type, error and
+   timeout paths, reconnect, and a short soak run, against an OSS simulator or a real device. Prefer
+   widely used libraries: they carry real-hardware mileage that our own code does not. Drivers that
+   already exist natively in `engine/drivers/` stay unless an OSS library clearly beats them in a
+   comparison test on the same simulator.
 4. **FFI to C/C++ is allowed.** A wrapper crate exposes a read-only safe API. Bindings are generated with an
    allow-list of read functions only, and a CI test fails if the wrapper declares or calls a write
    function (ADR-0008 is unchanged: no write path may be reachable from the engine).

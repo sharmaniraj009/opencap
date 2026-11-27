@@ -1,7 +1,7 @@
 //! Project v2 (`project.json` + `node.yaml`, ADR-0013, #186): the loader takes the project as
 //! written and only runs the finalize steps; v1 files beside it are ignored with a warning.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use opencap_core::config::loader::{NODE_FILE, PROJECT_FILE};
 use opencap_core::config::{config_revision, is_v2, load_config, ConfigError};
@@ -27,7 +27,7 @@ fn project() -> Value {
     ]}]})
 }
 
-fn write(d: &PathBuf, name: &str, text: impl ToString) {
+fn write(d: &Path, name: &str, text: impl ToString) {
     std::fs::write(d.join(name), text.to_string()).unwrap();
 }
 

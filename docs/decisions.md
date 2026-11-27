@@ -2151,6 +2151,31 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
 
+### D-120 DF1 serial is native Rust on opencap-serial; libplctag has no DF1 (#53)
+Status: accepted (ADR-0018 OSS-first rule, step d). PCCC address parsing, planning and decoding are shared
+Rust code, checked by the existing vectors.
+
+- **Evaluated:** libplctag 2.7.2 (C, MPL-2.0 OR LGPL-2+), by reading its source. Its Allen-Bradley protocols
+  (`src/libplctag/protocols/ab`: `eip_cip`, `eip_lgx_pccc`, `eip_plc5_pccc`, `eip_slc_pccc` and the DH+ variants) are
+  EtherNet/IP only. `grep -ri df1` over the vendored tree finds one comment in the `ab_server` simulator and no
+  DF1 link layer (no DLE framing, no BCC/CRC, no ACK/NAK/ENQ). Serial port code exists only in its platform layer,
+  used by its Modbus RTU support. No other open-source DF1 library was evaluated: none is known to us with a
+  full-duplex link layer and a licence that passes ADR-0007.
+- **Decision:** write DF1 natively. It is small (framing, receiver, one transaction loop, about 700 lines) and
+  sits on `opencap-serial` (tcp serial gateway and local port, shared lines).
+- **Shape:** `drivers/ab_pccc` is the shared PCCC library (address parser, planner, decoder, STS tables), ported
+  from `ab_pccc.py` and run against `tests/conformance/ab_pccc` (plan 110 vectors, decode 50). The EtherNet/IP
+  PCCC driver (libplctag, task 1b) will reuse it. `drivers/ab_df1` is the DF1 driver, run against the four
+  `ab_df1` vector areas (frame, receive, request, values), plus an in-process fake SLC on a TCP socket for the
+  driver (every file type, NAK, lost ACK, bad reply check, stale and duplicate replies, silence,
+  `close_on_timeout`, a 300-round soak).
+- **Read-only (ADR-0008):** `Df1Link::transact` refuses every command except `(0x0F,0xA2)`, `(0x0F,0xA1)` and
+  `(0x06,0x03)` before it reaches the wire; a test sends the write functions 0xAA, 0xAB, 0x67 and expects a
+  refusal with zero frames sent.
+- **Not in this port:** `rfc2217` transport and `local_echo` (Python supports `rfc2217` for DF1; the Rust serial
+  crate has no RFC 2217 client), half-duplex, and the load-time shared-line `error_check` check (the driver
+  refuses at connect instead, as Python does).
+
 ### D-097 Rust is the only engine (ADR-0018)
 - The owner's order of 2026-11-27: Rust only, no new Python, OSS drivers first (C/C++ through FFI allowed),
   delete Python when v0.1 is done. Plan: `docs/plan/v0.1-rust.md`.
@@ -2171,3 +2196,17 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
 - **Still to come:** `config.write_failed` and `config.change_rejected` come with the Rust config API (#140).
 - Tests: `crates/opencap-api/tests/refusal_events.rs` (fields, levels, no secret, the limiter on an injected clock, bind
   reasons), `events.rs` unit tests, and `run_exits_1_when_the_api_cannot_start` in the engine.
+
+### D-105 Device time zone and the last of #112 in the Rust engine (DEV-13)
+- Of #112, the naming rules (PRJ-13, with the v2 errors from D-104), the reserved device names and the
+  `payload.timezone` check (LOG-21, shared `zones.json`) were already in the Rust models. What was missing is DEV-13:
+  `params.device_timezone` is validated when the device is loaded (an IANA name or a fixed offset `+05:30`, `-0800`,
+  `+02`, at most 14:00; the error names the key) and `opencap_core::device_time::DeviceZone::local_to_utc` turns a device's
+  local time into the UTC `source_ts`. No driver calls it yet (ADR-0006: timestamps stay UTC).
+- **DST rule.** A local time in the gap of a spring-forward does not exist: it is read with the offset in force before the
+  jump (02:30 in New York on 2026-03-08 is 07:30Z). A time in the overlap of a fall-back happens twice: the first
+  occurrence (the DST one) is taken and the helper reports `Fold::Ambiguous`. 30-minute jumps (Lord Howe) follow the same rule.
+- The 30 vectors are in `tests/conformance/timezones/device_time/convert.json` (derived by hand, not from the code) and run
+  by `opencap-conformance`. Python does not implement `device_timezone` (frozen), so there is no shared invalid fixture:
+  the Python models would accept the key as any `params` value. The API 422 rule, the percent-encoding round trip and
+  `import-kep` reporting are Python code and are not ported.

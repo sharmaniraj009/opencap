@@ -16,13 +16,14 @@
 //! The engine implements [`EngineView`]; handlers never wait on PLC I/O except
 //! `read-once`, which is the one route that is supposed to.
 
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::{Body, HttpBody};
-use axum::extract::{ConnectInfo, Path, Request, State};
+use axum::extract::{ConnectInfo, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -32,6 +33,7 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
 pub mod events;
+pub mod ui;
 pub use events::{Refusal, RefusalLog};
 
 #[derive(Debug)]
@@ -47,6 +49,15 @@ pub trait EngineView: Send + Sync + 'static {
     /// None = unknown device (404).
     fn device_detail(&self, device_id: &str) -> Option<Value>;
     fn device_values(&self, device_id: &str) -> Option<Value>;
+    /// The device's `_System.*` and `_Statistics.*` tags keyed by device-relative path
+    /// (`values?include_system=true`, spec section 10). `None` = no system tags.
+    fn device_system_values(&self, _device_id: &str) -> Option<Value> {
+        None
+    }
+    /// `GET /api/v1/system/tags[?prefix=]`: `{"items": [{path, dtype, value, quality, source_ts}], "revision"}`.
+    fn system_tags(&self, _prefix: &str) -> Value {
+        serde_json::json!({"items": [], "revision": ""})
+    }
     async fn read_once(&self, device_id: &str) -> Result<Value, ReadOnceError>;
     /// Err = the new config was rejected; the old one is kept.
     async fn reload(&self) -> Result<Value, String>;
@@ -63,6 +74,11 @@ pub trait EngineView: Send + Sync + 'static {
     fn about(&self) -> Value;
     /// `/api/v1/support`: the support summary (viewer), as `opencap-engine info`.
     fn support(&self) -> Value;
+    /// `GET /api/v1/project/pending` and `status.config`: does the config on disk differ from the
+    /// running one? `{"available", "pending_reload", "revision"}`.
+    fn config_status(&self) -> Value {
+        json!({"available": false, "pending_reload": false})
+    }
 }
 
 pub const METRICS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
@@ -262,9 +278,8 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// Paths answered without a token (Python `guard.OPEN_PATHS` / `OPEN_PREFIXES`). The Rust
-/// engine serves only `/health` and `/metrics` of these; the rest answer 404 without a token,
-/// as they would in Python on a build without the UI.
+/// Paths answered without a token (Python `guard.OPEN_PATHS` / `OPEN_PREFIXES`): the health
+/// and metrics routes, `/api/v1/about`, `/api/v1/auth-info` and the UI bundle.
 const OPEN_PATHS: [&str; 8] =
     ["/health", "/health/ready", "/health/live", "/metrics", "/api/v1/auth-info", "/api/v1/about", "/", "/ui"];
 const OPEN_PREFIX: &str = "/ui/";
@@ -344,6 +359,7 @@ async fn guard(State(st): St, req: Request, next: Next) -> Response {
     }
     let mut parts = parts;
     parts.extensions.insert(Caller { who: principal.name.clone(), via });
+    parts.extensions.insert(principal);
     next.run(Request::from_parts(parts, Body::from(bytes))).await
 }
 
@@ -430,10 +446,78 @@ async fn channels(State(st): St) -> Response {
     Json(st.view.channels_summary()).into_response()
 }
 
-async fn device_get(State(st): St, Path(path): Path<String>) -> Response {
+async fn system_tags(State(st): St, Query(q): Query<HashMap<String, String>>) -> Response {
+    Json(st.view.system_tags(q.get("prefix").map(String::as_str).unwrap_or(""))).into_response()
+}
+
+const NOT_YET: &str = "this route of the configuration API is not implemented in the Rust engine yet (#140)";
+
+/// The configuration API's own `/api/v1` routes (the legacy ones above keep their paths).
+async fn v1_auth_info(State(st): St) -> Response {
+    Json(json!({"open": st.auth.is_open()})).into_response()
+}
+
+async fn v1_whoami(State(st): St, principal: Option<axum::Extension<Principal>>) -> Response {
+    let (name, role) = principal.map_or(("unknown".to_string(), Role::Viewer), |p| (p.0.name, p.0.role));
+    Json(json!({
+        "name": name,
+        "role": if role == Role::Admin { "admin" } else { "viewer" },
+        "open": st.auth.is_open(),
+        "config_writable": false,
+        "config_writable_reason": "configuration writes are not implemented in the Rust engine yet (#140)",
+    }))
+    .into_response()
+}
+
+async fn v1_status(State(st): St) -> Response {
+    Json(json!({"health": st.view.health(), "channels": st.view.channels_summary(), "config": st.view.config_status()}))
+        .into_response()
+}
+
+async fn v1_pending(State(st): St) -> Response {
+    Json(st.view.config_status()).into_response()
+}
+
+async fn v1_device_get(State(st): St, Path(path): Path<String>) -> Response {
+    if let Some(id) = path.strip_suffix("/status") {
+        return match st.view.device_detail(id) {
+            Some(v) => Json(v).into_response(),
+            None => detail(StatusCode::NOT_FOUND, format!("device {} is not polled", py_repr(id))),
+        };
+    }
     if let Some(id) = path.strip_suffix("/values") {
         return match st.view.device_values(id) {
             Some(v) => Json(v).into_response(),
+            None => detail(StatusCode::NOT_FOUND, format!("device {} is not polled", py_repr(id))),
+        };
+    }
+    detail(StatusCode::NOT_IMPLEMENTED, NOT_YET)
+}
+
+async fn v1_device_post(State(st): St, Path(path): Path<String>) -> Response {
+    let Some(id) = path.strip_suffix("/read-once") else {
+        return detail(StatusCode::NOT_IMPLEMENTED, NOT_YET);
+    };
+    match st.view.read_once(id).await {
+        Ok(v) => Json(v).into_response(),
+        Err(ReadOnceError::UnknownDevice) => {
+            detail(StatusCode::NOT_FOUND, format!("device {} is not polled", py_repr(id)))
+        }
+        Err(ReadOnceError::Failed(e)) => detail(StatusCode::CONFLICT, e),
+    }
+}
+
+async fn device_get(State(st): St, Path(path): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+    if let Some(id) = path.strip_suffix("/values") {
+        return match st.view.device_values(id) {
+            Some(mut v) => {
+                if matches!(q.get("include_system").map(String::as_str), Some("true" | "1")) {
+                    if let (Value::Object(o), Some(Value::Object(extra))) = (&mut v, st.view.device_system_values(id)) {
+                        o.extend(extra);
+                    }
+                }
+                Json(v).into_response()
+            }
             None => unknown(id),
         };
     }
@@ -482,10 +566,21 @@ pub fn router_with(view: Arc<dyn EngineView>, auth: Auth, refusals: RefusalLog) 
         .route("/health/ready", get(health_ready))
         .route("/api/v1/about", get(about))
         .route("/api/v1/support", get(support))
+        .route("/api/v1/system/tags", get(system_tags))
         .route("/metrics", get(metrics))
         .route("/channels", get(channels))
         .route("/devices/{*path}", get(device_get).post(device_post))
         .route("/reload", post(reload))
+        .route("/api/v1/reload", post(reload))
+        .route("/api/v1/auth-info", get(v1_auth_info))
+        .route("/api/v1/whoami", get(v1_whoami))
+        .route("/api/v1/status", get(v1_status))
+        .route("/api/v1/project/pending", get(v1_pending))
+        .route("/api/v1/devices/{*path}", get(v1_device_get).post(v1_device_post))
+        .route("/", get(|| async { ui::to_ui() }))
+        .route("/ui", get(|| async { ui::to_ui() }))
+        .route("/ui/", get(|| async { ui::serve("") }))
+        .route("/ui/{*path}", get(|Path(path): Path<String>| async move { ui::serve(&path) }))
         .fallback(not_found)
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
@@ -627,6 +722,61 @@ mod tests {
 
     fn env(vars: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
         move |k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[tokio::test]
+    async fn the_ui_bundle_is_open_with_security_headers() {
+        let (a, _) = app();
+        let resp = send(&a, "GET", "/ui/", None, "127.0.0.1").await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let h = resp.headers();
+        assert!(h["content-type"].to_str().unwrap().starts_with("text/html"));
+        assert!(h["content-security-policy"].to_str().unwrap().contains("script-src 'self'"));
+        assert_eq!(
+            (h["x-frame-options"].to_str().unwrap(), h["cache-control"].to_str().unwrap()),
+            ("DENY", "no-cache")
+        );
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("<html"));
+        for (path, mime) in [("/ui/app.js", "javascript"), ("/ui/app.css", "css"), ("/ui/i18n/en.json", "json")] {
+            let r = send(&a, "GET", path, None, "127.0.0.1").await;
+            assert_eq!(r.status(), StatusCode::OK, "{path}");
+            assert!(r.headers()["content-type"].to_str().unwrap().contains(mime), "{path}");
+        }
+        assert_eq!(send(&a, "GET", "/ui/nope.js", None, "127.0.0.1").await.status(), StatusCode::NOT_FOUND);
+        for path in ["/", "/ui"] {
+            let r = send(&a, "GET", path, None, "127.0.0.1").await;
+            assert_eq!(
+                (r.status(), r.headers()["location"].to_str().unwrap()),
+                (StatusCode::TEMPORARY_REDIRECT, "/ui/")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn v1_runtime_routes_mirror_the_legacy_ones() {
+        let (a, fake) = app();
+        let t = Some("s3cret");
+        assert_eq!(call(&a, "GET", "/api/v1/auth-info", None).await.1, json!({"open": false}), "open route");
+        let (code, who) = call(&a, "GET", "/api/v1/whoami", t).await;
+        assert_eq!(
+            (code, who["name"].as_str(), who["role"].as_str(), who["config_writable"].as_bool()),
+            (StatusCode::OK, Some("default"), Some("admin"), Some(false))
+        );
+        assert_eq!(call(&a, "GET", "/api/v1/whoami", None).await.0, StatusCode::UNAUTHORIZED);
+        let (_, status) = call(&a, "GET", "/api/v1/status", t).await;
+        assert_eq!(status["health"]["status"], "ok");
+        assert_eq!(status["channels"][0]["name"], "Site 001");
+        assert_eq!(status["config"]["pending_reload"], false);
+        assert_eq!(call(&a, "GET", "/api/v1/project/pending", t).await.1["available"], false);
+        assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}/status"), t).await.1["id"], DEV);
+        assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}/values"), t).await.1["FLOW_1"]["value"], 1.5);
+        assert_eq!(call(&a, "POST", &format!("/api/v1/devices/{DEV}/read-once"), t).await.1["FLOW_1"]["value"], 2.0);
+        assert_eq!(call(&a, "GET", "/api/v1/devices/NOPE/X/status", t).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&a, "POST", "/api/v1/reload", t).await.1["restarted"][0], "X");
+        assert_eq!(fake.reloads.load(Ordering::SeqCst), 1);
+        // the configuration reads and writes are not ported yet: said plainly, not a 404
+        assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}"), t).await.0, StatusCode::NOT_IMPLEMENTED);
     }
 
     #[tokio::test]
@@ -788,7 +938,8 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         // unknown paths need a token too; open paths do not
         assert_eq!(call(&a, "GET", "/nothing", None).await.0, StatusCode::UNAUTHORIZED);
-        assert_eq!(call(&a, "GET", "/api/v1/auth-info", None).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&a, "GET", "/api/v1/auth-info", None).await.0, StatusCode::OK);
+        assert_eq!(call(&a, "GET", "/api/v1/nothing", None).await.0, StatusCode::UNAUTHORIZED);
         assert!(is_open_path("/ui/app.js") && !is_open_path("/uix") && !is_open_path("/channels"));
     }
 

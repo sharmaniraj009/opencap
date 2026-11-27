@@ -1,0 +1,10 @@
+{
+  "document": "node",
+  "data": {
+    "instance": "edge-1",
+    "mqtt": {
+      "host": "192.0.2.5",
+      "topic_prefix": "acme/plant-a"
+    }
+  }
+}

@@ -2150,3 +2150,18 @@ worker's `on_cycle` hook, as in Python). Where the Rust answers differ on purpos
   count). `_Error` is `consecutive_failures > 0` (spec section 9).
 - All `snapshot` and `device_sequence` vectors pass through `crates/opencap-conformance/tests/system_tags.rs`.
   The tag store task, the counters, the payload flag and the API follow in part 2.
+
+### D-104 The Rust engine loads a project v2 (#186)
+- `load_config` reads a project v2 when `project.json` exists, else the v1 layout, as the Python loader does.
+  `ProjectV2` and `NodeConfig` (= `PollerConfig`, read from `node.yaml`, or from `poller.yaml` with a warning) are
+  checked by the shared fixtures `valid/project_basic`, `valid/node_basic` and four `invalid/project_*`/`node_*`
+  fixtures, which both engines pass (`compare.py` agrees on all 59).
+- The v2 path applies only the finalize steps: names starting with `_` and the naming rules are errors; an unmapped
+  serial line is disabled with the Python warning; unset topics get the default topic of `node.yaml`'s
+  `mqtt.topic_prefix`; SubDeviceId and duplicate warnings have the Python texts (checked against the Python loader on
+  the same directory). v1 files beside the project give the "ignored" warnings.
+- `config_revision` of a project covers `project.json` and `node.yaml` (as the Python store does), so `/support`,
+  the system tag `_ProjectRevision` and the ETag follow edits to those files.
+- **Not done here.** The serial *endpoint* check (host, port, transport values of each serial device) is not part of
+  the Rust loader in v1 either; it runs when the driver is built. `compare.py` and an acceptance scenario on a migrated
+  directory need Python test edits, which ADR-0018 rules out; the loader tests in `tests/project_v2.rs` replace them.

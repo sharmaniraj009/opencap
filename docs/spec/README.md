@@ -10,6 +10,7 @@ Each spec arrives through a board issue.
 | [`payload-iotgw-json.md`](payload-iotgw-json.md) | v1 (#36); vectors in `tests/conformance/payload/iotgw/`; Python done, Rust follows |
 | [`payload-sparkplug.md`](payload-sparkplug.md) | draft v1 (#51); vectors in `tests/conformance/sparkplug/`; Rust `engine/north/sparkplug` |
 | [`system-tags.md`](system-tags.md) | draft v1 (#22); vectors in `tests/conformance/system_tags/` (generated; hand-written cases in `scripts/conformance_system_tags/`); Python follow-ups and Rust #56 implement it |
+| [`ui-kepserver-parity.md`](ui-kepserver-parity.md) | audit and build order for the KEPServerEX-style desktop experience (D-140) |
 | `derived-tags.md` | board issue |
 | `alarms.md` | board issue |
 | `data-logger.md` | board issue |

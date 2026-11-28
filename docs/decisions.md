@@ -2520,3 +2520,11 @@ Status: accepted.
   `project/validate`, `project/schema` and the WebSocket are still 501 or 404.
 - Without a config directory the reads answer 503, as Python's `Unavailable`. The UI loads its Config page against this (checked
   in Chromium: no HTTP error; the only console error is the missing `/api/v1/ws`).
+
+## D-140: the KEPServerEX-style desktop experience is built in `engine/ui`, in five steps (2026-11-28)
+
+**Decision.** The desktop app stays the Tauri shell around the engine's web UI (ADR-0010: one UI). The KEPServerEX Configuration and Quick Client experience is built in `engine/ui` (plain HTML/CSS/JS, vendored Alpine CSP, no framework, no build step), in this order: (a) project tree with a read-only properties panel, (b) Quick Client live values, (c) device and tag editors, (d) diagnostics and event log, (e) desktop launcher polish. `engine/ui/` is the only edited copy of the bundle; the Python engine's `src/opencap/api/ui/` stays as it is.
+
+**Why.** An audit of the Rust engine on the quickstart `config-sim` shows that only the dashboard, the device status and values, Read once and the Quick Client's REST fallback work today; the configuration pages call routes that answer 404 or 501 (#140). Steps (a) and (b) therefore use only routes that exist, and (c) waits for the configuration write routes, which the core worker owns. The routes each step needs and the gaps are in `docs/spec/ui-kepserver-parity.md`; the screens themselves are in `docs/ui/screens.md`.
+
+**Rejected.** A second desktop UI (violates ADR-0010); a JS framework or a bundler (adds a dependency chain and a licence review for no screen that needs it); writing values from the Quick Client (ADR-0008).

@@ -1,5 +1,7 @@
-"""Simulated acceptance for the s7 and melsec_mc drivers through the whole poller
-(ChannelWorker, cache, publisher, MQTT), against the S7 and MC 3E simulators.
+"""Simulated acceptance for the s7 and melsec_mc drivers through the whole engine
+(ChannelWorker, cache, publisher, MQTT), against the S7 and MC 3E simulators. Engine-agnostic:
+the engine comes from the `engine_factory` fixture, the Python `Poller` or, with
+`--engine=rust`, the Rust binary (tests/helpers/engine.py, D-069).
 
 S7 fleet (python-snap7 on both ends of the wire):
 - 6 CPUs: big and little endian, KEPServer's max_pdu 960 negotiated down to 480 (a block split
@@ -7,7 +9,7 @@ S7 fleet (python-snap7 on both ends of the wire):
 - every device publishes correct values; a tag in a missing DB is reported once as bad_config
   (BadTags) and the CPU is asked for it once only;
 - values follow the PLC; powering off one CPU demotes only that device, it resumes after power-on;
-- `opencap identity` reports the CPU (SZL) and the negotiated PDU; `device.stats` logs cycle times;
+- `identity` reports the CPU (SZL) and the negotiated PDU; `device.stats` logs cycle times;
 - no simulator ever sees a write.
 
 MELSEC fleet (stock pymcprotocol 0.3.0 `Type3E`, subclassed, against the MC 3E simulator):
@@ -26,7 +28,6 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import sys
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -37,20 +38,16 @@ import pytest
 pytest.importorskip("snap7")
 pytest.importorskip("pymcprotocol")
 
-from structlog.testing import capture_logs  # noqa: E402
-
 from opencap.config.models import Device, Tag  # noqa: E402
-from opencap.core.runtime import Poller  # noqa: E402
 from opencap.logsetup import configure_logging  # noqa: E402
 from tests.helpers.broker import TestBroker  # noqa: E402
 from tests.helpers.configdir import write_config  # noqa: E402
-from tests.helpers.engine import run_process  # noqa: E402
 from tests.helpers.mc_sim import McSim, make_mc_tags  # noqa: E402
 from tests.helpers.netcut import stable_port  # noqa: E402
 from tests.helpers.s7_sim import S7Sim, load, make_s7_tags  # noqa: E402
 from tests.integration.test_melsec_sim import expected as mc_expected  # noqa: E402
 
-# --engine=rust: skipped as "driver not ported" until the binary implements s7, melsec_mc
+# --engine=rust: skipped as "driver not ported" when the binary lacks s7 or melsec_mc
 pytestmark = [pytest.mark.acceptance, pytest.mark.drivers("s7", "melsec_mc")]
 
 S7_TAGS = 60
@@ -106,10 +103,6 @@ def _matches(got: Any, want: Any) -> bool:
     if isinstance(want, float):
         return math.isclose(float(got), round(want, 4), rel_tol=1e-6, abs_tol=1e-4)
     return got == want
-
-
-async def _opencap(*args: str, cwd) -> tuple[int, str]:
-    return await run_process([sys.executable, "-m", "opencap", *args], cwd=cwd, timeout=60)
 
 
 def _device(site: str, driver: str, sim: Any, tags: list[Tag], params: dict[str, Any]) -> Device:
@@ -170,7 +163,7 @@ async def _mc_fleet() -> list[Unit]:
     return units
 
 
-async def test_s7_melsec_acceptance(tmp_path):
+async def test_s7_melsec_acceptance(tmp_path, engine_factory, request):
     configure_logging("INFO")            # device.stats is an INFO line; the filter must let it through
     units: list[Unit] = []
     try:
@@ -179,27 +172,33 @@ async def test_s7_melsec_acceptance(tmp_path):
         devices = [u.device for u in units]
         async with asyncio.timeout(240), TestBroker() as broker, broker.collector("opencap/#") as col:
             await col.wait_ready()
-            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port,
-                                      poller={"stats_interval_s": 3}, publish={"interval_ms": INTERVAL_MS})
-            poller = Poller(config_dir, serve_api=False)
-            with capture_logs() as logs:
-                await poller.start()
-                try:
-                    await _scenario(tmp_path, config_dir, poller, col, units)
-                finally:
-                    await poller.stop()
-            stats = [e for e in logs if e.get("event") == "device.stats"]
+            # device.stats is an INFO line: the Rust engine filters on poller.yaml `log_level`
+            # (the Python engine is set up by configure_logging above)
+            poller_cfg: dict[str, Any] = {"stats_interval_s": 3}
+            if request.config.getoption("--engine") != "python":
+                poller_cfg["log_level"] = "INFO"
+            config_dir = write_config(tmp_path, devices, mqtt_port=broker.port, api_port=stable_port(),
+                                      poller=poller_cfg, publish={"interval_ms": INTERVAL_MS})
+            poller = engine_factory(config_dir)     # the Python Poller, or the Rust engine (--engine=rust)
+            await poller.start()
+            try:
+                await _scenario(tmp_path, config_dir, poller, col, units)
+            finally:
+                await poller.stop()
+            stats = poller.log_events("device.stats")
             assert {e["device"] for e in stats} >= {d.id for d in devices}, "every device logged its cycle time"
             assert all(e["mean_cycle_ms"] > 0 for e in stats), stats
-            pdu_logs = [e for e in logs if e.get("event") == "s7.pdu_negotiated"]
-            assert {e["device"] for e in pdu_logs} == {units[2].device.id}
+            if poller.is_python:        # the Rust engine does not log the negotiation
+                pdu_logs = poller.log_events("s7.pdu_negotiated")
+                assert {e["device"] for e in pdu_logs} == {units[2].device.id}
         assert all(u.sim.write_attempts == 0 for u in units)
     finally:
         await asyncio.gather(*(u.sim.stop() for u in units), return_exceptions=True)
 
 
 async def _scenario(tmp_path, config_dir, poller, col, units: list[Unit]) -> None:
-    topics = {u.device.id: poller.registry.plans[u.device.id].device.publish.topic for u in units}
+    loaded = {d.id: d for c in poller.loaded.channels for d in c.devices}
+    topics = {u.device.id: loaded[u.device.id].publish.topic for u in units}
 
     # 1. Every device publishes correct values; only the missing tag is reported.
     await _wait(lambda: all(len(col.topic(t)) >= 2 for t in topics.values()), 40, "2 messages per device")
@@ -262,14 +261,14 @@ async def _scenario(tmp_path, config_dir, poller, col, units: list[Unit]) -> Non
         await _wait(lambda: poller.device_detail(vid)["state"] == "ok", 30, f"{vid} resumed")
 
     # 5. `opencap identity` reports the CPU and the negotiated PDU.
-    code, out = await _opencap("identity", s7[2].device.id, "--config", str(config_dir), cwd=tmp_path)
+    code, out = await poller.cli("identity", s7[2].device.id, "--config", str(config_dir), cwd=tmp_path)
     assert code == 0, out
     ident = json.loads(out[out.index("{"):])
     assert ident["module_type_name"] and ident["order_code"].startswith("6ES7")
     assert (ident["pdu_requested"], ident["pdu_negotiated"], ident["cpu_state"]) == (960, 480, "run")
     print(f"[s7] identity {s7[2].device.id}: {ident['module_type_name']!r} {ident['order_code']!r} "
           f"{ident.get('firmware')} pdu {ident['pdu_negotiated']}")
-    code, out = await _opencap("identity", mc[1].device.id, "--config", str(config_dir), cwd=tmp_path)
+    code, out = await poller.cli("identity", mc[1].device.id, "--config", str(config_dir), cwd=tmp_path)
     assert code == 0, out
     ident = json.loads(out[out.index("{"):])
     assert (ident["cpu_type"], ident["protocol"], ident["plc_type"]) == ("Q03UDVCPU", "udp", "Q"), ident

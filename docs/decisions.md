@@ -1234,7 +1234,9 @@ PLC's D range). Every value published is checked against the simulators' own enc
 missing DB and the out-of-range D block are `bad_config` in `BadTags` and asked for once; values
 follow the PLC; powering one S7 and one MELSEC PLC off demotes only that device, and it resumes;
 `opencap identity` reports the CPU (SZL, negotiated PDU) and the MELSEC CPU model; every device
-logs `device.stats`; no simulator sees a write.
+logs `device.stats`; no simulator sees a write. The suite drives the engine through the
+`engine_factory` fixture (D-069), so `--engine=rust` runs the same checks against the Rust S7 and
+MELSEC MC drivers (#228); only the `s7.pdu_negotiated` log line is checked on the Python engine.
 
 **Still to do on real hardware**
 - S7: values match KEPServer on a real site; the link-type enum (D-050); the negotiated PDU and

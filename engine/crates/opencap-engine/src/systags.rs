@@ -148,26 +148,25 @@ impl SystemTags {
             Self::refresh_channel_devices(&*source, state, ci);
         }
         source.refresh_node(&mut state.node, &mut state.north);
+        // Each part is computed on its own: one that cannot be (a bad timestamp, say) is logged and
+        // skipped, and never keeps the node counts or the other devices from being written.
         let mut tags = Tags::new();
-        let result = (|| -> Result<(), String> {
-            node_tags(state, now, &mut tags)?;
-            for agent in &state.north {
-                north_tags(agent, now, &mut tags)?;
+        let failed = |what: &str, r: Result<(), String>| {
+            if let Err(e) = r {
+                tracing::warn!(error = %e, part = what, "system_tags_failed");
             }
-            for ch in &state.channels {
-                channel_tags(ch, &mut tags);
-                for dev in ch.devices.iter().filter(|d| d.status.as_ref().is_some_and(|s| s.consecutive_failures > 0)) {
-                    device_tags(ch, dev, now, &mut tags)?;
-                }
-            }
-            Ok(())
-        })();
-        match result {
-            Ok(()) => {
-                writer.apply(&tags, now);
-            }
-            Err(e) => tracing::warn!(error = %e, "system_tags_failed"),
+        };
+        failed("node", node_tags(state, now, &mut tags));
+        for agent in &state.north {
+            failed("north", north_tags(agent, now, &mut tags));
         }
+        for ch in &state.channels {
+            channel_tags(ch, &mut tags);
+            for dev in ch.devices.iter().filter(|d| d.status.as_ref().is_some_and(|s| s.consecutive_failures > 0)) {
+                failed("device", device_tags(ch, dev, now, &mut tags));
+            }
+        }
+        writer.apply(&tags, now);
     }
 
     /// Recompute the devices marked since the last call, each with its channel.
@@ -185,26 +184,21 @@ impl SystemTags {
         channels.sort_unstable();
         channels.dedup();
         let mut tags = Tags::new();
-        let result = (|| -> Result<(), String> {
-            for &ci in &channels {
-                Self::refresh_channel_devices(&*source, state, ci);
-                let ch = &state.channels[ci];
-                channel_tags(ch, &mut tags);
-                for id in &ids {
-                    if let Some(&(c, di)) = devices.get(id).filter(|(c, _)| *c == ci) {
-                        debug_assert_eq!(c, ci);
-                        device_tags(ch, &ch.devices[di], now, &mut tags)?;
+        for &ci in &channels {
+            Self::refresh_channel_devices(&*source, state, ci);
+            let ch = &state.channels[ci];
+            channel_tags(ch, &mut tags);
+            for id in &ids {
+                if let Some(&(c, di)) = devices.get(id).filter(|(c, _)| *c == ci) {
+                    debug_assert_eq!(c, ci);
+                    // one device that cannot be computed must not keep the others from being written
+                    if let Err(e) = device_tags(ch, &ch.devices[di], now, &mut tags) {
+                        tracing::warn!(error = %e, device = %id, "system_tags_failed");
                     }
                 }
             }
-            Ok(())
-        })();
-        match result {
-            Ok(()) => {
-                writer.apply(&tags, now);
-            }
-            Err(e) => tracing::warn!(error = %e, "system_tags_failed"),
         }
+        writer.apply(&tags, now);
     }
 
     /// Items of `GET /api/v1/system/tags`.
@@ -224,28 +218,45 @@ impl SystemTags {
     }
 
     /// The task: event updates (coalesced) and the tick at each UTC second.
+    ///
+    /// The tick has priority and its deadline lives across event iterations: a device that
+    /// finishes a cycle every few milliseconds (or a loaded machine, where each coalescing window
+    /// overruns) must never push the node tick back, because the node counts (`_DevicesOk`, ...)
+    /// are written only there.
     pub async fn run(self: Arc<Self>) {
         loop {
-            let to_tick = self.until_next_second();
-            tokio::select! {
-                _ = self.wake.notified() => {
-                    tokio::time::sleep(COALESCE).await;
-                    self.flush_events();
-                }
-                _ = tokio::time::sleep(to_tick) => {
-                    // A timer may fire a clock resolution early (Windows, ~15.6 ms): wait out the rest
-                    // so the clock tags show the second they are aligned to (spec section 2.1).
-                    for _ in 0..5 {
-                        let left = self.until_next_second();
-                        if left > Duration::from_millis(250) {
-                            break; // the boundary just passed
+            let tick_at = tokio::time::sleep(self.until_next_second());
+            tokio::pin!(tick_at);
+            loop {
+                let due = tokio::select! {
+                    biased;
+                    () = &mut tick_at => true,
+                    () = self.wake.notified() => {
+                        tokio::select! {
+                            biased;
+                            () = &mut tick_at => true,
+                            () = tokio::time::sleep(COALESCE) => {
+                                self.flush_events();
+                                false
+                            }
                         }
-                        tokio::time::sleep(left).await;
                     }
-                    self.flush_events();
-                    self.tick();
+                };
+                if due {
+                    break;
                 }
             }
+            // A timer may fire a clock resolution early (Windows, ~15.6 ms): wait out the rest
+            // so the clock tags show the second they are aligned to (spec section 2.1).
+            for _ in 0..5 {
+                let left = self.until_next_second();
+                if left > Duration::from_millis(250) {
+                    break; // the boundary just passed
+                }
+                tokio::time::sleep(left).await;
+            }
+            self.flush_events();
+            self.tick();
         }
     }
 
@@ -266,6 +277,7 @@ mod tests {
 
     struct Fake {
         failures: StdMutex<i64>,
+        node_refreshes: std::sync::atomic::AtomicUsize,
     }
 
     impl Source for Fake {
@@ -296,13 +308,15 @@ mod tests {
             dev.counters = Counters::default();
         }
         fn refresh_channel(&self, _: &mut ChannelState) {}
-        fn refresh_node(&self, _: &mut NodeState, _: &mut Vec<NorthState>) {}
+        fn refresh_node(&self, _: &mut NodeState, _: &mut Vec<NorthState>) {
+            self.node_refreshes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     #[test]
     fn events_update_the_device_and_the_tick_the_node() {
         let store = Arc::new(TagStore::new());
-        let fake: Arc<Fake> = Arc::new(Fake { failures: StdMutex::new(0) });
+        let fake: Arc<Fake> = Arc::new(Fake { failures: StdMutex::new(0), node_refreshes: Default::default() });
         let source: Arc<dyn Source> = fake.clone();
         let tags = SystemTags::new(store.clone(), Arc::downgrade(&source), None);
         tags.rebuild();
@@ -320,5 +334,34 @@ mod tests {
         tags.tick();
         assert_eq!(get("_System", "_DevicesOk"), Some(Some(opencap_core::value::Value::Int(0))));
         assert_eq!(get("Plant A.PLC2._System", "_Error"), Some(Some(opencap_core::value::Value::Bool(false))));
+    }
+
+    /// A busy device (an event every few milliseconds, as under a loaded machine where each
+    /// coalescing window overruns) must not starve the once-a-second node tick: the node counts
+    /// (`_DevicesOk`, ...) are written only there.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn event_traffic_does_not_starve_the_tick() {
+        let store = Arc::new(TagStore::new());
+        let fake: Arc<Fake> = Arc::new(Fake { failures: StdMutex::new(0), node_refreshes: Default::default() });
+        let source: Arc<dyn Source> = fake.clone();
+        let tags = SystemTags::new(store, Arc::downgrade(&source), None);
+        tags.rebuild();
+        let base = fake.node_refreshes.load(std::sync::atomic::Ordering::SeqCst);
+        let runner = tokio::spawn(tags.clone().run());
+        let feeder = {
+            let tags = tags.clone();
+            tokio::spawn(async move {
+                loop {
+                    tags.mark("Plant A/PLC1");
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(4500)).await;
+        feeder.abort();
+        runner.abort();
+        // 4.5 s hold at least 3 UTC second boundaries; a bound, not a speed
+        let ticks = fake.node_refreshes.load(std::sync::atomic::Ordering::SeqCst) - base;
+        assert!(ticks >= 2, "the node tick ran {ticks} times in 4.5 s of event traffic");
     }
 }

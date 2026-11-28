@@ -2,6 +2,7 @@
 
 pub mod loader;
 pub mod models;
+pub mod reader;
 
 pub use loader::{is_v2, load_config, ConfigError, LoadedConfig};
 pub use models::*;

@@ -32,6 +32,7 @@ use axum::{Json, Router};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
+pub mod config_api;
 pub mod events;
 pub mod ui;
 pub use events::{Refusal, RefusalLog};
@@ -263,6 +264,7 @@ struct AppState {
     view: Arc<dyn EngineView>,
     auth: Auth,
     refusals: RefusalLog,
+    config: Option<Arc<opencap_core::config::reader::ConfigReader>>,
 }
 
 type St = State<Arc<AppState>>;
@@ -450,7 +452,7 @@ async fn system_tags(State(st): St, Query(q): Query<HashMap<String, String>>) ->
     Json(st.view.system_tags(q.get("prefix").map(String::as_str).unwrap_or(""))).into_response()
 }
 
-const NOT_YET: &str = "this route of the configuration API is not implemented in the Rust engine yet (#140)";
+use config_api::NOT_YET;
 
 /// The configuration API's own `/api/v1` routes (the legacy ones above keep their paths).
 async fn v1_auth_info(State(st): St) -> Response {
@@ -478,7 +480,7 @@ async fn v1_pending(State(st): St) -> Response {
     Json(st.view.config_status()).into_response()
 }
 
-async fn v1_device_get(State(st): St, Path(path): Path<String>) -> Response {
+async fn v1_device_get(State(st): St, Path(path): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
     if let Some(id) = path.strip_suffix("/status") {
         return match st.view.device_detail(id) {
             Some(v) => Json(v).into_response(),
@@ -491,12 +493,15 @@ async fn v1_device_get(State(st): St, Path(path): Path<String>) -> Response {
             None => detail(StatusCode::NOT_FOUND, format!("device {} is not polled", py_repr(id))),
         };
     }
-    detail(StatusCode::NOT_IMPLEMENTED, NOT_YET)
+    if path.ends_with("/plan") || path.ends_with("/identity") {
+        return detail(StatusCode::NOT_IMPLEMENTED, NOT_YET);
+    }
+    config_api::device_read(&st.config, &path, &q)
 }
 
 async fn v1_device_post(State(st): St, Path(path): Path<String>) -> Response {
     let Some(id) = path.strip_suffix("/read-once") else {
-        return detail(StatusCode::NOT_IMPLEMENTED, NOT_YET);
+        return config_api::not_yet();
     };
     match st.view.read_once(id).await {
         Ok(v) => Json(v).into_response(),
@@ -559,7 +564,22 @@ pub fn router(view: Arc<dyn EngineView>, auth: Auth) -> Router {
 
 /// [`router`] with the refusal log given (tests inject a clock).
 pub fn router_with(view: Arc<dyn EngineView>, auth: Auth, refusals: RefusalLog) -> Router {
-    let state = Arc::new(AppState { view, auth, refusals });
+    build(view, auth, refusals, None)
+}
+
+/// [`router`] with the configuration API's reads served from `config_dir` (`None`: they answer 503).
+pub fn router_with_config(view: Arc<dyn EngineView>, auth: Auth, config_dir: Option<std::path::PathBuf>) -> Router {
+    build(view, auth, RefusalLog::default(), config_dir)
+}
+
+fn build(
+    view: Arc<dyn EngineView>,
+    auth: Auth,
+    refusals: RefusalLog,
+    config_dir: Option<std::path::PathBuf>,
+) -> Router {
+    let config = config_dir.map(|d| Arc::new(opencap_core::config::reader::ConfigReader::new(d)));
+    let state = Arc::new(AppState { view, auth, refusals, config: config.clone() });
     Router::new()
         .route("/health", get(health))
         .route("/health/live", get(health_live))
@@ -576,14 +596,22 @@ pub fn router_with(view: Arc<dyn EngineView>, auth: Auth, refusals: RefusalLog) 
         .route("/api/v1/whoami", get(v1_whoami))
         .route("/api/v1/status", get(v1_status))
         .route("/api/v1/project/pending", get(v1_pending))
-        .route("/api/v1/devices/{*path}", get(v1_device_get).post(v1_device_post))
+        .route(
+            "/api/v1/devices/{*path}",
+            get(v1_device_get)
+                .post(v1_device_post)
+                .put(|| async { config_api::not_yet() })
+                .patch(|| async { config_api::not_yet() })
+                .delete(|| async { config_api::not_yet() }),
+        )
         .route("/", get(|| async { ui::to_ui() }))
         .route("/ui", get(|| async { ui::to_ui() }))
         .route("/ui/", get(|| async { ui::serve("") }))
         .route("/ui/{*path}", get(|Path(path): Path<String>| async move { ui::serve(&path) }))
         .fallback(not_found)
-        .layer(middleware::from_fn_with_state(state.clone(), guard))
-        .with_state(state)
+        .with_state(state.clone())
+        .merge(config_api::routes(config))
+        .layer(middleware::from_fn_with_state(state, guard))
 }
 
 /// Why the API could not bind (`api.bind_failed`, D-079): `reason` is one of `in_use`,
@@ -753,6 +781,84 @@ mod tests {
         }
     }
 
+    fn config_app() -> (Router, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("opencap-api-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let tag = |n: &str| json!({"name": n, "address": "400001", "dtype": "int16"});
+        let dev = |n: &str, tags: Vec<Value>| {
+            json!({"id": format!("Site 001/{n}"), "channel": "Site 001", "name": n, "driver": "modbus_tcp",
+                   "host": "192.0.2.1", "port": 502, "tags": tags})
+        };
+        std::fs::write(
+            dir.join("devices.json"),
+            json!({"channels": [{"name": "Site 001", "devices": [dev("PUMP2", vec![tag("A"), tag("B.C")]), dev("PUMP10", vec![])]}]})
+                .to_string(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("devices_map.yaml"), "devices:\n  Site 001/PUMP2: {sub_device_id: SUB_2}\n").unwrap();
+        let fake = Arc::new(FakePoller::default());
+        (router_with_config(fake, Auth::single("s3cret"), Some(dir.clone())), dir)
+    }
+
+    #[tokio::test]
+    async fn the_configuration_reads_carry_the_revision_and_the_etag() {
+        let (a, dir) = config_app();
+        let t = Some("s3cret");
+        let resp = send(&a, "GET", "/api/v1/channels", t, "127.0.0.1").await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let etag = resp.headers()[header::ETAG].to_str().unwrap().to_string();
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap()).unwrap();
+        assert_eq!(etag, format!("\"{}\"", body["revision"].as_str().unwrap()));
+        assert_eq!((body["total"].as_i64(), body["channels"][0]["devices"].as_i64()), (Some(1), Some(2)));
+        // list queries: natural sort, paging, and a 422 for a field the collection does not offer
+        let (_, devs) = call(&a, "GET", "/api/v1/devices?sort=name&order=desc&limit=1", t).await;
+        assert_eq!(
+            (devs["devices"][0]["name"].as_str(), devs["total"].as_i64(), devs["limit"].as_i64()),
+            (Some("PUMP10"), Some(2), Some(1))
+        );
+        let (code, bad) = call(&a, "GET", "/api/v1/channels?sort=port", t).await;
+        assert_eq!(
+            (code, bad["detail"][0]["loc"].clone()),
+            (StatusCode::UNPROCESSABLE_ENTITY, json!(["query", "sort"]))
+        );
+        assert_eq!(call(&a, "GET", "/api/v1/devices?limit=0", t).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+        // device ids contain a slash and a space; the runtime suffixes still win
+        let (_, dev) = call(&a, "GET", "/api/v1/devices/Site 001/PUMP2", t).await;
+        assert_eq!(
+            (dev["device"]["host"].as_str(), dev["map_entry"]["sub_device_id"].as_str()),
+            (Some("192.0.2.1"), Some("SUB_2"))
+        );
+        let (_, tags) = call(&a, "GET", "/api/v1/devices/Site 001/PUMP2/tags?q=b", t).await;
+        assert_eq!((tags["total"].as_i64(), tags["tags"][0]["name"].as_str()), (Some(1), Some("B.C")));
+        assert_eq!(call(&a, "GET", "/api/v1/devices/Site 001/PUMP2/tags/B.C", t).await.1["tag"]["dtype"], "int16");
+        assert_eq!(call(&a, "GET", "/api/v1/devices/Site 001/NOPE", t).await.0, StatusCode::NOT_FOUND);
+        let (code, nf) = call(&a, "GET", "/api/v1/channels/Nope", t).await;
+        assert_eq!((code, nf["detail"].as_str()), (StatusCode::NOT_FOUND, Some("unknown channel 'Nope'")));
+        assert_eq!(call(&a, "GET", "/api/v1/channels/Site 001/devices", t).await.1["devices"][1]["name"], "PUMP10");
+        assert_eq!(call(&a, "GET", "/api/v1/map/devices/Site 001/PUMP2", t).await.1["entry"]["sub_device_id"], "SUB_2");
+        assert_eq!(call(&a, "GET", "/api/v1/map", t).await.1["devices"]["Site 001/PUMP2"]["sub_device_id"], "SUB_2");
+        assert_eq!(call(&a, "GET", "/api/v1/overrides", t).await.1["devices"], json!({}));
+        assert_eq!(call(&a, "GET", "/api/v1/overrides/devices/Site 001/PUMP2", t).await.0, StatusCode::NOT_FOUND);
+        let (_, status) = call(&a, "GET", "/api/v1/project/status", t).await;
+        assert_eq!((status["counts"]["devices"].as_i64(), status["valid"].as_bool()), (Some(2), Some(true)));
+        let resp = send(&a, "GET", "/api/v1/project?download=true", t, "127.0.0.1").await;
+        assert!(resp.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .starts_with("attachment; filename=\"opencap-config-"));
+        assert_eq!(call(&a, "GET", "/api/v1/audit", t).await.1["entries"], json!([]));
+        // writes are not ported: said plainly, and the guard still refuses a viewer first
+        assert_eq!(call(&a, "POST", "/api/v1/channels", t).await.0, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(call(&a, "PATCH", "/api/v1/devices/Site 001/PUMP2", t).await.0, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(call(&a, "GET", "/api/v1/channels", None).await.0, StatusCode::UNAUTHORIZED);
+        // without a config directory: 503, as Python's Unavailable
+        let (bare, _) = app();
+        assert_eq!(call(&bare, "GET", "/api/v1/channels", t).await.0, StatusCode::SERVICE_UNAVAILABLE);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn v1_runtime_routes_mirror_the_legacy_ones() {
         let (a, fake) = app();
@@ -775,8 +881,9 @@ mod tests {
         assert_eq!(call(&a, "GET", "/api/v1/devices/NOPE/X/status", t).await.0, StatusCode::NOT_FOUND);
         assert_eq!(call(&a, "POST", "/api/v1/reload", t).await.1["restarted"][0], "X");
         assert_eq!(fake.reloads.load(Ordering::SeqCst), 1);
-        // the configuration reads and writes are not ported yet: said plainly, not a 404
-        assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}"), t).await.0, StatusCode::NOT_IMPLEMENTED);
+        // no config directory in this app: the configuration reads answer 503, not 404
+        assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}"), t).await.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}/plan"), t).await.0, StatusCode::NOT_IMPLEMENTED);
     }
 
     #[tokio::test]

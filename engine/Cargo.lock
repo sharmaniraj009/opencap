@@ -1669,6 +1669,7 @@ dependencies = [
  "axum",
  "futures-util",
  "http-body-util",
+ "opencap-core",
  "serde_json",
  "tokio",
  "tower",

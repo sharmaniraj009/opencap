@@ -2554,3 +2554,10 @@ Status: accepted.
 **Fallback kept.** An engine that does not serve these routes behaves as before D-144: the tree is the polled devices, the tag panel says the configuration appears when the configuration API lands. Device configurations are fetched once per revision of the project (the `revision` the list routes return), the lists every 10 s; still no write route is used.
 
 **Not done.** `/devices/{id}/plan` and `/identity` (G3) and the event log (G6) wait for core; the list routes' `q`, `sort`, `limit` and `offset` are not used yet (the tree still loads every device: revisit at the 250k-tag scale with `GET /api/v1/browse`, G5).
+## D-145: diagnostics on the project tree come from the system tags (2026-11-28)
+
+**Decision.** Selecting a project, channel or device (or a tag of it) in the project tree shows a **Diagnostics** section under its properties, read with `GET /api/v1/system/tags?prefix=<node>` every 2 s while the node is selected (the routes every engine serves, no new engine work): for a device, successful and failed reads, timeouts, connection errors, scan overruns and seconds in error as cards (red or amber when non-zero), and the request success rate, requests ok, bad configuration, other errors, error count and auto-demotion as rows; for a channel, its aggregate statistics and pending reads; for the project, uptime, total and active tags, clients, devices ok / offline / demoted / disabled, MQTT link, outbox messages, age, drops and size, MQTT published and forward mode, project revision, engine version and redundancy role. The figures are the ones `docs/spec/system-tags.md` defines (DIAG-10, `_Statistics`, `_System`), so they agree with the status API and the metrics by construction.
+
+**Not done.** The event log (G6), plan and identity (G3) and frame capture (DIAG-11) need engine routes that do not exist yet; this section does not replace them.
+
+**Rejected.** A second statistics API for the UI (the system tags are the contract); polling every tag of the project for it (only the selected node's prefix is read).

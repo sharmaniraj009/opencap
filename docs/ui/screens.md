@@ -132,7 +132,7 @@ wraps and tables become stacked cards.
 | 3 | Device editor, new-device wizard | `#/edit/<id>`, `#/new/device/<c>` | Editor done (params as JSON); wizard not started | #129, #105, #113 | UI-05, DEV-01…18 |
 | 4 | Tag table | `#/edit/<id>` (tags section) | Inline edit done; bulk, CSV, generator not started | #10, #117, #139, #115 | UI-06/07/10/12, TAG-*, SYS-01/02 |
 | 5 | Quick Client | `#/quick/<id>` | Done (#151) | #164 | UI-15/16, ADM-05 |
-| 6 | Device diagnostics | `#/device/<id>` | Partial: status, plan, identity | #138, #130, #133 | DIAG-01/10/11/12 |
+| 6 | Device diagnostics | `#/device/<id>`, and the Diagnostics section of `#/tree` (D-145) | Partial: status, communication statistics and health from the system tags on the tree (project, channel, device); plan and identity wait for the engine routes | #138, #130, #133 | DIAG-01/10/11/12 |
 | 7 | North agents | `#/north`, `#/north/<kind>/<name>` | Not started (dashboard cards only) | #132, #143, #137 | SAF-*, ADM-06, DIAG-05/06 |
 | 8 | Event log | `#/events` | Not started | #136 | DIAG-03/04, LOG-R10/R11 |
 | 9 | Import wizard | `#/import` | Done (#33) | #108, #37 | UI-14, PRJ-07 |

@@ -145,6 +145,23 @@
           </template>
         </tbody>
       </table>
+      <template x-if="showDiag()">
+        <div id="tree-diag">
+          <h3 x-text="t('tree.diagnostics')"></h3>
+          <div class="cards">
+            <template x-for="c in diagCards()" :key="c.label">
+              <div class="card"><div class="label" x-text="c.label"></div><div :class="cardClass(c)" x-text="c.value"></div></div>
+            </template>
+          </div>
+          <table class="kv compact" x-show="has(diagRows())">
+            <tbody>
+              <template x-for="p in diagRows()" :key="p.label">
+                <tr><th scope="row" x-text="p.label"></th><td><span :class="valueClass(p)" x-text="p.value"></span></td></tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <p class="muted" x-show="deviceNote()" x-text="deviceNote()"></p>
       <p class="muted small" x-show="showMeta()" x-text="t('tree.meta_pending')"></p>
       <template x-if="showTable()">

@@ -117,8 +117,8 @@ For the lead to route to the core worker. Issue numbers are those already filed 
 
 | # | Missing in the Rust engine | Blocks | Filed |
 |---|---|---|---|
-| G1 | `GET /api/v1/devices/{id}/tags` (name, address, dtype, scan rate, scaling, enabled, group) and `GET /api/v1/devices/{id}` | tag properties in the tree (a, last panel rows), tag editor | #140 |
-| G2 | `GET /api/v1/channels`, `/channels/{c}`, `/devices` (lists with `q`, `sort`, `limit`, `offset`) | channel properties, tree at 250k tags | #140, #129 |
+| G1 | `GET /api/v1/devices/{id}/tags` (name, address, dtype, scan rate, scaling, enabled, group) and `GET /api/v1/devices/{id}` | tag properties in the tree (a, last panel rows), tag editor | **landed (#280)**; used by the tree, the tag table and the Quick Client (D-144) |
+| G2 | `GET /api/v1/channels`, `/channels/{c}`, `/devices` (lists with `q`, `sort`, `limit`, `offset`) | channel properties, tree at 250k tags | **landed (#280)**; used by the tree (D-144); `q`/`sort`/`limit`/`offset` are not used yet |
 | G3 | `GET /api/v1/devices/{id}/plan` and `/identity` | diagnostics (d) | #140 |
 | G4 | `GET /api/v1/ws` (live values, subscription cap, error frames) | Quick Client push updates (b) | #164 |
 | G5 | `GET /api/v1/browse?path=&depth=&include_system=` (one level at a time) | the tree at 250k tags without loading it all | #139 |

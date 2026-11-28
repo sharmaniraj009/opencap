@@ -2546,3 +2546,11 @@ Status: accepted.
 **Rules.** Close-to-tray is honoured only while the tray icon exists (a desktop without a status area would otherwise strand the user), and `--minimized` hides the launcher only then. `--minimized` also skips "open the engine opened last". Quit from the tray stops the bundled engine, as closing the app always did.
 
 **Rejected.** Hiding to the tray by default (changes today's behaviour, and the tray may be absent); a system-service install from the launcher (waits for #57); macOS autostart (no macOS bundle yet).
+
+## D-144: the project tree and the Quick Client read the configuration routes when the engine serves them (2026-11-28)
+
+**Decision.** With the read routes of #280 on main (`GET /api/v1/devices`, `/channels`, `/devices/{id}`, `/devices/{id}/tags`), the project tree lists what is **configured**, not only what is polled: devices that are disabled or not polled show as such (dimmed, "disabled" or "not polled") instead of being missing, tag counts come from the configuration, disabled tags are dimmed, and **tag groups** are built from dotted tag names (`Motor.Winding.Temp_C` sits in the groups `Motor` and `Motor.Winding`, TAG-14; a filter shows the matching tags flat). The properties panel gains the configuration: channel (enabled, tags, devices enabled, override), device (scan rate, minimum scan, timeout, retries, demotion, publishing, driver parameters) and tag (address, data type, enabled, tag scan rate, scaling, description), and the selected device shows a **read-only tag table** (configuration joined with the live values). The Quick Client's Address and Type columns fill by themselves (it already asked for `…/tags`).
+
+**Fallback kept.** An engine that does not serve these routes behaves as before D-144: the tree is the polled devices, the tag panel says the configuration appears when the configuration API lands. Device configurations are fetched once per revision of the project (the `revision` the list routes return), the lists every 10 s; still no write route is used.
+
+**Not done.** `/devices/{id}/plan` and `/identity` (G3) and the event log (G6) wait for core; the list routes' `q`, `sort`, `limit` and `offset` are not used yet (the tree still loads every device: revisit at the 250k-tag scale with `GET /api/v1/browse`, G5).

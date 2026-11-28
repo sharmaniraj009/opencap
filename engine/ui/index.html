@@ -116,6 +116,12 @@
                 <span :class="qualityClass(r.quality)" x-show="showQuality(r) &amp;&amp; r.quality !== 'good'" x-text="r.quality"></span>
               </a>
             </template>
+            <template x-if="isGroup(r)">
+              <button type="button" class="tree-link tree-group" @click="toggleRow(r)">
+                <span class="tree-label" x-text="r.label"></span>
+                <span class="tree-hint" x-text="r.hint"></span>
+              </button>
+            </template>
             <template x-if="isNote(r)"><span class="tree-note muted small" x-text="r.label"></span></template>
           </li>
         </template>
@@ -139,7 +145,28 @@
           </template>
         </tbody>
       </table>
+      <p class="muted" x-show="deviceNote()" x-text="deviceNote()"></p>
       <p class="muted small" x-show="showMeta()" x-text="t('tree.meta_pending')"></p>
+      <template x-if="showTable()">
+        <div class="table-wrap">
+          <h3 x-text="t('tree.tag_table')"></h3>
+          <table class="values compact" id="tree-tags">
+            <thead><tr><th x-text="t('common.tag')"></th><th x-show="tableMeta()" x-text="t('common.address')"></th><th x-show="tableMeta()" x-text="t('common.type')"></th><th x-text="t('common.value')"></th><th x-text="t('common.quality')"></th></tr></thead>
+            <tbody>
+              <template x-for="tg in tagTable()" :key="tg.name">
+                <tr :class="tg.dim ? 'dim' : ''">
+                  <td><a :href="tg.href" x-text="tg.name"></a></td>
+                  <td class="small" x-show="tableMeta()"><code x-text="tg.address"></code></td>
+                  <td class="small muted" x-show="tableMeta()" x-text="tg.dtype"></td>
+                  <td class="num" x-text="tg.value"></td>
+                  <td><span :class="qualityClass(tg.quality)" x-show="tg.quality" x-text="tg.quality"></span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <p class="muted small" x-show="tableNote()" x-text="tableNote()"></p>
+        </div>
+      </template>
       <template x-if="has(channelDevices())">
         <div class="table-wrap">
           <table class="devices responsive">

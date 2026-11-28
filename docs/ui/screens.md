@@ -131,7 +131,7 @@ wraps and tables become stacked cards.
 | 2 | Channel editor, new-channel wizard | `#/channel/<c>`, `#/new/channel` | Editor partial; wizard not started | #103, #104, #105, #129 | UI-04, CH-01/02/05/14 |
 | 3 | Device editor, new-device wizard | `#/edit/<id>`, `#/new/device/<c>` | Editor done (params as JSON); wizard not started | #129, #105, #113 | UI-05, DEV-01…18 |
 | 4 | Tag table | `#/edit/<id>` (tags section) | Inline edit done; bulk, CSV, generator not started | #10, #117, #139, #115 | UI-06/07/10/12, TAG-*, SYS-01/02 |
-| 5 | Quick Client | `#/quick/<id>` | Done (#151) | #164 | UI-15/16, ADM-05 |
+| 5 | Quick Client | `#/quick/<id>` | Done (#151); polling rate, pause, quality filter, sortable columns and system tags added (D-142) | #164 | UI-15/16, ADM-05 |
 | 6 | Device diagnostics | `#/device/<id>` | Partial: status, plan, identity | #138, #130, #133 | DIAG-01/10/11/12 |
 | 7 | North agents | `#/north`, `#/north/<kind>/<name>` | Not started (dashboard cards only) | #132, #143, #137 | SAF-*, ADM-06, DIAG-05/06 |
 | 8 | Event log | `#/events` | Not started | #136 | DIAG-03/04, LOG-R10/R11 |

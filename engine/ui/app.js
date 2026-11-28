@@ -532,16 +532,18 @@
     var QUICK_ROWS = 1000;          // rows rendered at once; the filter narrows the rest
     Alpine.data("quickView", function () {
       // the socket and the row index live outside Alpine's reactive state (a proxied WebSocket breaks)
-      var sock = null, index = {}, retry = null, failures = 0, everOpen = false, closing = false, stopPoll = null;
+      var sock = null, index = {}, sysIndex = {}, retry = null, failures = 0, everOpen = false, closing = false, stopPoll = null;
       return Object.assign({}, helpers, {
         channels: [], q: "", tq: "", id: "", rows: [], loaded: false, version: 0, unavailable: "", error: "",
-        devError: "", busy: false, readNote: "", mode: "connecting", now: Date.now(), config: {},
+        devError: "", busy: false, readNote: "", mode: "connecting", now: Date.now(), config: {}, hasConfig: false,
+        rate: 1000, rates: [250, 500, 1000, 2000, 5000], paused: false, qf: "all", sortKey: "tag", sortDir: 1, withSystem: false, sysRows: [],
         init: function () {
           var self = this;
           routed(this, this.select);
           this.loadDevices();
           this._stop = poll(function () { self.loadDevices(); }, 10000);
           this._clock = setInterval(function () { self.now = Date.now(); }, 1000);
+          this._sys = poll(function () { self.pollSystem(); }, 2000);
           this.select();
           this.connect();
         },
@@ -549,6 +551,7 @@
           closing = true;
           unrouted(this);
           clearInterval(this._clock);
+          if (this._sys) this._sys();
           if (retry) clearTimeout(retry);
           if (stopPoll) stopPoll();
           if (sock) sock.close();
@@ -574,7 +577,8 @@
           var r = Alpine.store("app").route;
           if (r.name !== "quick") return;
           this.id = r.arg; this.rows = []; index = {}; this.loaded = false; this.version = 0;
-          this.unavailable = ""; this.error = ""; this.readNote = ""; this.config = {};
+          this.unavailable = ""; this.error = ""; this.readNote = ""; this.config = {}; this.hasConfig = false;
+          this.sysRows = []; sysIndex = {};
           if (!this.id) { this.subscribe(); return; }
           var self = this, id = this.id;
           // address and type from the configuration (best effort: the feed works without it)
@@ -583,6 +587,7 @@
             var cfg = {};
             (t.tags || []).forEach(function (tag) { cfg[tag.name] = tag; });
             self.config = cfg;
+            self.hasConfig = Object.keys(cfg).length > 0;
             self.rows.forEach(function (row) { self.describe(row); });
           }).catch(function () { /* no config directory, or not in the config */ });
           this.subscribe();
@@ -620,7 +625,7 @@
         },
         receive: function (m) {
           if (m.type === "error") { this.error = m.detail; return; }
-          if (m.device !== this.id) return;
+          if (m.device !== this.id || this.paused) return;
           if (m.type === "unavailable") { this.unavailable = m.detail; this.rows = []; index = {}; this.loaded = true; return; }
           if (m.type === "snapshot") { this.unavailable = ""; this.version = m.version; this.replace(m.changes); return; }
           if (m.type === "changes" && m.version > this.version) {
@@ -658,11 +663,16 @@
           this.mode = "polling";
           if (stopPoll) return;
           this.pollOnce();
-          stopPoll = poll(function () { self.pollOnce(); }, 2000);
+          stopPoll = poll(function () { self.pollOnce(); }, this.rate);
+        },
+        rateText: function (r) { return r % 1000 === 0 ? tr("unit.rate_s", { n: r / 1000 }) : tr("unit.rate_ms", { n: r }); },
+        rateChanged: function () {
+          if (stopPoll) { stopPoll(); stopPoll = null; }
+          if (this.mode === "polling") this.fallback();
         },
         pollOnce: function () {
           var self = this, id = this.id;
-          if (!id) return;
+          if (!id || this.paused) return;
           call("GET", "/api/v1/devices/" + encId(id) + "/values").then(function (v) {
             if (self.id !== id) return;
             self.unavailable = "";
@@ -674,7 +684,38 @@
             if (e.status === 404) { self.unavailable = e.message; self.rows = []; index = {}; self.loaded = true; } else self.error = e.message;
           });
         },
-        modeText: function () { return tr("quick.mode_" + this.mode); },
+        modeText: function () { return tr("quick.mode_" + this.mode, { rate: this.rateText(this.rate) }); },
+        // --- pause, sort, quality filter, system tags
+        togglePause: function () { this.paused = !this.paused; if (!this.paused) { this.pollOnce(); this.pollSystem(); } },
+        pauseText: function () { return tr(this.paused ? "quick.resume" : "quick.pause"); },
+        pollingMode: function () { return this.mode === "polling"; },
+        sortBy: function (key) {
+          if (this.sortKey === key) this.sortDir = -this.sortDir; else { this.sortKey = key; this.sortDir = 1; }
+        },
+        sortAria: function (key) { return this.sortKey === key ? (this.sortDir === 1 ? "ascending" : "descending") : "none"; },
+        sortMark: function (key) { return this.sortKey === key ? (this.sortDir === 1 ? "▲" : "▼") : ""; },
+        showMeta: function () { return this.hasConfig; },
+        showType: function () { return this.hasConfig || (this.withSystem && this.sysRows.length > 0); },
+        systemChanged: function () { this.sysRows = []; sysIndex = {}; if (this.withSystem) this.pollSystem(); },
+        pollSystem: function () {
+          var self = this, id = this.id;
+          if (!id || !this.withSystem || this.paused) return;
+          var dotted = id.replace("/", ".");
+          call("GET", "/api/v1/system/tags?prefix=" + enc(dotted + "._System")).then(function (r) {
+            if (self.id !== id || !self.withSystem) return;
+            var now = Date.now();
+            var list = (r.items || []).map(function (t) {
+              var tag = t.path.slice(dotted.length + 1), old = sysIndex[tag];
+              var row = { tag: tag, value: t.value, quality: t.quality, ts: t.source_ts, updates: old ? old.updates : 0, changedAt: old ? old.changedAt : 0, address: "", dtype: t.dtype || "" };
+              if (old && (old.value !== t.value || old.quality !== t.quality || old.ts !== t.source_ts)) { row.updates += 1; row.changedAt = now; }
+              return row;
+            });
+            list.sort(function (a, b) { return a.tag < b.tag ? -1 : (a.tag > b.tag ? 1 : 0); });
+            sysIndex = {};
+            list.forEach(function (row) { sysIndex[row.tag] = row; });
+            self.sysRows = list;
+          }).catch(function () { self.sysRows = []; });
+        },
         modeClass: function () { return "badge mode-" + this.mode; },
         modeTitle: function () {
           return tr("quick.title_" + this.mode);
@@ -691,21 +732,37 @@
           }).catch(function (e) { shellFlash(tr("quick.read_now_failed", { error: e.message }), "error"); }).then(function () { self.busy = false; });
         },
         // --- table
-        shown: function () {
-          var q = this.tq.trim().toLowerCase();
-          var list = q ? this.rows.filter(function (r) { return r.tag.toLowerCase().indexOf(q) !== -1 || (r.address || "").toLowerCase().indexOf(q) !== -1; }) : this.rows;
-          return list.length > QUICK_ROWS ? list.slice(0, QUICK_ROWS) : list;
+        visible: function () {
+          var q = this.tq.trim().toLowerCase(), qf = this.qf, key = this.sortKey, dir = this.sortDir, self = this;
+          var list = this.withSystem && this.sysRows.length ? this.rows.concat(this.sysRows) : this.rows;
+          if (q || qf !== "all") {
+            list = list.filter(function (r) {
+              if (qf === "good" && r.quality !== "good") return false;
+              if (qf === "bad" && r.quality === "good") return false;
+              return !q || r.tag.toLowerCase().indexOf(q) !== -1 || (r.address || "").toLowerCase().indexOf(q) !== -1;
+            });
+          }
+          if (key !== "tag" || dir !== 1) {
+            list = list.slice().sort(function (a, b) {
+              var x, y;
+              if (key === "value") { x = a.value; y = b.value; if (typeof x !== typeof y) { x = String(x); y = String(y); } }
+              else if (key === "quality") { x = a.quality; y = b.quality; }
+              else if (key === "age") { x = self.ageSeconds(a); y = self.ageSeconds(b); if (x === null) x = Infinity; if (y === null) y = Infinity; }
+              else { x = a.tag; y = b.tag; }
+              return (x < y ? -1 : (x > y ? 1 : 0)) * dir || (a.tag < b.tag ? -1 : 1);
+            });
+          }
+          return list;
         },
-        shownNote: function () {
-          var q = this.tq.trim().toLowerCase(), n = this.rows.length;
-          if (q) n = this.rows.filter(function (r) { return r.tag.toLowerCase().indexOf(q) !== -1 || (r.address || "").toLowerCase().indexOf(q) !== -1; }).length;
-          return n > QUICK_ROWS ? tr("quick.shown_note", { shown: QUICK_ROWS, n: n }) : "";
-        },
+        shown: function () { var list = this.visible(); return list.length > QUICK_ROWS ? list.slice(0, QUICK_ROWS) : list; },
+        shownNote: function () { var n = this.visible().length; return n > QUICK_ROWS ? tr("quick.shown_note", { shown: QUICK_ROWS, n: n }) : ""; },
         countsText: function () {
           var counts = {}, parts = [];
           this.rows.forEach(function (r) { counts[r.quality] = (counts[r.quality] || 0) + 1; });
           parts.push(tr("quick.tags_n", { n: this.rows.length }));
           ["good", "bad_comm", "bad_config", "bad_decode", "stale"].forEach(function (q) { if (counts[q]) parts.push(tr("common.n_quality", { n: counts[q], quality: q })); });
+          if (this.withSystem && this.sysRows.length) parts.push(tr("quick.system_n", { n: this.sysRows.length }));
+          if (this.paused) parts.push(tr("quick.paused_note"));
           return parts.join(" · ");
         },
         rowClass: function (r) { return this.now - r.changedAt < 1500 ? "changed" : ""; },

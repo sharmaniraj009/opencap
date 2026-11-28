@@ -2521,3 +2521,11 @@ Status: accepted.
 **Also.** `engine/ui/` is the only edited copy of the bundle. `engine/crates/opencap-api/tests/ui_strings.rs` ports the Python UI discipline tests to it: no text outside `i18n/en.json`, every key the code uses is in the table and none is left over, no loop variable hides `t` or `rich`, and nothing offers to write to a PLC (ADR-0008).
 
 **Rejected.** A second tree implementation in the desktop launcher (ADR-0010: one UI); expanding every device on load (a 250k-tag project would fetch all values at once: only expanded devices are read, at most 25 per 2 s tick, and the filter loads at most 60).
+
+## D-142: Quick Client controls that work on every engine (2026-11-28)
+
+**Decision.** The Quick Client (`#/quick/<device>`) gains, client side only: an update-rate selector for the REST polling mode (250 ms to 5 s, default 1 s; hidden while the live feed is connected, because the server pushes), Pause/Resume, a quality filter (all, good only, not good), sortable Tag, Value, Quality and Age columns (`aria-sort`), and a "System tags" switch that adds the device's `_System.*` rows from `GET /api/v1/system/tags?prefix=<channel>.<device>._System`, because `…/values?include_system=` exists on the legacy route only (G10). The Address and Type columns are hidden while the engine does not serve the tag configuration (G1), instead of showing empty cells. Still read-only: no value input anywhere (ADR-0008).
+
+**Why.** KEPServerEX's Quick Client lets the user pick the update rate, watch system items and sort; with the Rust engine the page is in polling mode (no `/api/v1/ws`, G4), so the poll rate is the user's to choose. Nothing here needs an engine change.
+
+**Rejected.** Writing from the Quick Client (UI-17, out of scope); watching several devices in one table (the project tree already selects a branch; revisit with the browse route, G5).

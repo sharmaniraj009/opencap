@@ -888,6 +888,21 @@ impl Runner {
         Ok(self.ensure_registered(w).snapshot())
     }
 
+    /// Vendor/model/firmware over the device's open connection: `Ok(None)` while it is not
+    /// connected (nothing is opened for this), `Err` if the driver does not answer in time.
+    async fn identity(&self, w: &Shared) -> Result<Option<serde_json::Map<String, serde_json::Value>>, ReadOnceError> {
+        let mut st = self.state.lock().await;
+        if !st.connected {
+            return Ok(None);
+        }
+        let Some(drv) = st.driver.as_mut() else { return Ok(None) };
+        let _wire = w.wire().await;
+        match tokio::time::timeout(Duration::from_secs_f64(self.safety_s), drv.identity()).await {
+            Ok(map) => Ok(Some(map)),
+            Err(_) => Err(ReadOnceError::Unusable(format!("{}: the identity request timed out", self.id))),
+        }
+    }
+
     async fn close_for_stop(&self, w: &Shared) {
         let mut st = self.state.lock().await;
         st.connected = false;
@@ -1036,6 +1051,22 @@ impl ChannelWorker {
             Ok(result) => result,
             Err(_) => Err(ReadOnceError::Unusable("channel worker stopped".into())),
         }
+    }
+
+    /// The device's identity over its existing connection (`None`: not connected right now).
+    pub async fn identity(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, ReadOnceError> {
+        if self.stopped.load(Ordering::SeqCst) {
+            return Err(ReadOnceError::Unusable("channel worker stopped".into()));
+        }
+        let runner = self
+            .runners
+            .get(device_id)
+            .cloned()
+            .ok_or_else(|| ReadOnceError::UnknownDevice(device_id.into(), self.shared.channel.clone()))?;
+        runner.identity(&self.shared).await
     }
 
     /// True while the device is polled but has not finished a poll cycle and is not demoted:

@@ -98,3 +98,60 @@ impl Registry {
         self.plans.get(device_id).map(|p| &p.device)
     }
 }
+
+/// `GET /api/v1/devices/{id}/plan`: the block plan of one device as the Python engine's
+/// `device_plan_json(…, verbose=True)` writes it. `rtt_ms` is `check.est_rtt_ms`.
+pub fn device_plan_json(dp: &DevicePlan, rtt_ms: f64) -> serde_json::Value {
+    use serde_json::{json, Map, Value};
+    let dev = &dp.device;
+    let mut out = Map::new();
+    out.insert("id".into(), json!(dev.id));
+    out.insert("name".into(), json!(dev.name));
+    out.insert("driver".into(), json!(dev.driver));
+    out.insert("enabled".into(), json!(dev.enabled));
+    out.insert("tags".into(), json!(dev.tags.len()));
+    out.insert("plan_error".into(), json!(dp.error));
+    if !dp.ok() {
+        return Value::Object(out);
+    }
+    let round = |v: f64, digits: i32| {
+        let k = 10f64.powi(digits);
+        (v * k).round() / k
+    };
+    let invalid = dp.invalid();
+    out.insert("enabled_tags".into(), json!(dp.enabled_tags()));
+    out.insert("bad_config".into(), json!(invalid.len()));
+    out.insert("rates_ms".into(), json!(dp.groups.iter().map(|g| g.rate_ms).collect::<Vec<_>>()));
+    out.insert(
+        "groups".into(),
+        Value::Array(
+            dp.groups
+                .iter()
+                .map(|g| {
+                    json!({"rate_ms": g.rate_ms, "tags": g.tag_count, "blocks": g.plan.blocks.len(),
+                           "wire_requests": g.plan.wire_requests()})
+                })
+                .collect(),
+        ),
+    );
+    out.insert("blocks".into(), json!(dp.blocks()));
+    out.insert("wire_requests".into(), json!(dp.wire_requests()));
+    out.insert("est_cycle_ms".into(), json!(round(dp.est_cycle_ms(rtt_ms), 1)));
+    out.insert("load".into(), json!(round(dp.est_load(rtt_ms), 4)));
+    out.insert(
+        "block_plan".into(),
+        Value::Array(
+            dp.groups
+                .iter()
+                .flat_map(|g| {
+                    g.plan.blocks.iter().map(move |b| {
+                        json!({"rate_ms": g.rate_ms, "describe": b.describe(), "tags": b.tags(),
+                               "wire_requests": b.wire_requests()})
+                    })
+                })
+                .collect(),
+        ),
+    );
+    out.insert("invalid".into(), json!(invalid));
+    Value::Object(out)
+}

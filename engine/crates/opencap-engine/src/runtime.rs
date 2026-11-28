@@ -594,6 +594,23 @@ impl EngineView for Poller {
                "revision": opencap_core::config::config_revision(&self.config_dir)})
     }
 
+    fn device_plan(&self, device_id: &str) -> Option<Value> {
+        self.worker_for(device_id)?;
+        let dp = rlock(&self.state).registry.plans.get(device_id)?.clone();
+        let rtt = rlock(&self.loaded).poller.check.est_rtt_ms;
+        Some(opencap_core::registry::device_plan_json(&dp, rtt))
+    }
+
+    async fn device_identity(&self, device_id: &str) -> Result<Value, ReadOnceError> {
+        let worker = self.worker_for(device_id).ok_or(ReadOnceError::UnknownDevice)?;
+        match worker.identity(device_id).await {
+            Ok(Some(identity)) => Ok(json!({"connected": true, "identity": identity})),
+            Ok(None) => Ok(json!({"connected": false, "identity": {}})),
+            Err(opencap_core::worker::ReadOnceError::UnknownDevice(..)) => Err(ReadOnceError::UnknownDevice),
+            Err(other) => Err(ReadOnceError::Failed(other.to_string())),
+        }
+    }
+
     async fn read_once(&self, device_id: &str) -> Result<Value, ReadOnceError> {
         let worker = self.worker_for(device_id).ok_or(ReadOnceError::UnknownDevice)?;
         let snap = worker.read_once(device_id).await.map_err(|e| match e {

@@ -2528,3 +2528,13 @@ Status: accepted.
 **Why.** An audit of the Rust engine on the quickstart `config-sim` shows that only the dashboard, the device status and values, Read once and the Quick Client's REST fallback work today; the configuration pages call routes that answer 404 or 501 (#140). Steps (a) and (b) therefore use only routes that exist, and (c) waits for the configuration write routes, which the core worker owns. The routes each step needs and the gaps are in `docs/spec/ui-kepserver-parity.md`; the screens themselves are in `docs/ui/screens.md`.
 
 **Rejected.** A second desktop UI (violates ADR-0010); a JS framework or a bundler (adds a dependency chain and a licence review for no screen that needs it); writing values from the Quick Client (ADR-0008).
+
+### D-113 Device plan and identity routes in the Rust engine (#140, G3)
+
+- `GET /api/v1/devices/{id}/plan` is `opencap.core.plan_report.device_plan_json(…, verbose)` of the running config
+  (`opencap_core::registry::device_plan_json`): counts, rate groups, `block_plan`, `invalid`, `est_cycle_ms`, `load` at
+  `check.est_rtt_ms`. A device that is not polled answers 404.
+- `GET /api/v1/devices/{id}/identity` asks the driver **over the device's open connection**, under the channel's wire lock and
+  the safety timeout, and never opens one: not connected answers `{"connected": false, "identity": {}}`. A connected answer is cached for
+  300 s (`cached`, `age_s`), as Python's `IDENTITY_TTL_S`; `?refresh=true` asks again and needs the admin role (403 otherwise). A driver
+  error or timeout is reported in the body (`error`), not as a failure.

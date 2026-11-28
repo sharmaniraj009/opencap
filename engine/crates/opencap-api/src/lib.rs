@@ -80,6 +80,15 @@ pub trait EngineView: Send + Sync + 'static {
     fn config_status(&self) -> Value {
         json!({"available": false, "pending_reload": false})
     }
+    /// `GET /api/v1/devices/{id}/plan`: the block plan of the running config; `None` = not polled.
+    fn device_plan(&self, _device_id: &str) -> Option<Value> {
+        None
+    }
+    /// `GET /api/v1/devices/{id}/identity`: `{"connected", "identity"}` over the device's
+    /// open connection (never opens one). `Err(UnknownDevice)` = not polled.
+    async fn device_identity(&self, _device_id: &str) -> Result<Value, ReadOnceError> {
+        Err(ReadOnceError::UnknownDevice)
+    }
 }
 
 pub const METRICS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
@@ -265,7 +274,13 @@ struct AppState {
     auth: Auth,
     refusals: RefusalLog,
     config: Option<Arc<opencap_core::config::reader::ConfigReader>>,
+    /// `device id -> (when, answer)` of connected identity answers: asking can cost a request
+    /// on the wire, so it is asked at most once per [`IDENTITY_TTL`] (Python `IDENTITY_TTL_S`).
+    identity_cache: std::sync::Mutex<HashMap<String, (std::time::Instant, Value)>>,
 }
+
+/// How long a connected identity answer is served from the cache.
+pub const IDENTITY_TTL: Duration = Duration::from_secs(300);
 
 type St = State<Arc<AppState>>;
 
@@ -452,8 +467,6 @@ async fn system_tags(State(st): St, Query(q): Query<HashMap<String, String>>) ->
     Json(st.view.system_tags(q.get("prefix").map(String::as_str).unwrap_or(""))).into_response()
 }
 
-use config_api::NOT_YET;
-
 /// The configuration API's own `/api/v1` routes (the legacy ones above keep their paths).
 async fn v1_auth_info(State(st): St) -> Response {
     Json(json!({"open": st.auth.is_open()})).into_response()
@@ -480,7 +493,12 @@ async fn v1_pending(State(st): St) -> Response {
     Json(st.view.config_status()).into_response()
 }
 
-async fn v1_device_get(State(st): St, Path(path): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn v1_device_get(
+    State(st): St,
+    Path(path): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+    principal: Option<axum::Extension<Principal>>,
+) -> Response {
     if let Some(id) = path.strip_suffix("/status") {
         return match st.view.device_detail(id) {
             Some(v) => Json(v).into_response(),
@@ -493,10 +511,55 @@ async fn v1_device_get(State(st): St, Path(path): Path<String>, Query(q): Query<
             None => detail(StatusCode::NOT_FOUND, format!("device {} is not polled", py_repr(id))),
         };
     }
-    if path.ends_with("/plan") || path.ends_with("/identity") {
-        return detail(StatusCode::NOT_IMPLEMENTED, NOT_YET);
+    if let Some(id) = path.strip_suffix("/plan") {
+        return match st.view.device_plan(id) {
+            Some(v) => Json(v).into_response(),
+            None => detail(StatusCode::NOT_FOUND, format!("device {} is not polled", py_repr(id))),
+        };
+    }
+    if let Some(id) = path.strip_suffix("/identity") {
+        let refresh = matches!(q.get("refresh").map(String::as_str), Some("true" | "1"));
+        let admin = principal.is_some_and(|p| p.0.role == Role::Admin);
+        return device_identity(&st, id, refresh, admin).await;
     }
     config_api::device_read(&st.config, &path, &q)
+}
+
+/// Identity over the open connection, cached for [`IDENTITY_TTL`]; `?refresh=true` (admin) asks again now.
+async fn device_identity(st: &AppState, id: &str, refresh: bool, admin: bool) -> Response {
+    if refresh && !admin {
+        return detail(StatusCode::FORBIDDEN, "refreshing the identity needs the admin role");
+    }
+    let cached = {
+        let cache = st.identity_cache.lock().unwrap_or_else(|e| e.into_inner());
+        cache.get(id).filter(|(at, _)| !refresh && at.elapsed() < IDENTITY_TTL).cloned()
+    };
+    if let Some((at, mut v)) = cached {
+        if let Value::Object(o) = &mut v {
+            o.insert("cached".into(), json!(true));
+            o.insert("age_s".into(), json!(at.elapsed().as_secs()));
+        }
+        return Json(v).into_response();
+    }
+    match st.view.device_identity(id).await {
+        Ok(mut v) => {
+            if v["connected"] == true {
+                st.identity_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(id.to_string(), (std::time::Instant::now(), v.clone()));
+            }
+            if let Value::Object(o) = &mut v {
+                o.insert("cached".into(), json!(false));
+            }
+            Json(v).into_response()
+        }
+        Err(ReadOnceError::UnknownDevice) => {
+            detail(StatusCode::NOT_FOUND, format!("device {} is not polled", py_repr(id)))
+        }
+        // e.g. the safety timeout: report it, do not fail the request (as Python)
+        Err(ReadOnceError::Failed(e)) => Json(json!({"connected": true, "identity": {}, "error": e})).into_response(),
+    }
 }
 
 async fn v1_device_post(State(st): St, Path(path): Path<String>) -> Response {
@@ -579,7 +642,7 @@ fn build(
     config_dir: Option<std::path::PathBuf>,
 ) -> Router {
     let config = config_dir.map(|d| Arc::new(opencap_core::config::reader::ConfigReader::new(d)));
-    let state = Arc::new(AppState { view, auth, refusals, config: config.clone() });
+    let state = Arc::new(AppState { view, auth, refusals, config: config.clone(), identity_cache: Default::default() });
     Router::new()
         .route("/health", get(health))
         .route("/health/live", get(health_live))
@@ -678,6 +741,8 @@ mod tests {
     #[derive(Default)]
     struct FakePoller {
         reloads: AtomicUsize,
+        identity_asks: AtomicUsize,
+        connected: std::sync::atomic::AtomicBool,
     }
 
     #[async_trait]
@@ -716,6 +781,22 @@ mod tests {
         }
         fn support(&self) -> Value {
             json!({"product": "opencap", "config_revision": "0123456789abcdef"})
+        }
+        fn device_plan(&self, id: &str) -> Option<Value> {
+            (id == DEV).then(|| json!({"id": id, "blocks": 1, "block_plan": []}))
+        }
+        async fn device_identity(&self, id: &str) -> Result<Value, ReadOnceError> {
+            if id == "Site 001/BOOM" {
+                return Err(ReadOnceError::Failed("the identity request timed out".into()));
+            }
+            if id != DEV {
+                return Err(ReadOnceError::UnknownDevice);
+            }
+            self.identity_asks.fetch_add(1, Ordering::SeqCst);
+            let connected = self.connected.load(Ordering::SeqCst);
+            Ok(
+                json!({"connected": connected, "identity": if connected { json!({"vendor": "ACME"}) } else { json!({}) }}),
+            )
         }
     }
 
@@ -883,7 +964,52 @@ mod tests {
         assert_eq!(fake.reloads.load(Ordering::SeqCst), 1);
         // no config directory in this app: the configuration reads answer 503, not 404
         assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}"), t).await.0, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(call(&a, "GET", &format!("/api/v1/devices/{DEV}/plan"), t).await.0, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn plan_and_identity_with_the_python_semantics() {
+        let (a, fake) = app();
+        let t = Some("s3cret");
+        let plan = call(&a, "GET", &format!("/api/v1/devices/{DEV}/plan"), t).await;
+        assert_eq!((plan.0, plan.1["blocks"].as_u64()), (StatusCode::OK, Some(1)));
+        assert_eq!(call(&a, "GET", "/api/v1/devices/NOPE/X/plan", t).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&a, "GET", "/api/v1/devices/NOPE/X/identity", t).await.0, StatusCode::NOT_FOUND);
+        // not connected: answered, never cached (the next ask goes to the engine again)
+        let id = format!("/api/v1/devices/{DEV}/identity");
+        let (_, v) = call(&a, "GET", &id, t).await;
+        assert_eq!((v["connected"].as_bool(), v["cached"].as_bool()), (Some(false), Some(false)));
+        call(&a, "GET", &id, t).await;
+        assert_eq!(fake.identity_asks.load(Ordering::SeqCst), 2);
+        // connected: asked once, then served from the cache with its age
+        fake.connected.store(true, Ordering::SeqCst);
+        let (_, v) = call(&a, "GET", &id, t).await;
+        assert_eq!((v["identity"]["vendor"].as_str(), v["cached"].as_bool()), (Some("ACME"), Some(false)));
+        let (_, v) = call(&a, "GET", &id, t).await;
+        assert_eq!((v["cached"].as_bool(), v["age_s"].as_u64()), (Some(true), Some(0)));
+        assert_eq!(fake.identity_asks.load(Ordering::SeqCst), 3);
+        // refresh asks again (admin)
+        let (_, v) = call(&a, "GET", &format!("{id}?refresh=true"), t).await;
+        assert_eq!(v["cached"].as_bool(), Some(false));
+        assert_eq!(fake.identity_asks.load(Ordering::SeqCst), 4);
+        // an engine error is reported in the body, not as a failure
+        let (code, v) = call(&a, "GET", "/api/v1/devices/Site 001/BOOM/identity", t).await;
+        assert_eq!(
+            (code, v["connected"].as_bool(), v["error"].as_str()),
+            (StatusCode::OK, Some(true), Some("the identity request timed out"))
+        );
+    }
+
+    #[test]
+    fn a_viewer_may_not_refresh_the_identity() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let fake = Arc::new(FakePoller::default());
+            let auth = Auth::new(None, &[spec("v", Role::Viewer, "V")], env(&[("V", "vtok")])).unwrap();
+            let a = router(fake, auth);
+            let id = format!("/api/v1/devices/{DEV}/identity");
+            assert_eq!(call(&a, "GET", &id, Some("vtok")).await.0, StatusCode::OK);
+            assert_eq!(call(&a, "GET", &format!("{id}?refresh=true"), Some("vtok")).await.0, StatusCode::FORBIDDEN);
+        });
     }
 
     #[tokio::test]

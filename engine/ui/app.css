@@ -175,6 +175,32 @@ tr.changed td { background: var(--info-bg); transition: background 0.6s; }
 .mode-polling { background: var(--warn-bg); color: var(--warn); }
 .mode-connecting { background: var(--code-bg); color: var(--muted); }
 
+/* Project tree */
+.tree-layout { display: grid; grid-template-columns: minmax(240px, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.tree-pane { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; max-height: 78vh; overflow-y: auto; }
+.tree-pane input[type=search] { width: 100%; margin-bottom: 6px; }
+.tree-pane ul { list-style: none; margin: 0; padding: 0; }
+.tree-row { display: flex; align-items: center; gap: 2px; border-radius: 4px; min-height: 26px; }
+.tree-row.d1 { padding-left: 14px; } .tree-row.d2 { padding-left: 28px; } .tree-row.d3 { padding-left: 42px; }
+.tree-row.selected { background: var(--info-bg); }
+.tree-row.selected .tree-label { font-weight: 600; }
+.tree-toggle { width: 22px; height: 22px; flex: 0 0 auto; padding: 0; border: 0; background: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 4px; }
+.tree-toggle:hover { background: var(--code-bg); }
+.tree-toggle:focus-visible, .tree-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.caret { width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent var(--muted); }
+.caret.open { border-width: 6px 4px 0 4px; border-color: var(--muted) transparent transparent transparent; }
+.tree-link { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; padding: 2px 6px; color: var(--text); border-radius: 4px; }
+.tree-link:hover { text-decoration: none; background: var(--code-bg); }
+.tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-hint { margin-left: auto; color: var(--muted); font-size: 0.8em; white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.tree-note { padding: 2px 6px 2px 28px; }
+.dot.hidden { visibility: hidden; }
+.tree-main { min-width: 0; }
+table.kv { max-width: 760px; }
+table.kv th, table.kv td { vertical-align: middle; }
+table.kv td { word-break: break-word; }
+table.kv .ok { color: var(--ok); } table.kv .bad { color: var(--bad); } table.kv .warn { color: var(--warn); }
+
 /* phones: tables marked .responsive become stacked cards */
 @media (max-width: 640px) {
   :root { --gutter: 12px; }
@@ -192,7 +218,8 @@ tr.changed td { background: var(--info-bg); transition: background 0.6s; }
   table.responsive tr.group td { background: none; padding-left: 0; }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-form, .grid-form fieldset { grid-template-columns: 1fr; }
-  .quick { grid-template-columns: 1fr; }
+  .quick, .tree-layout { grid-template-columns: 1fr; }
+  .tree-pane { max-height: 45vh; }
   .stubs ul { columns: 1; }
   .quick-tree { max-height: 40vh; }
   #quick-values .opt { display: none; }

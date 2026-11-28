@@ -103,6 +103,7 @@ nav:
       - "RFC 0002: write safety (proposed)": rfc/0002-write-safety.md
       - Specs: spec/README.md
       - "Spec: system and diagnostic tags": spec/system-tags.md
+      - "Spec: KEPServerEX-style UI parity": spec/ui-kepserver-parity.md
       - "Spec: IoT Gateway JSON payload": spec/payload-iotgw-json.md
       - "Spike: DNP3": spikes/dnp3.md
       - "Spike: BACnet/IP": spikes/bacnet.md

@@ -2546,3 +2546,14 @@ Status: accepted.
 **Rules.** Close-to-tray is honoured only while the tray icon exists (a desktop without a status area would otherwise strand the user), and `--minimized` hides the launcher only then. `--minimized` also skips "open the engine opened last". Quit from the tray stops the bundled engine, as closing the app always did.
 
 **Rejected.** Hiding to the tray by default (changes today's behaviour, and the tray may be absent); a system-service install from the launcher (waits for #57); macOS autostart (no macOS bundle yet).
+
+### D-114 The system-tag tick cannot be starved, and one failing part no longer skips the rest (#56)
+
+- **Cause of the flaky `system_tags_follow_a_killed_device` ("timed out waiting for _DevicesOk").** The task's `run` loop re-armed
+  the once-a-second tick timer on every pass and, when an event arrived, spent the pass on a 50 ms coalescing window during which that timer was not
+  polled. A device that completes a cycle every few milliseconds, or a loaded machine where each window overruns, keeps a wake-up
+  permit stored, so the tick never won the `select!`. The node counts (`_DevicesOk`, ...) are written only by the tick, so they stayed stale
+  while `_State` and `_Error` (event updates) were right. Reproduced deterministically by `event_traffic_does_not_starve_the_tick` (0 ticks in 4.5 s).
+- **Fix.** The tick's deadline now lives across event passes and wins (`biased`), also inside the coalescing window.
+- **Hardening.** The tick and the event pass compute each part (node, each north agent, each channel, each device) on its own: a part that errors
+  (a bad timestamp, say) is logged as `system_tags_failed` with its `part` and skipped, and no longer keeps the other parts from being written.

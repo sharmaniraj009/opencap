@@ -270,6 +270,16 @@
             <h2 class="quick-title"><a :href="deviceHref(id)" x-text="id"></a></h2>
             <div class="actions">
               <input type="search" :placeholder="t('quick.filter_tags_placeholder')" :aria-label="t('quick.filter_tags')" x-model="tq">
+              <select name="quality" x-model="qf" :aria-label="t('quick.quality_filter')">
+                <option value="all" x-text="t('quick.quality_all')"></option>
+                <option value="good" x-text="t('quick.quality_good')"></option>
+                <option value="bad" x-text="t('quick.quality_not_good')"></option>
+              </select>
+              <select name="rate" x-show="pollingMode()" x-model.number="rate" @change="rateChanged()" :aria-label="t('quick.update_rate')" :title="t('quick.update_rate_title')">
+                <template x-for="r in rates" :key="r"><option :value="r" :selected="r === rate" x-text="rateText(r)"></option></template>
+              </select>
+              <label class="check"><input type="checkbox" name="system" x-model="withSystem" @change="systemChanged()"> <span x-text="t('quick.include_system')"></span></label>
+              <button type="button" @click="togglePause()" x-text="pauseText()"></button>
               <button class="primary" x-show="isAdmin()" :disabled="readDisabled()" @click="readNow()" :title="t('quick.read_every_tag_of')" x-text="t('quick.read_now')"></button>
             </div>
           </div>
@@ -281,13 +291,21 @@
           <p class="muted" x-show="!unavailable && !loaded" x-text="t('quick.waiting_for_the_first')"></p>
           <div class="table-wrap" x-show="has(rows)">
             <table class="values" id="quick-values">
-              <thead><tr><th x-text="t('common.tag')"></th><th class="opt" x-text="t('common.address')"></th><th class="opt" x-text="t('common.type')"></th><th x-text="t('common.value')"></th><th x-text="t('common.quality')"></th><th class="opt" x-text="t('common.source_time')"></th><th x-text="t('quick.age')"></th><th class="opt" x-text="t('quick.updates')"></th></tr></thead>
+              <thead><tr>
+                <th :aria-sort="sortAria('tag')"><button type="button" class="sort" @click="sortBy('tag')"><span x-text="t('common.tag')"></span> <span aria-hidden="true" x-text="sortMark('tag')"></span></button></th>
+                <th class="opt" x-show="showMeta()" x-text="t('common.address')"></th>
+                <th class="opt" x-show="showType()" x-text="t('common.type')"></th>
+                <th :aria-sort="sortAria('value')"><button type="button" class="sort" @click="sortBy('value')"><span x-text="t('common.value')"></span> <span aria-hidden="true" x-text="sortMark('value')"></span></button></th>
+                <th :aria-sort="sortAria('quality')"><button type="button" class="sort" @click="sortBy('quality')"><span x-text="t('common.quality')"></span> <span aria-hidden="true" x-text="sortMark('quality')"></span></button></th>
+                <th class="opt" x-text="t('common.source_time')"></th>
+                <th :aria-sort="sortAria('age')"><button type="button" class="sort" @click="sortBy('age')"><span x-text="t('quick.age')"></span> <span aria-hidden="true" x-text="sortMark('age')"></span></button></th>
+                <th class="opt" x-text="t('quick.updates')"></th></tr></thead>
               <tbody>
                 <template x-for="r in shown()" :key="r.tag">
                   <tr :class="rowClass(r)" :data-tag="r.tag">
                     <td><code x-text="r.tag"></code></td>
-                    <td class="small opt"><code x-show="r.address" x-text="r.address"></code></td>
-                    <td class="small muted opt" x-text="r.dtype"></td>
+                    <td class="small opt" x-show="showMeta()"><code x-show="r.address" x-text="r.address"></code></td>
+                    <td class="small muted opt" x-show="showType()" x-text="r.dtype"></td>
                     <td :class="valueClass(r)" x-text="fmt(r.value)"></td>
                     <td><span :class="qualityClass(r.quality)" x-text="r.quality"></span></td>
                     <td class="muted small nowrap opt" x-text="tsText(r)"></td>

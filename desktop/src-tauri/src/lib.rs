@@ -8,23 +8,38 @@
 //! - engine windows load remote pages, so they get no Tauri IPC at all (capabilities cover the
 //!   launcher window only).
 //!
-//! - with an installer, it also starts and stops the engine bundled next to it (`sidecar`, #58).
+//! - with an installer, it also starts and stops the engine bundled next to it (`sidecar`, #58);
+//! - a tray icon with a small menu, start at login, and "start the engine / open the last engine
+//!   when the app starts" are the user's own switches (`settings`, `autostart`, `tray`). They
+//!   are Rust-side only: no new Tauri permission, and engine windows still get no IPC.
 //!
 //! opencap is read-only towards PLCs; the desktop app adds nothing that could write one.
 
+pub mod autostart;
 pub mod engine;
 pub mod profiles;
+pub mod settings;
 pub mod sidecar;
+mod tray;
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use profiles::{KeyringStore, ProfileInput, ProfileStore, ProfileSummary};
+use settings::{Settings, SettingsPatch, SettingsStore};
 use sidecar::{LocalEngine, LocalStatus};
 
 pub struct AppState {
     store: ProfileStore,
     profiles_path: String,
+    settings: SettingsStore,
+    /// The tray icon exists (it cannot on a desktop without a status area).
+    tray: AtomicBool,
+    /// The per-user config directory the autostart entry lives under (`~/.config` on Linux).
+    autostart_dir: PathBuf,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -133,13 +148,17 @@ async fn check_engine(
 }
 
 #[tauri::command]
-fn open_engine(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    local: tauri::State<'_, LocalEngine>,
-    id: String,
-) -> Result<(), String> {
+fn open_engine(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    open_profile(&app, &id)
+}
+
+/// Show the web UI of a profile in its own window (and remember it as the one opened last).
+pub(crate) fn open_profile(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let local = app.state::<LocalEngine>();
+    let id = id.to_string();
     let profile = state.store.get(&id).map_err(err)?;
+    let _ = state.settings.set_last_profile(&id);
     // without a keychain the UI still opens; it then asks for the token itself
     let token = token_for(&state, &local, &id);
     let label = window_label(&id);
@@ -149,7 +168,7 @@ fn open_engine(
     let ui: tauri::Url = format!("{}/ui/", profile.base_url).parse().map_err(err)?;
     let origin = ui.origin().ascii_serialization();
     let allowed = origin.clone();
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::External(ui))
+    WebviewWindowBuilder::new(app, label, WebviewUrl::External(ui))
         .title(format!("{} · opencap", profile.name))
         .inner_size(1280.0, 860.0)
         .min_inner_size(360.0, 480.0)
@@ -167,18 +186,9 @@ fn local_engine_status(local: tauri::State<'_, LocalEngine>) -> LocalStatus {
 
 #[tauri::command]
 async fn start_local_engine(app: tauri::AppHandle) -> Result<LocalStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        let local = app.state::<LocalEngine>();
-        local.start(|url, token| {
-            state
-                .store
-                .set_managed(sidecar::PROFILE_ID, sidecar::PROFILE_NAME, url, token)
-                .unwrap_or_else(|e| Some(format!("Could not save the engine's profile: {e}")))
-        })
-    })
-    .await
-    .map_err(err)?
+    tauri::async_runtime::spawn_blocking(move || start_bundled(&app))
+        .await
+        .map_err(err)?
 }
 
 #[tauri::command]
@@ -186,6 +196,93 @@ async fn stop_local_engine(app: tauri::AppHandle) -> Result<LocalStatus, String>
     tauri::async_runtime::spawn_blocking(move || app.state::<LocalEngine>().stop())
         .await
         .map_err(err)?
+}
+
+/// Start the bundled engine (blocking) and record its profile; shared by the launcher, the tray and
+/// "start the engine when the app starts".
+pub(crate) fn start_bundled(app: &tauri::AppHandle) -> Result<LocalStatus, String> {
+    let state = app.state::<AppState>();
+    let local = app.state::<LocalEngine>();
+    local.start(|url, token| {
+        state
+            .store
+            .set_managed(sidecar::PROFILE_ID, sidecar::PROFILE_NAME, url, token)
+            .unwrap_or_else(|e| Some(format!("Could not save the engine's profile: {e}")))
+    })
+}
+
+#[derive(Serialize)]
+struct SettingsView {
+    #[serde(flatten)]
+    settings: Settings,
+    /// Name of the engine opened last, if that profile still exists.
+    last_profile_name: Option<String>,
+    /// The tray icon is there, so "keep running in the tray" can be honoured.
+    tray: bool,
+    /// Start at login is on (`None` when this system cannot tell or cannot do it).
+    autostart: Option<bool>,
+    autostart_error: Option<String>,
+}
+
+fn settings_view(app: &tauri::AppHandle) -> SettingsView {
+    let state = app.state::<AppState>();
+    let settings = state.settings.get();
+    let last_profile_name = settings
+        .last_profile
+        .as_deref()
+        .and_then(|id| state.store.get(id).ok())
+        .map(|p| p.name);
+    let (autostart, autostart_error) = match autostart::is_enabled(&state.autostart_dir) {
+        Ok(on) => (Some(on), None),
+        Err(e) => (None, Some(e)),
+    };
+    SettingsView {
+        settings,
+        last_profile_name,
+        tray: state.tray.load(Ordering::Relaxed),
+        autostart,
+        autostart_error,
+    }
+}
+
+#[tauri::command]
+fn get_settings(app: tauri::AppHandle) -> SettingsView {
+    settings_view(&app)
+}
+
+#[tauri::command]
+fn set_settings(app: tauri::AppHandle, patch: SettingsPatch) -> Result<SettingsView, String> {
+    app.state::<AppState>().settings.apply(patch)?;
+    Ok(settings_view(&app))
+}
+
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    let state = app.state::<AppState>();
+    autostart::set_enabled(&state.autostart_dir, &autostart::launch_target()?, enabled)?;
+    Ok(settings_view(&app))
+}
+
+/// What the user asked for at start-up: the bundled engine, and then the engine opened last.
+fn startup_actions(app: tauri::AppHandle, minimized: bool) {
+    let settings = app.state::<AppState>().settings.get();
+    if !(settings.start_engine_on_launch || (settings.open_last_on_launch && !minimized)) {
+        return;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        if settings.start_engine_on_launch && app.state::<LocalEngine>().status().available {
+            if let Err(e) = start_bundled(&app) {
+                eprintln!("opencap desktop: could not start the bundled engine: {e}");
+            }
+        }
+        if settings.open_last_on_launch && !minimized {
+            if let Some(id) = &settings.last_profile {
+                if let Err(e) = open_profile(&app, id) {
+                    eprintln!("opencap desktop: could not open the engine opened last: {e}");
+                }
+            }
+        }
+    });
 }
 
 /// `opencap-desktop --check-bundled-engine [report-file]`: the installer smoke test (#58). Uses
@@ -227,9 +324,13 @@ pub fn run() {
         .setup(|app| {
             let path = app.path().app_config_dir()?.join("profiles.json");
             let profiles_path = path.display().to_string();
+            let settings_path = app.path().app_config_dir()?.join("settings.json");
             app.manage(AppState {
                 store: ProfileStore::new(path, Box::new(KeyringStore)),
                 profiles_path,
+                settings: SettingsStore::load(settings_path),
+                tray: AtomicBool::new(false),
+                autostart_dir: app.path().config_dir()?,
             });
             // the bundled engine's config and outbox: local app data, kept across upgrades
             let engine_root = app.path().app_local_data_dir()?.join("engine");
@@ -237,7 +338,38 @@ pub fn run() {
                 sidecar::Layout::new(engine_root),
                 sidecar::engine_binary(),
             ));
+            // the tray icon (not every desktop has a status area: then there is simply none)
+            let tray_ok = match tray::build(app.handle()) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("opencap desktop: no tray icon: {e}");
+                    false
+                }
+            };
+            app.state::<AppState>()
+                .tray
+                .store(tray_ok, Ordering::Relaxed);
+            // `--minimized` (start at login): only with a tray icon to bring the window back from
+            let minimized = tray_ok && std::env::args().any(|a| a == autostart::MINIMIZED);
+            if minimized {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
+            startup_actions(app.handle().clone(), minimized);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // with the switch on and a tray icon to return from, closing the launcher hides it
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    let state = window.app_handle().state::<AppState>();
+                    if state.tray.load(Ordering::Relaxed) && state.settings.get().keep_in_tray {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -248,7 +380,10 @@ pub fn run() {
             open_engine,
             local_engine_status,
             start_local_engine,
-            stop_local_engine
+            stop_local_engine,
+            get_settings,
+            set_settings,
+            set_autostart
         ])
         .build(tauri::generate_context!())
         .expect("error while building opencap desktop")

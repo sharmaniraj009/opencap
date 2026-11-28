@@ -93,7 +93,8 @@
         warn.hidden = false;
       }
       li.querySelector(".open").addEventListener("click", function () {
-        invoke("open_engine", { id: p.id }).catch(function (e) { showError(document.getElementById("error"), String(e)); });
+        invoke("open_engine", { id: p.id }).then(function () { return invoke("get_settings"); }).then(showSettings)
+          .catch(function (e) { showError(document.getElementById("error"), String(e)); });
       });
       li.querySelector(".check").addEventListener("click", function () { check(p, li); });
       if (p.id === BUNDLED) {                    // follows the bundled engine by itself
@@ -107,6 +108,38 @@
       });
       list.appendChild(li);
       check(p, li);
+    });
+  }
+
+  // --- preferences: tray, start at login, what happens when the app starts ------------------------
+  function showSettings(s) {
+    var last = document.getElementById("open-last");
+    last.hidden = !s.last_profile_name;
+    last.textContent = s.last_profile_name ? "Open " + s.last_profile_name : "";
+    last.onclick = function () {
+      invoke("open_engine", { id: s.last_profile }).catch(function (e) { showError(document.getElementById("error"), String(e)); });
+    };
+    var auto = document.getElementById("pref-autostart");
+    auto.checked = !!s.autostart;
+    auto.disabled = s.autostart === null || s.autostart === undefined;
+    document.getElementById("pref-autostart-note").textContent = auto.disabled ? "(not available here" + (s.autostart_error ? ": " + s.autostart_error : "") + ")" : "";
+    var tray = document.getElementById("pref-tray");
+    tray.checked = !!s.keep_in_tray;
+    tray.disabled = !s.tray;
+    document.getElementById("pref-tray-note").textContent = s.tray ? "" : "(this desktop has no status area for a tray icon)";
+    document.getElementById("pref-engine").checked = !!s.start_engine_on_launch;
+    document.getElementById("pref-last").checked = !!s.open_last_on_launch;
+  }
+
+  function prefsFailed(e) {
+    showError(document.getElementById("prefs-error"), String(e));
+    return invoke("get_settings").then(showSettings);
+  }
+
+  function bindPref(id, run) {
+    document.getElementById(id).addEventListener("change", function (ev) {
+      showError(document.getElementById("prefs-error"), "");
+      run(ev.target.checked).then(showSettings).catch(prefsFailed);
     });
   }
 
@@ -152,7 +185,15 @@
   }
   document.getElementById("local-start").addEventListener("click", function () { localAction("start_local_engine", "starting…"); });
   document.getElementById("local-stop").addEventListener("click", function () { localAction("stop_local_engine", "stopping…"); });
-  invoke("local_engine_status").then(showLocal);
+  bindPref("pref-autostart", function (on) { return invoke("set_autostart", { enabled: on }); });
+  bindPref("pref-tray", function (on) { return invoke("set_settings", { patch: { keep_in_tray: on } }); });
+  bindPref("pref-engine", function (on) { return invoke("set_settings", { patch: { start_engine_on_launch: on } }); });
+  bindPref("pref-last", function (on) { return invoke("set_settings", { patch: { open_last_on_launch: on } }); });
+  invoke("get_settings").then(showSettings);
+  invoke("local_engine_status").then(function (st) {
+    showLocal(st);
+    document.getElementById("pref-engine-row").hidden = !st.available;
+  });
   invoke("app_info").then(function (info) {
     document.getElementById("foot").textContent = "opencap desktop " + info.version + " · profiles: " + info.profiles_path +
       " (tokens: system keychain) · read-only towards PLCs";

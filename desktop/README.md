@@ -22,8 +22,35 @@ and Windows (MSI). Read-only towards PLCs, like the engine.
   `sessionStorage` by an initialization script that checks the page's origin first, and the
   window cannot navigate to another origin.
 
+## Tray, start at login, start-up behaviour
+
+Everything here is the user's own switch, off on a new install, and lives in the launcher's
+**Preferences** (`settings.json` next to `profiles.json`: switches and the id of the engine
+opened last, never a secret):
+
+- **Tray icon** (Linux status area, Windows notification area), always there when the desktop has
+  one. Menu: *Show opencap*, *Open the engine opened last*, *Start* and *Stop the bundled engine*
+  (only with an installer), *Quit* (which stops the bundled engine, like closing the app). A left
+  click shows the launcher.
+- **Keep running in the tray when the window is closed**: closing the launcher hides it instead of
+  quitting. Honoured only while the tray icon exists, otherwise the user would have no way back to
+  the window (the checkbox is disabled, with the reason, on a desktop without a status area).
+- **Start opencap when I log in**: a `.desktop` file in `~/.config/autostart/` on Linux, a value
+  under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` on Windows (per user, set with
+  `reg.exe`), both removed again when the switch goes off. It starts `opencap-desktop --minimized`:
+  the launcher window stays hidden when there is a tray icon to bring it back from. From an
+  AppImage the entry points at the AppImage, not at its temporary mount.
+- **Start the bundled engine when the app starts**, and **Open the engine opened last when the app
+  starts** (skipped with `--minimized`: nobody is at the screen). The *Open <name>* button at the
+  top of the launcher and the tray entry do the same on demand.
+
 ## Security model
 
+- **No new Tauri capability.** The tray, the settings and the autostart entry are Rust-side: the
+  tray is built and handled in Rust, and the launcher reaches the settings through three more of
+  the app's own commands (`get_settings`, `set_settings`, `set_autostart`). `capabilities/default.json`
+  is unchanged (`core:default`, launcher window only), and engine windows still get no IPC.
+  The `tray-icon` and `image-png` features of `tauri` are compile-time features, not permissions.
 - Capabilities (`src-tauri/capabilities/default.json`) cover the launcher window only, with
   `core:default` plus the app's own commands: no shell, no filesystem and no HTTP plugin.
 - Engine windows load remote pages and get no Tauri IPC.
@@ -52,7 +79,7 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator
 
 ```bash
 cd desktop
-cargo test                      # profile storage (in-memory keychain), engine checks against a fake server
+cargo test                      # profile storage (in-memory keychain), settings, autostart entries, engine checks against a fake server
 cargo run                       # the launcher window (needs a display)
 cargo install tauri-cli --version "^2" --locked
 cargo tauri build               # bundles: AppImage/deb on Linux, MSI on Windows
@@ -123,9 +150,9 @@ Point a profile at a running engine (`opencap run`), or start one for the UI:
 
 ## Licences (ADR-0007)
 
-Direct dependencies: `tauri` 2 and `tauri-build` 2 (Apache-2.0 OR MIT), `keyring` 3, `ureq` 2,
+Direct dependencies: `tauri` 2 (with its `tray-icon` and `image-png` features) and `tauri-build` 2 (Apache-2.0 OR MIT), `keyring` 3, `ureq` 2,
 `url` 2, `serde`, `serde_json`, `thiserror`, `getrandom` 0.3 (the bundled engine's token), on
-Unix `libc` (its clean stop) and, for tests only, `tempfile` (all MIT OR Apache-2.0). The whole tree (`cargo metadata`, all targets) is MIT, Apache-2.0, BSD, ISC, Zlib,
+Unix `libc` (its clean stop) and, for tests only, `tempfile` (all MIT OR Apache-2.0). The tray icon's PNG decoding adds four crates: `image` (MIT OR Apache-2.0), `byteorder-lite` (Unlicense OR MIT), `moxcms` and `pxfm` (BSD-3-Clause OR Apache-2.0). The whole tree (`cargo metadata`, all targets) is MIT, Apache-2.0, BSD, ISC, Zlib,
 Unicode-3.0 or Unlicense, except:
 
 - **MPL-2.0**, unmodified, pulled in by Tauri's HTML handling: `cssparser`, `cssparser-macros`,

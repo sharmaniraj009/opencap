@@ -2521,3 +2521,13 @@ Status: accepted.
 **Also.** `engine/ui/` is the only edited copy of the bundle. `engine/crates/opencap-api/tests/ui_strings.rs` ports the Python UI discipline tests to it: no text outside `i18n/en.json`, every key the code uses is in the table and none is left over, no loop variable hides `t` or `rich`, and nothing offers to write to a PLC (ADR-0008).
 
 **Rejected.** A second tree implementation in the desktop launcher (ADR-0010: one UI); expanding every device on load (a 250k-tag project would fetch all values at once: only expanded devices are read, at most 25 per 2 s tick, and the filter loads at most 60).
+
+## D-143: desktop launcher: tray, start at login, start-up behaviour; no new Tauri capability (2026-11-28)
+
+**Decision.** The desktop app gets a tray icon (menu: show, open the engine opened last, start and stop the bundled engine, quit), a "keep running in the tray when the window is closed" switch, start at login (`opencap-desktop --minimized`), and two start-up switches (start the bundled engine, open the engine opened last). All of them are the user's, in the launcher's Preferences, and off on a new install, so nothing about how the app behaves changes until someone turns one on. They are kept in `settings.json` next to `profiles.json` (switches and a profile id, no secret). Start at login is a `.desktop` file in `~/.config/autostart/` on Linux and a per-user `Run` value (via `reg.exe`) on Windows, written by the app itself rather than by a plugin.
+
+**Why no plugin and no capability.** `tauri-plugin-autostart` would add a dependency tree and a permission for what is a file or a registry value; `desktop/README.md`'s security model (launcher window only, `core:default`, engine windows without IPC) stays exactly as it was. The tray is built and handled in Rust. The only new dependencies are the four crates `tauri`'s `image-png` feature pulls in for the tray icon (`image`, `byteorder-lite`, `moxcms`, `pxfm`), all permissive and inside the desktop `deny.toml` allow-list.
+
+**Rules.** Close-to-tray is honoured only while the tray icon exists (a desktop without a status area would otherwise strand the user), and `--minimized` hides the launcher only then. `--minimized` also skips "open the engine opened last". Quit from the tray stops the bundled engine, as closing the app always did.
+
+**Rejected.** Hiding to the tray by default (changes today's behaviour, and the tray may be absent); a system-service install from the launcher (waits for #57); macOS autostart (no macOS bundle yet).

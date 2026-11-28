@@ -11,6 +11,7 @@
 <header class="top">
   <span class="brand">opencap</span>
   <span class="muted">engines</span>
+  <button id="open-last" hidden title="Open the engine you opened last"></button>
   <button id="add" class="primary">Add engine</button>
 </header>
 <main>
@@ -30,6 +31,16 @@
     </div>
   </section>
   <ul id="profiles" class="profiles" aria-live="polite"></ul>
+
+  <details id="prefs" class="prefs">
+    <summary>Preferences</summary>
+    <label class="check"><input type="checkbox" id="pref-autostart"> Start opencap when I log in <span class="muted small" id="pref-autostart-note"></span></label>
+    <label class="check"><input type="checkbox" id="pref-tray"> Keep running in the tray when the window is closed <span class="muted small" id="pref-tray-note"></span></label>
+    <label class="check" id="pref-engine-row"><input type="checkbox" id="pref-engine"> Start the bundled engine when the app starts</label>
+    <label class="check"><input type="checkbox" id="pref-last"> Open the engine opened last when the app starts</label>
+    <p class="muted small">Quit from the tray menu (or close the window with the tray switch off) stops the bundled engine.</p>
+    <p id="prefs-error" class="error" role="alert" hidden></p>
+  </details>
 
   <dialog id="editor">
     <form id="profile-form" method="dialog">

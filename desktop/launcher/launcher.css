@@ -37,3 +37,7 @@ input { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-r
 .buttons { display: flex; gap: 8px; }
 .foot { padding: 12px 16px; max-width: 980px; margin: 0 auto; }
 .local { margin-bottom: 10px; }
+
+.prefs { margin: 18px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; }
+.prefs summary { cursor: pointer; font-weight: 600; }
+.prefs label.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; }

@@ -2546,3 +2546,11 @@ Status: accepted.
 **Rules.** Close-to-tray is honoured only while the tray icon exists (a desktop without a status area would otherwise strand the user), and `--minimized` hides the launcher only then. `--minimized` also skips "open the engine opened last". Quit from the tray stops the bundled engine, as closing the app always did.
 
 **Rejected.** Hiding to the tray by default (changes today's behaviour, and the tray may be absent); a system-service install from the launcher (waits for #57); macOS autostart (no macOS bundle yet).
+
+## D-145: diagnostics on the project tree come from the system tags (2026-11-28)
+
+**Decision.** Selecting a project, channel or device (or a tag of it) in the project tree shows a **Diagnostics** section under its properties, read with `GET /api/v1/system/tags?prefix=<node>` every 2 s while the node is selected (the routes every engine serves, no new engine work): for a device, successful and failed reads, timeouts, connection errors, scan overruns and seconds in error as cards (red or amber when non-zero), and the request success rate, requests ok, bad configuration, other errors, error count and auto-demotion as rows; for a channel, its aggregate statistics and pending reads; for the project, uptime, total and active tags, clients, devices ok / offline / demoted / disabled, MQTT link, outbox messages, age, drops and size, MQTT published and forward mode, project revision, engine version and redundancy role. The figures are the ones `docs/spec/system-tags.md` defines (DIAG-10, `_Statistics`, `_System`), so they agree with the status API and the metrics by construction.
+
+**Not done.** The event log (G6), plan and identity (G3) and frame capture (DIAG-11) need engine routes that do not exist yet; this section does not replace them.
+
+**Rejected.** A second statistics API for the UI (the system tags are the contract); polling every tag of the project for it (only the selected node's prefix is read).

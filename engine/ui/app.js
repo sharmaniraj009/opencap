@@ -734,7 +734,7 @@
     var TREE_LOAD_ALL = 60;            // devices loaded to search their tags
     Alpine.data("treeView", function () {
       return Object.assign({}, helpers, {
-        data: null, error: "", q: "", initialOpen: false, opened: {}, devs: {}, sys: [], sysLoaded: false, sel: { kind: "root", id: "", tag: "", path: "" },
+        data: null, error: "", q: "", initialOpen: false, opened: {}, devs: {}, sys: [], sysLoaded: false, diag: { scope: "", items: {} }, sel: { kind: "root", id: "", tag: "", path: "" },
         init: function () {
           var self = this;
           routed(this, this.select);
@@ -764,6 +764,7 @@
           if (s.kind === "sys" || s.kind === "systag") o.sys = true;
           this.opened = o;
           if (s.id && (s.kind === "device" || s.kind === "tag")) this.loadDevice(s.id);
+          this.loadDiagnostics();
         },
         channelOf: function (id) { var i = String(id).indexOf("/"); return i === -1 ? String(id) : String(id).slice(0, i); },
 
@@ -808,7 +809,107 @@
           });
           ids.slice(0, TREE_REFRESH_DEVICES).forEach(function (id) { self.loadDevice(id); });
           if (this.sel.kind === "sys" || this.sel.kind === "systag" || this.opened.sys) this.loadSystem();
+          this.loadDiagnostics();
         },
+        // ---- diagnostics: the statistics and health system tags of the selected node (DIAG-10), read from
+        // GET /api/v1/system/tags with the node's prefix. Keys are the paths without that prefix.
+        diagScope: function () {
+          var s = this.sel;
+          if (s.kind === "root") return { scope: "root", prefix: "_System" };
+          if (s.kind === "channel") return { scope: "ch:" + s.id, prefix: s.id + "._" };
+          if (s.kind === "device" || s.kind === "tag") return { scope: "dev:" + s.id, prefix: s.id.replace("/", ".") + "._" };
+          return null;
+        },
+        loadDiagnostics: function () {
+          var self = this, sc = this.diagScope();
+          if (!sc) { if (this.diag.scope) this.diag = { scope: "", items: {} }; return; }
+          call("GET", "/api/v1/system/tags?prefix=" + enc(sc.prefix)).then(function (r) {
+            var cur = self.diagScope();
+            if (!cur || cur.scope !== sc.scope) return;
+            var items = {}, cut = sc.scope === "root" ? 0 : sc.prefix.length - 1;
+            (r.items || []).forEach(function (t) { items[sc.scope === "root" ? t.path : t.path.slice(cut)] = t; });
+            self.diag = { scope: sc.scope, items: items };
+          }).catch(function () { self.diag = { scope: sc.scope, items: {} }; });
+        },
+        dv: function (key) { var t = this.diag.items[key]; return t ? t.value : undefined; },
+        dn: function (key) { var v = this.dv(key); return typeof v === "number" ? v : null; },
+        duration: function (secs) {
+          if (secs === null || secs === undefined) return "—";
+          secs = Math.floor(secs);
+          var d = Math.floor(secs / 86400), h = Math.floor(secs % 86400 / 3600), m = Math.floor(secs % 3600 / 60), s = secs % 60;
+          if (d) return tr("tree.dur_d", { d: d, h: h });
+          if (h) return tr("tree.dur_h", { h: h, m: m });
+          if (m) return tr("tree.dur_m", { m: m, s: s });
+          return tr("tree.dur_s", { s: s });
+        },
+        bytes: function (n) {
+          if (n === null || n === undefined) return "—";
+          var u = ["B", "KB", "MB", "GB"], i = 0;
+          while (n >= 1024 && i < u.length - 1) { n /= 1024; i += 1; }
+          return (i ? n.toFixed(1) : String(n)) + " " + u[i];
+        },
+        // cards (the figures worth a glance) and rows (the rest) for the selected node
+        diagCards: function () {
+          var self = this, sc = this.diagScope(), out = [];
+          if (!sc || this.diag.scope !== sc.scope || !Object.keys(this.diag.items).length) return out;
+          function card(label, value, cls) { out.push({ label: label, value: value === null || value === undefined ? "—" : String(value), cls: cls || "" }); }
+          if (sc.scope === "root") {
+            card(tr("tree.uptime"), this.duration(this.dn("_System._UptimeS")));
+            card(tr("tree.total_tags"), this.dv("_System._TotalTagCount"));
+            card(tr("tree.active_tags"), this.dv("_System._ActiveTagCount"));
+            card(tr("tree.clients"), this.dv("_System._ClientCount"));
+            card(tr("tree.devices_ok"), this.dv("_System._DevicesOk"), "ok");
+            card(tr("tree.devices_offline"), this.dv("_System._DevicesOffline"), this.dn("_System._DevicesOffline") ? "bad" : "");
+            card(tr("tree.devices_demoted"), this.dv("_System._DevicesDemoted"), this.dn("_System._DevicesDemoted") ? "warn" : "");
+            card(tr("tree.outbox_messages"), this.dv("_System._OutboxMessages"), this.dn("_System._OutboxMessages") > 100 ? "warn" : "");
+          } else {
+            var failed = this.dn("_Statistics._FailedReads"), t = this.dn("_Statistics._Timeouts"), c = this.dn("_Statistics._ConnErrors");
+            card(tr("tree.reads_ok"), this.dv("_Statistics._SuccessfulReads"), "ok");
+            card(tr("tree.reads_failed"), this.dv("_Statistics._FailedReads"), failed ? "bad" : "");
+            card(tr("tree.timeouts"), this.dv("_Statistics._Timeouts"), t ? "warn" : "");
+            card(tr("tree.conn_errors"), this.dv("_Statistics._ConnErrors"), c ? "warn" : "");
+            card(tr("tree.overruns"), this.dv(sc.scope.indexOf("ch:") === 0 ? "_Statistics._Overruns" : "_System._Overruns"));
+            if (sc.scope.indexOf("dev:") === 0) card(tr("tree.seconds_in_error"), this.dv("_System._SecondsInError"), this.dn("_System._SecondsInError") ? "bad" : "");
+            else card(tr("tree.pending_reads"), this.dv("_Statistics._PendingReads"));
+          }
+          return out;
+        },
+        diagRows: function () {
+          var self = this, sc = this.diagScope(), rows = [];
+          if (!sc || this.diag.scope !== sc.scope || !Object.keys(this.diag.items).length) return rows;
+          function add(label, value, cls) { if (value !== undefined) rows.push({ label: label, value: value === null || value === "" ? "—" : String(value), cls: cls || "" }); }
+          if (sc.scope === "root") {
+            add(tr("tree.mqtt"), this.dv("_System._MqttConnected") === undefined ? undefined : tr(this.dv("_System._MqttConnected") ? "dashboard.mqtt_up" : "dashboard.mqtt_down"), this.dv("_System._MqttConnected") ? "ok" : "bad");
+            add(tr("tree.outbox_age"), this.duration(this.dn("_System._OutboxAgeS")));
+            add(tr("tree.outbox_dropped"), this.dv("_System._OutboxDropped"), this.dn("_System._OutboxDropped") ? "warn" : "");
+            add(tr("tree.devices_disabled"), this.dv("_System._DevicesDisabled"));
+            add(tr("tree.revision"), this.dv("_System._ProjectRevision"));
+            add(tr("tree.engine"), this.dv("_System._Engine") === undefined ? undefined : this.dv("_System._Engine") + " " + (this.dv("_System._ProductVersion") || ""));
+            var mq = "_System._North.mqtt.";
+            if (this.diag.items[mq + "_Published"]) {
+              add(tr("tree.mqtt_published"), this.dv(mq + "_Published"));
+              add(tr("tree.forward_mode"), this.dv(mq + "_ForwardMode"));
+              add(tr("tree.outbox_size"), this.bytes(this.dn(mq + "_OutboxBytes")) + " / " + this.bytes(this.dn(mq + "_OutboxCapacityBytes")));
+              if (this.dv(mq + "_LastError")) add(tr("tree.last_error"), this.dv(mq + "_LastError"), "bad");
+            }
+            add(tr("tree.redundancy"), this.dv("_System._Redundancy._Mode") === undefined ? undefined : this.dv("_System._Redundancy._Mode") + " / " + this.dv("_System._Redundancy._Role"));
+          } else {
+            var ok = this.dn("_Statistics._RequestsOk"), bad = (this.dn("_Statistics._Timeouts") || 0) + (this.dn("_Statistics._ConnErrors") || 0) +
+              (this.dn("_Statistics._BadConfig") || 0) + (this.dn("_Statistics._OtherErrors") || 0);
+            if (ok !== null) add(tr("tree.success_rate"), ok + bad === 0 ? "—" : (100 * ok / (ok + bad)).toFixed(ok + bad < 1000 ? 1 : 2) + " %");
+            add(tr("tree.requests_ok"), this.dv("_Statistics._RequestsOk"));
+            add(tr("tree.bad_config"), this.dv("_Statistics._BadConfig"), this.dn("_Statistics._BadConfig") ? "warn" : "");
+            add(tr("tree.other_errors"), this.dv("_Statistics._OtherErrors"), this.dn("_Statistics._OtherErrors") ? "warn" : "");
+            if (sc.scope.indexOf("ch:") === 0) add(tr("tree.max_pending"), this.dv("_Statistics._MaxPendingReads"));
+            if (sc.scope.indexOf("dev:") === 0) {
+              add(tr("tree.error_count"), this.dv("_System._ErrorCount"));
+              add(tr("tree.auto_demoted"), this.dv("_System._AutoDemoted") === undefined ? undefined : this.yesNo(this.dv("_System._AutoDemoted")), this.dv("_System._AutoDemoted") ? "warn" : "");
+            }
+          }
+          return rows;
+        },
+        showDiag: function () { return this.diagCards().length > 0; },
+        cardClass: function (c) { return "value " + c.cls; },
         searchChanged: function () {
           var self = this;
           if (!this.q.trim()) return;

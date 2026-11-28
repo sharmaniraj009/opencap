@@ -11,8 +11,9 @@
 </head>
 <body x-data="shell">
 <header class="top">
-  <a class="brand" href="#/dashboard">opencap</a>
+  <a class="brand" href="#/tree">opencap</a>
   <nav class="nav" x-show="app().name" x-cloak>
+    <a href="#/tree" :aria-current="active('tree') ? 'page' : null" x-text="t('common.project')"></a>
     <a href="#/dashboard" :aria-current="active('dashboard device') ? 'page' : null" x-text="t('common.dashboard')"></a>
     <a href="#/quick" :aria-current="active('quick') ? 'page' : null" x-text="t('common.quick_client')"></a>
     <a href="#/config" :aria-current="active('config channel edit check') ? 'page' : null" x-text="t('common.config')"></a>
@@ -89,6 +90,77 @@
       </table>
     </section>
   </template>
+</section>
+</template>
+
+<!-- ============================================================ project tree -->
+<template x-if="view('tree')">
+<section x-data="treeView" id="view-tree">
+  <div class="toolbar">
+    <h1 x-text="t('tree.title')"></h1>
+    <span class="muted small" x-text="t('tree.read_only')"></span>
+  </div>
+  <p class="error" x-show="error" x-text="error"></p>
+  <div class="tree-layout">
+    <nav class="tree-pane" :aria-label="t('tree.title')">
+      <input type="search" :placeholder="t('tree.filter_placeholder')" :aria-label="t('tree.filter')" x-model="q" @input="searchChanged()">
+      <ul id="tree-list" role="tree" @keydown="onKey($event)">
+        <template x-for="r in rows()" :key="r.key">
+          <li role="treeitem" :data-key="r.key" :aria-level="r.level" :aria-expanded="expandedAttr(r)" :aria-selected="rowAria(r)" :class="rowClass(r)">
+            <button class="tree-toggle" type="button" tabindex="-1" x-show="r.expandable" @click="toggleRow(r)" :aria-label="toggleLabel(r)"><span :class="r.open ? 'caret open' : 'caret'" aria-hidden="true"></span></button>
+            <template x-if="isLink(r)">
+              <a class="tree-link" :href="r.href" :aria-current="rowAria(r)">
+                <span :class="dotClass(r)" aria-hidden="true"></span>
+                <span class="tree-label" x-text="r.label"></span>
+                <span class="tree-hint" x-show="r.hint" x-text="r.hint"></span>
+                <span :class="qualityClass(r.quality)" x-show="showQuality(r) &amp;&amp; r.quality !== 'good'" x-text="r.quality"></span>
+              </a>
+            </template>
+            <template x-if="isNote(r)"><span class="tree-note muted small" x-text="r.label"></span></template>
+          </li>
+        </template>
+      </ul>
+    </nav>
+    <div class="tree-main">
+      <div class="toolbar">
+        <h2 class="quick-title"><span class="muted small" x-text="kindText()"></span> <span x-text="title()"></span></h2>
+        <div class="actions" x-show="hasDevice()">
+          <a class="button" :href="deviceHref(sel.id)" x-text="t('tree.open_device')"></a>
+          <a class="button" :href="quickHref(sel.id)" x-text="t('common.quick_client')"></a>
+          <a class="button" x-show="showEdit()" :href="editHref(sel.id)" x-text="t('device.edit_config')"></a>
+        </div>
+      </div>
+      <p class="error" x-show="deviceError()" x-text="deviceError()"></p>
+      <p class="muted" x-show="missing()" x-text="t('tree.node_missing')"></p>
+      <table class="kv compact" id="tree-props" x-show="has(props())">
+        <tbody>
+          <template x-for="p in props()" :key="p.label">
+            <tr><th scope="row" x-text="p.label"></th><td><span :class="valueClass(p)" x-text="p.value"></span></td></tr>
+          </template>
+        </tbody>
+      </table>
+      <p class="muted small" x-show="showMeta()" x-text="t('tree.meta_pending')"></p>
+      <template x-if="has(channelDevices())">
+        <div class="table-wrap">
+          <table class="devices responsive">
+            <thead><tr><th x-text="t('common.device')"></th><th x-text="t('common.driver')"></th><th x-text="t('common.state')"></th><th x-text="t('common.last_good')"></th><th x-text="t('common.errors')"></th></tr></thead>
+            <tbody>
+              <template x-for="d in channelDevices()" :key="d.id">
+                <tr>
+                  <td :data-label="t('common.device')"><a :href="devTreeHref(d)" x-text="deviceLabel(d)"></a></td>
+                  <td :data-label="t('common.driver')" x-text="d.driver"></td>
+                  <td :data-label="t('common.state')"><span :class="stateClass(d.state)" x-text="stateText(d.state)"></span></td>
+                  <td :data-label="t('common.last_good')" x-text="ago(d.last_good)"></td>
+                  <td :data-label="t('common.errors')" x-text="fmt(d.errors)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <p class="muted" x-show="sel.kind === 'root'" x-text="t('tree.pick')"></p>
+    </div>
+  </div>
 </section>
 </template>
 

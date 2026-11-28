@@ -2528,3 +2528,11 @@ Status: accepted.
 **Why.** An audit of the Rust engine on the quickstart `config-sim` shows that only the dashboard, the device status and values, Read once and the Quick Client's REST fallback work today; the configuration pages call routes that answer 404 or 501 (#140). Steps (a) and (b) therefore use only routes that exist, and (c) waits for the configuration write routes, which the core worker owns. The routes each step needs and the gaps are in `docs/spec/ui-kepserver-parity.md`; the screens themselves are in `docs/ui/screens.md`.
 
 **Rejected.** A second desktop UI (violates ADR-0010); a JS framework or a bundler (adds a dependency chain and a licence review for no screen that needs it); writing values from the Quick Client (ADR-0008).
+
+## D-141: the project tree is the landing page and reads only routes every engine serves (2026-11-28)
+
+**Decision.** `#/tree` (nav entry "Project", also the default route and the page after login) shows Channels > Devices > Tags, plus the `_System` tags, in a tree pane with a read-only properties panel for the selected node. It is built only on `GET /api/v1/status`, `GET /api/v1/devices/{id}/status` and `/values`, and `GET /api/v1/system/tags` (D-140's audit: the routes the Rust engine serves). A property that needs a route that is not there yet (tag address, data type, scan rate, scaling) is replaced by one line saying it appears when the configuration API lands (#140), never by an error. The selection lives in the hash (`#/tree/ch/<channel>`, `dev/<channel>/<device>`, `tag/<channel>/<device>/<tag>`, `sys/<path>`), so it can be linked and survives a reload; the tree is keyboard-operable (arrow keys, Home/End) and draws at most 500 tag rows per device, the filter narrowing the rest.
+
+**Also.** `engine/ui/` is the only edited copy of the bundle. `engine/crates/opencap-api/tests/ui_strings.rs` ports the Python UI discipline tests to it: no text outside `i18n/en.json`, every key the code uses is in the table and none is left over, no loop variable hides `t` or `rich`, and nothing offers to write to a PLC (ADR-0008).
+
+**Rejected.** A second tree implementation in the desktop launcher (ADR-0010: one UI); expanding every device on load (a 250k-tag project would fetch all values at once: only expanded devices are read, at most 25 per 2 s tick, and the filter loads at most 60).

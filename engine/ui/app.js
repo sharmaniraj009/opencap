@@ -212,7 +212,7 @@
   // ---------------------------------------------------------------- routing
   function parseHash() {
     var h = (location.hash || "").replace(/^#\/?/, "");
-    if (!h) return { name: "dashboard", arg: "" };
+    if (!h) return { name: "tree", arg: "" };
     var i = h.indexOf("/");
     var name = i === -1 ? h : h.slice(0, i);
     var arg = i === -1 ? "" : h.slice(i + 1).split("/").map(decodeURIComponent).join("/");
@@ -410,7 +410,7 @@
             s.name = me.name; s.role = me.role; s.open = me.open;
             s.writable = !!me.config_writable; s.writableReason = me.config_writable_reason || "";
             self.token = "";
-            go("dashboard");
+            go("tree");
           }).catch(function (e) {
             self.error = e.status === 401 ? tr("login.unknown_token") : e.message;
           }).then(function () { self.busy = false; });
@@ -721,6 +721,290 @@
           return tr("unit.d", { n: Math.floor(s / 86400) });
         },
         ageClass: function (r) { var s = this.ageSeconds(r); return "small nowrap" + (s !== null && s > 60 ? " age-old" : ""); },
+      });
+    });
+
+    // ------------------------------------------------------------ project tree (KEPServerEX-style, read-only)
+    // Channels > Devices > Tags (plus the _System tags) on the left, the properties of the selected node on the
+    // right. It uses only the routes every engine serves: /api/v1/status, /devices/<id>/status and /values, and
+    // /system/tags. The route is #/tree/<kind>/<path>: ch/<channel>, dev/<channel>/<device>,
+    // tag/<channel>/<device>/<tag>, sys, sys/<path>.
+    var TREE_TAG_ROWS = 500;           // tag rows drawn per device; the filter narrows the rest
+    var TREE_REFRESH_DEVICES = 25;     // expanded devices refreshed at once
+    var TREE_LOAD_ALL = 60;            // devices loaded to search their tags
+    Alpine.data("treeView", function () {
+      return Object.assign({}, helpers, {
+        data: null, error: "", q: "", initialOpen: false, opened: {}, devs: {}, sys: [], sysLoaded: false, sel: { kind: "root", id: "", tag: "", path: "" },
+        init: function () {
+          var self = this;
+          routed(this, this.select);
+          this.select();
+          this.loadStatus();
+          this.loadSystem();
+          this._stopStatus = poll(function () { self.loadStatus(); }, 5000);
+          this._stopDevs = poll(function () { self.refreshDevices(); }, 2000);
+        },
+        destroy: function () { if (this._stopStatus) this._stopStatus(); if (this._stopDevs) this._stopDevs(); unrouted(this); },
+
+        // ---- route -> selection
+        select: function () {
+          var r = Alpine.store("app").route;
+          if (r.name !== "tree") return;
+          var parts = r.arg ? r.arg.split("/") : [];
+          var kind = parts[0] || "root", s = { kind: "root", id: "", tag: "", path: "" };
+          if (kind === "ch" && parts.length >= 2) { s.kind = "channel"; s.id = parts.slice(1).join("/"); }
+          else if (kind === "dev" && parts.length >= 3) { s.kind = "device"; s.id = parts[1] + "/" + parts[2]; }
+          else if (kind === "tag" && parts.length >= 4) { s.kind = "tag"; s.id = parts[1] + "/" + parts[2]; s.tag = parts.slice(3).join("/"); }
+          else if (kind === "sys") { s.kind = parts.length > 1 ? "systag" : "sys"; s.path = parts.slice(1).join("/"); }
+          this.sel = s;
+          var o = Object.assign({}, this.opened);
+          o.root = true;
+          if (s.kind === "channel" || s.kind === "device" || s.kind === "tag") o["ch:" + this.channelOf(s.id)] = true;
+          if (s.kind === "device" || s.kind === "tag") o["dev:" + s.id] = true;
+          if (s.kind === "sys" || s.kind === "systag") o.sys = true;
+          this.opened = o;
+          if (s.id && (s.kind === "device" || s.kind === "tag")) this.loadDevice(s.id);
+        },
+        channelOf: function (id) { var i = String(id).indexOf("/"); return i === -1 ? String(id) : String(id).slice(0, i); },
+
+        // ---- data
+        loadStatus: function () {
+          var self = this;
+          return call("GET", "/api/v1/status").then(function (d) {
+            self.data = d; self.error = "";
+            if (!self.initialOpen) {
+              self.initialOpen = true;
+              var o = Object.assign({}, self.opened);
+              (d.channels || []).forEach(function (c) { if (o["ch:" + c.name] === undefined) o["ch:" + c.name] = true; });
+              self.opened = o;
+            }
+          }).catch(function (e) { self.error = e.message; });
+        },
+        loadSystem: function () {
+          var self = this;
+          return call("GET", "/api/v1/system/tags").then(function (r) {
+            self.sys = (r.items || []).slice().sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; });
+            self.sysLoaded = true;
+          }).catch(function () { self.sys = []; self.sysLoaded = false; });
+        },
+        loadDevice: function (id) {
+          var self = this, base = "/api/v1/devices/" + encId(id);
+          return Promise.all([call("GET", base + "/status"), call("GET", base + "/values")]).then(function (r) {
+            var values = r[1], names = Object.keys(values).sort();
+            var m = Object.assign({}, self.devs);
+            m[id] = { detail: r[0], names: names, values: values, error: "", loaded: true };
+            self.devs = m;
+          }).catch(function (e) {
+            var m = Object.assign({}, self.devs), old = m[id] || { names: [], values: {}, detail: null };
+            m[id] = { detail: old.detail, names: old.names, values: old.values, error: e.status === 404 ? tr("tree.not_polled") : e.message, loaded: true };
+            self.devs = m;
+          });
+        },
+        refreshDevices: function () {
+          var self = this, ids = [];
+          if (this.sel.id && (this.sel.kind === "device" || this.sel.kind === "tag")) ids.push(this.sel.id);
+          Object.keys(this.opened).forEach(function (k) {
+            if (self.opened[k] && k.indexOf("dev:") === 0 && ids.indexOf(k.slice(4)) === -1) ids.push(k.slice(4));
+          });
+          ids.slice(0, TREE_REFRESH_DEVICES).forEach(function (id) { self.loadDevice(id); });
+          if (this.sel.kind === "sys" || this.sel.kind === "systag" || this.opened.sys) this.loadSystem();
+        },
+        searchChanged: function () {
+          var self = this;
+          if (!this.q.trim()) return;
+          var n = 0;
+          this.deviceList().forEach(function (d) {
+            if (n < TREE_LOAD_ALL && !self.devs[d.id]) { n += 1; self.loadDevice(d.id); }
+          });
+        },
+
+        // ---- the tree
+        channelList: function () { return (this.data && this.data.channels) || []; },
+        deviceList: function () {
+          var out = [];
+          this.channelList().forEach(function (c) { c.devices.forEach(function (d) { out.push(d); }); });
+          return out;
+        },
+        deviceName: function (d, chName) { return d.id.indexOf(chName + "/") === 0 ? d.id.slice(chName.length + 1) : d.id; },
+        isOpen: function (key) { return !!this.opened[key]; },
+        toggle: function (key) { var o = Object.assign({}, this.opened); o[key] = !o[key]; this.opened = o; if (key.indexOf("dev:") === 0) this.loadDevice(key.slice(4)); },
+        toggleRow: function (r) { if (r.expandable) this.toggle(r.key); },
+        matches: function (text) { var q = this.q.trim().toLowerCase(); return !q || String(text).toLowerCase().indexOf(q) !== -1; },
+        tagHref: function (id, tag) { return "#/tree/tag/" + encId(id) + "/" + tag.split("/").map(encodeURIComponent).join("/"); },
+        rows: function () {
+          var self = this, out = [], searching = !!this.q.trim();
+          var s = this.sel;
+          function row(key, kind, depth, label, extra) {
+            var r = { key: key, kind: kind, depth: depth, cls: "tree-row d" + depth, label: label, expandable: false, open: false, state: "", quality: "", hint: "", href: "", selected: false, level: depth + 1 };
+            return Object.assign(r, extra || {});
+          }
+          var rootOpen = searching || this.isOpen("root");
+          out.push(row("root", "root", 0, tr("tree.root"), { expandable: true, open: rootOpen, href: "#/tree", selected: s.kind === "root" }));
+          if (!rootOpen) return this.finishRows(out);
+          this.channelList().forEach(function (ch) {
+            var devs = [], chHit = self.matches(ch.name);
+            ch.devices.forEach(function (d) {
+              var name = self.deviceName(d, ch.name), entry = self.devs[d.id], tags = [];
+              var devHit = chHit || self.matches(name);
+              if (entry && entry.names) {
+                entry.names.forEach(function (t) { if (!searching || devHit || self.matches(t)) tags.push(t); });
+              }
+              if (!searching || devHit || tags.length) devs.push({ d: d, name: name, tags: tags, entry: entry, devHit: devHit });
+            });
+            if (searching && !chHit && !devs.length) return;
+            var cKey = "ch:" + ch.name, cOpen = searching || self.isOpen(cKey);
+            out.push(row(cKey, "channel", 1, ch.name, { expandable: true, open: cOpen, href: "#/tree/ch/" + encId(ch.name), hint: String(ch.devices.length),
+                                                        selected: s.kind === "channel" && s.id === ch.name }));
+            if (!cOpen) return;
+            devs.forEach(function (e) {
+              var dKey = "dev:" + e.d.id, dOpen = (searching && e.tags.length > 0) || self.isOpen(dKey);
+              out.push(row(dKey, "device", 2, e.name, { expandable: true, open: dOpen, state: e.d.state || "offline", href: "#/tree/dev/" + encId(e.d.id),
+                                                        hint: e.entry && e.entry.names ? String(e.entry.names.length) : "",
+                                                        selected: s.kind === "device" && s.id === e.d.id }));
+              if (!dOpen) return;
+              if (e.entry && e.entry.error) out.push(row(dKey + "!err", "note", 3, e.entry.error, {}));
+              e.tags.slice(0, TREE_TAG_ROWS).forEach(function (t) {
+                var v = e.entry.values[t] || {};
+                out.push(row("tag:" + e.d.id + "/" + t, "tag", 3, t, { quality: v.quality || "", hint: self.fmt(v.value), href: self.tagHref(e.d.id, t),
+                                                                       selected: s.kind === "tag" && s.id === e.d.id && s.tag === t }));
+              });
+              if (e.tags.length > TREE_TAG_ROWS) out.push(row(dKey + "!more", "note", 3, tr("tree.more", { n: e.tags.length - TREE_TAG_ROWS }), {}));
+            });
+          });
+          if (this.sysLoaded) {
+            var sysHits = this.sys.filter(function (t) { return !searching || self.matches(t.path); });
+            if (!searching || sysHits.length) {
+              var sOpen = searching || this.isOpen("sys");
+              out.push(row("sys", "sys", 1, "_System", { expandable: true, open: sOpen, href: "#/tree/sys", hint: String(this.sys.length), selected: s.kind === "sys" }));
+              if (sOpen) sysHits.forEach(function (t) {
+                out.push(row("systag:" + t.path, "systag", 2, t.path.replace(/^_System\./, ""), { quality: t.quality || "", hint: self.fmt(t.value),
+                                                                                                   href: "#/tree/sys/" + encId(t.path), selected: s.kind === "systag" && s.path === t.path }));
+              });
+            }
+          }
+          return this.finishRows(out);
+        },
+        finishRows: function (out) {
+          if (out.length === 1 && !this.channelList().length && this.data) out.push({ key: "empty", kind: "note", depth: 1, cls: "tree-row d1", label: tr("tree.empty"), expandable: false, open: false, state: "", quality: "", hint: "", href: "", selected: false, level: 2 });
+          return out;
+        },
+        rowClass: function (r) { return r.selected ? r.cls + " selected" : r.cls; },
+        rowAria: function (r) { return r.selected ? "true" : null; },
+        isLink: function (r) { return !!r.href; },
+        isNote: function (r) { return r.kind === "note"; },
+        dotClass: function (r) { return r.state ? "dot state-" + r.state : "dot hidden"; },
+        showQuality: function (r) { return r.kind === "tag" || r.kind === "systag"; },
+        toggleLabel: function (r) { return tr(r.open ? "tree.collapse" : "tree.expand", { name: r.label }); },
+        onKey: function (e) {
+          var li = e.target && e.target.closest ? e.target.closest("li") : null;
+          if (!li) return;
+          var key = li.getAttribute("data-key"), list = document.getElementById("tree-list");
+          var links = Array.prototype.slice.call(list.querySelectorAll("li .tree-link"));
+          var cur = links.indexOf(li.querySelector(".tree-link")), next = -1;
+          var r = this.rows().filter(function (x) { return x.key === key; })[0];
+          if (e.key === "ArrowDown") next = cur + 1;
+          else if (e.key === "ArrowUp") next = cur - 1;
+          else if (e.key === "Home") next = 0;
+          else if (e.key === "End") next = links.length - 1;
+          else if (e.key === "ArrowRight" && r && r.expandable && !r.open) { this.toggle(key); e.preventDefault(); return; }
+          else if (e.key === "ArrowLeft" && r && r.expandable && r.open) { this.toggle(key); e.preventDefault(); return; }
+          else return;
+          e.preventDefault();
+          if (next >= 0 && next < links.length) links[next].focus();
+        },
+
+        // ---- properties panel
+        current: function () {
+          var s = this.sel, e = s.id ? this.devs[s.id] : null;
+          return e || null;
+        },
+        title: function () {
+          var s = this.sel;
+          if (s.kind === "channel" || s.kind === "device") return s.id;
+          if (s.kind === "tag") return s.id + " · " + s.tag;
+          if (s.kind === "sys") return "_System";
+          if (s.kind === "systag") return s.path;
+          return tr("tree.root");
+        },
+        kindText: function () { return tr("tree.kind_" + this.sel.kind); },
+        props: function () {
+          var s = this.sel, self = this, rows = [];
+          function add(label, value, cls) { rows.push({ label: label, value: value === null || value === undefined || value === "" ? "—" : String(value), cls: cls || "" }); }
+          if (s.kind === "root") {
+            var h = (this.data && this.data.health) || { devices: {} }, dv = h.devices || {};
+            add(tr("tree.instance"), h.instance); add(tr("tree.version"), h.version);
+            add(tr("common.channels"), this.channelList().length); add(tr("common.devices"), this.deviceList().length);
+            add(tr("tree.states"), tr("tree.states_text", { ok: dv.ok || 0, offline: dv.offline || 0, demoted: dv.demoted || 0 }));
+            add(tr("dashboard.mqtt_link"), tr(h.mqtt_connected ? "dashboard.mqtt_up" : "dashboard.mqtt_down"), h.mqtt_connected ? "ok" : "bad");
+            add(tr("dashboard.outbox"), h.saf_queue);
+            if (h.initial_scan_ms !== undefined && h.initial_scan_ms !== null) add(tr("tree.initial_scan"), tr("unit.ms", { n: Math.round(h.initial_scan_ms) }));
+          } else if (s.kind === "channel") {
+            var ch = this.channelList().filter(function (c) { return c.name === s.id; })[0];
+            if (ch) {
+              var counts = {}, drivers = {}, errs = 0, last = "";
+              ch.devices.forEach(function (d) {
+                counts[d.state || "offline"] = (counts[d.state || "offline"] || 0) + 1; drivers[d.driver] = true; errs += d.errors || 0;
+                if (d.last_good && d.last_good > last) last = d.last_good;
+              });
+              add(tr("common.name"), ch.name); add(tr("common.devices"), ch.devices.length);
+              add(tr("tree.drivers"), Object.keys(drivers).sort().join(", "));
+              add(tr("tree.states"), tr("tree.states_text", { ok: counts.ok || 0, offline: counts.offline || 0, demoted: counts.demoted || 0 }));
+              add(tr("common.errors"), errs); add(tr("common.last_good"), last ? this.ago(last) : tr("time.never"));
+            }
+          } else if (s.kind === "device") {
+            var e = this.current(), d = e && e.detail;
+            if (d) {
+              add(tr("common.channel"), d.channel); add(tr("common.driver"), d.driver); add(tr("common.host"), d.host); add(tr("common.port"), d.port);
+              add(tr("common.enabled"), this.yesNo(d.enabled)); add(tr("common.state"), this.stateText(d.state), "state-" + (d.state || "offline"));
+              add(tr("tree.connection"), tr(d.connected ? "device.connected" : "device.not_connected"));
+              add(tr("common.tags"), d.tags); add(tr("tree.blocks"), d.blocks);
+              add(tr("common.last_good"), this.ago(d.last_good)); add(tr("common.errors"), d.errors); add(tr("common.cycle"), this.ms(d.cycle_ms));
+              add(tr("tree.topic"), d.topic); add(tr("common.subdeviceid"), d.sub_device_id || tr("common.none"));
+              if (d.last_error) add(tr("tree.last_error"), d.last_error, "bad");
+              if (d.last_reason) add(tr("tree.last_reason"), d.last_reason);
+              if (d.plan_error) add(tr("tree.plan_error"), d.plan_error, "bad");
+              if (d.bad_config && d.bad_config.length) add(tr("common.bad_config_tags"), d.bad_config.join(", "), "warn");
+            }
+          } else if (s.kind === "tag") {
+            var te = this.current(), v = te && te.values ? te.values[s.tag] : null;
+            if (v) {
+              add(tr("common.tag"), s.tag); add(tr("common.device"), s.id); add(tr("common.value"), this.fmt(v.value));
+              add(tr("common.quality"), v.quality, "q-" + v.quality); add(tr("common.source_time"), v.source_ts); add(tr("tree.age"), this.ago(v.source_ts));
+            }
+          } else if (s.kind === "sys") {
+            add(tr("common.tags"), this.sys.length);
+          } else if (s.kind === "systag") {
+            var t = this.sys.filter(function (x) { return x.path === s.path; })[0];
+            if (t) { add(tr("tree.path"), t.path); add(tr("tree.dtype"), t.dtype); add(tr("common.value"), this.fmt(t.value)); add(tr("common.quality"), t.quality, "q-" + t.quality); add(tr("common.source_time"), t.source_ts); }
+          }
+          return rows;
+        },
+        valueClass: function (p) {
+          if (p.cls.indexOf("q-") === 0 || p.cls.indexOf("state-") === 0) return "badge " + p.cls;
+          return p.cls === "ok" || p.cls === "bad" || p.cls === "warn" ? p.cls : "";
+        },
+        expandedAttr: function (r) { return r.expandable ? (r.open ? "true" : "false") : null; },
+        devTreeHref: function (d) { return "#/tree/dev/" + encId(d.id); },
+        missing: function () {
+          var s = this.sel;
+          if (!this.data) return false;
+          if (s.kind === "channel") return !this.channelList().some(function (c) { return c.name === s.id; });
+          if (s.kind === "device") return !this.deviceList().some(function (d) { return d.id === s.id; });
+          if (s.kind === "tag") { var e = this.current(); return !!e && e.loaded && !e.values[s.tag] && !e.error; }
+          if (s.kind === "systag") return this.sysLoaded && !this.sys.some(function (x) { return x.path === s.path; });
+          return false;
+        },
+        hasDevice: function () { return this.sel.kind === "device" || this.sel.kind === "tag"; },
+        showMeta: function () { return this.sel.kind === "tag"; },
+        showEdit: function () { return this.hasDevice() && this.canEdit(); },
+        deviceError: function () { var e = this.current(); return e ? e.error : ""; },
+        channelDevices: function () {
+          var s = this.sel;
+          if (s.kind !== "channel") return [];
+          var ch = this.channelList().filter(function (c) { return c.name === s.id; })[0];
+          return ch ? ch.devices : [];
+        },
+        deviceLabel: function (d) { return this.deviceName(d, this.sel.id); },
       });
     });
 

@@ -127,7 +127,7 @@ wraps and tables become stacked cards.
 | # | Screen | Route | Status | Work | Plan |
 |---|---|---|---|---|---|
 | — | Login, Dashboard, Check, Audit | `#/login`, `#/dashboard`, `#/check`, `#/audit` | Done | #63 | ADM-18, PRJ-14, ADM-21 |
-| 1 | Project tree | `#/config` (`#/channel/<c>`) | Partial: linked pages, no tree pane | #103, #117 | UI-03, CH-01, TAG-14/15 |
+| 1 | Project tree | `#/tree` (also the landing page), `#/config` (`#/channel/<c>`) | Read-only tree and properties panel on `#/tree` (D-141, screenshots in `docs/ui/screenshots/`); tag groups, tag counts per channel and the editors wait for the configuration API | #103, #117 | UI-03, CH-01, TAG-14/15 |
 | 2 | Channel editor, new-channel wizard | `#/channel/<c>`, `#/new/channel` | Editor partial; wizard not started | #103, #104, #105, #129 | UI-04, CH-01/02/05/14 |
 | 3 | Device editor, new-device wizard | `#/edit/<id>`, `#/new/device/<c>` | Editor done (params as JSON); wizard not started | #129, #105, #113 | UI-05, DEV-01…18 |
 | 4 | Tag table | `#/edit/<id>` (tags section) | Inline edit done; bulk, CSV, generator not started | #10, #117, #139, #115 | UI-06/07/10/12, TAG-*, SYS-01/02 |

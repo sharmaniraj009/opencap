@@ -750,6 +750,13 @@ async fn a_block_that_fails_inside_a_batch_is_retried_alone_and_the_rest_stay_go
     .await;
     // the cycle that turned b bad may have started before the timeout was set: wait for a cycle that began after it
     wait_for("a batched cycle after b started timing out", 3.0, || s.rig.script("S/D").batch_calls > bc0).await;
+    // a and c are read (single-block path) after b in a cycle where the batch failed: wait for a whole such cycle
+    // to have finished, which is the condition the assertions below are about, not for a count of batch calls
+    wait_for("a and c read again after b started timing out", 5.0, || {
+        let sc = s.rig.script("S/D");
+        sc.good_reads["a"] > a0 && sc.good_reads["c"] > c0
+    })
+    .await;
     wait_for("b bad_comm while a and c stay good, again", 3.0, || {
         let snap = s.store.snapshot("S/D");
         snap.get("Y").is_some_and(|t| t.quality == Quality::BadComm)
